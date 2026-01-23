@@ -13,6 +13,12 @@ export const create = mutation({
     ),
     battingBowlingHand: v.union(v.literal("Right"), v.literal("Left")),
     basePrice: v.number(),
+    jerseyNumber: v.optional(v.number()),
+    phoneNumber: v.optional(v.string()),
+    availability: v.object({
+      type: v.union(v.literal("available"), v.literal("unavailable")),
+      dates: v.optional(v.array(v.string())),
+    }),
     // ... other fields
   },
   handler: async (ctx, args) => {

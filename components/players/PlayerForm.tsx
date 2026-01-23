@@ -34,6 +34,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     battingBowlingHand: 'Right' as 'Right' | 'Left',
     jerseyNumber: undefined as number | undefined,
     basePrice: 150000,
+    availability: 'all' as 'all' | '5' | '6' | '7' | '8',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,6 +42,19 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     setLoading(true);
 
     try {
+      // Map availability selection to schema
+      let availability;
+      if (formData.availability === 'all') {
+        availability = { type: 'available', dates: undefined };
+      } else {
+        const dateMap: Record<string, string> = {
+          '5': '2026-03-05',
+          '6': '2026-03-06',
+          '7': '2026-03-07',
+          '8': '2026-03-08',
+        };
+        availability = { type: 'unavailable', dates: [dateMap[formData.availability]] };
+      }
       await createPlayer({
         tournamentId,
         name: formData.name,
@@ -49,7 +63,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
         role: formData.role,
         battingBowlingHand: formData.battingBowlingHand,
         jerseyNumber: formData.jerseyNumber,
-        availability: { type: 'available' },
+        availability,
         basePrice: formData.basePrice,
       });
 
@@ -75,6 +89,61 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <Label>Availability *</Label>
+              <div className="flex flex-col gap-2 mt-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="availability"
+                    value="all"
+                    checked={formData.availability === 'all'}
+                    onChange={() => setFormData({ ...formData, availability: 'all' })}
+                  />
+                  <span>Available all days</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="availability"
+                    value="5"
+                    checked={formData.availability === '5'}
+                    onChange={() => setFormData({ ...formData, availability: '5' })}
+                  />
+                  <span>Not available on 5th March 2026</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="availability"
+                    value="6"
+                    checked={formData.availability === '6'}
+                    onChange={() => setFormData({ ...formData, availability: '6' })}
+                  />
+                  <span>Not available on 6th March 2026</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="availability"
+                    value="7"
+                    checked={formData.availability === '7'}
+                    onChange={() => setFormData({ ...formData, availability: '7' })}
+                  />
+                  <span>Not available on 7th March 2026</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="availability"
+                    value="8"
+                    checked={formData.availability === '8'}
+                    onChange={() => setFormData({ ...formData, availability: '8' })}
+                  />
+                  <span>Not available on 8th March 2026</span>
+                </label>
+              </div>
+            </div>
             <div>
               <Label htmlFor="name">Player Name *</Label>
               <Input

@@ -12,7 +12,6 @@ import { toast } from 'sonner';
 
 interface TeamFormProps {
   tournamentId: Id<"tournaments">;
-  basePurse: number;
   onClose: () => void;
 }
 
@@ -25,7 +24,7 @@ const PRESET_COLORS = [
   { primary: '#EC4899', secondary: '#DB2777', name: 'Pink' },
 ];
 
-export function TeamForm({ tournamentId, basePurse, onClose }: TeamFormProps) {
+export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
   const createTeam = useMutation(api.teams.create);
   const [loading, setLoading] = useState(false);
 

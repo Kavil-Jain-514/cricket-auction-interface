@@ -5,7 +5,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Edit, Trash2 } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';

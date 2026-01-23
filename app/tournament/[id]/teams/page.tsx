@@ -74,7 +74,6 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
         {showAddForm && (
           <TeamForm
             tournamentId={tournamentId}
-            basePurse={tournament?.settings.basePurse || 4000000}
             onClose={() => setShowAddForm(false)}
           />
         )}

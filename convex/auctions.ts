@@ -136,11 +136,12 @@ export const placeBid = mutation({
     if (!auctionRoom) throw new Error("Auction room not found");
 
     if (auctionRoom.status !== "live") {
-      throw new Error("Auction is not live");
+      // Return silently if not live - prevents error spam
+      return { success: false, reason: "Auction is not live" };
     }
 
     if (!auctionRoom.currentPlayerId) {
-      throw new Error("No player currently in auction");
+      return { success: false, reason: "No player currently in auction" };
     }
 
     // Validate team has enough purse
@@ -158,15 +159,26 @@ export const placeBid = mutation({
     const minBidIncrement = tournament.settings.minBidIncrement;
     const currentBid = auctionRoom.currentBidAmount || 0;
 
-    if (args.amount < currentBid + minBidIncrement) {
+    // Allow same team to increase their bid
+    if (args.amount <= currentBid) {
+      throw new Error(`Bid must be higher than current bid ₹${currentBid}`);
+    }
+
+    // If different team, must be at least minBidIncrement more
+    if (
+      auctionRoom.currentBidTeamId !== args.teamId &&
+      args.amount < currentBid + minBidIncrement
+    ) {
       throw new Error(`Minimum bid is ₹${currentBid + minBidIncrement}`);
     }
+
+    const bidTimerSeconds = tournament.settings.bidTimerSeconds || 30;
 
     // Update auction room with new bid
     await ctx.db.patch(args.auctionRoomId, {
       currentBidAmount: args.amount,
       currentBidTeamId: args.teamId,
-      bidTimerEndsAt: Date.now() + tournament.settings.bidTimerSeconds * 1000,
+      bidTimerEndsAt: Date.now() + bidTimerSeconds * 1000,
       updatedAt: Date.now(),
     });
 
@@ -205,9 +217,16 @@ export const finalizePlayerSale = mutation({
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
 
+    // Allow finalize only when auction is live
+    if (auctionRoom.status !== "live") {
+      return { success: false, reason: "Auction is not live" };
+    }
+
     const { currentPlayerId, currentBidTeamId, currentBidAmount } = auctionRoom;
 
-    if (!currentPlayerId) throw new Error("No player in auction");
+    if (!currentPlayerId) {
+      return { success: false, reason: "No player in auction" };
+    }
 
     // Player sold
     if (currentBidTeamId && currentBidAmount) {
@@ -288,23 +307,36 @@ export const startNextPlayer = mutation({
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
 
-    // Get next pending player
-    const nextPlayer = await ctx.db
+    // Check if auction is live
+    if (auctionRoom.status !== "live") {
+      throw new Error("Auction must be live to get next player");
+    }
+
+    // Get all pending players and shuffle them
+    const pendingPlayers = await ctx.db
       .query("players")
       .withIndex("by_tournament", (q) =>
         q.eq("tournamentId", auctionRoom.tournamentId),
       )
       .filter((q) => q.eq(q.field("auctionStatus"), "pending"))
-      .first();
+      .collect();
 
-    if (!nextPlayer) {
+    if (pendingPlayers.length === 0) {
       // No more players - complete auction
       await ctx.db.patch(args.auctionRoomId, {
         status: "completed",
+        currentPlayerId: undefined,
+        currentBidAmount: undefined,
+        currentBidTeamId: undefined,
+        bidTimerEndsAt: undefined,
         updatedAt: Date.now(),
       });
       return { success: true, completed: true };
     }
+
+    // Pick a random player from pending players
+    const randomIndex = Math.floor(Math.random() * pendingPlayers.length);
+    const nextPlayer = pendingPlayers[randomIndex];
 
     // Update player status
     await ctx.db.patch(nextPlayer._id, {
@@ -316,16 +348,22 @@ export const startNextPlayer = mutation({
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
 
+    const bidTimerSeconds = tournament.settings.bidTimerSeconds || 30;
+
     // Update auction room
     await ctx.db.patch(args.auctionRoomId, {
       currentPlayerId: nextPlayer._id,
       currentBidAmount: nextPlayer.basePrice,
       currentBidTeamId: undefined,
-      bidTimerEndsAt: Date.now() + tournament.settings.bidTimerSeconds * 1000,
+      bidTimerEndsAt: Date.now() + bidTimerSeconds * 1000,
       updatedAt: Date.now(),
     });
 
-    return { success: true, player: nextPlayer };
+    return {
+      success: true,
+      player: nextPlayer,
+      remainingPlayers: pendingPlayers.length - 1,
+    };
   },
 });
 
@@ -355,6 +393,9 @@ export const getLiveAuction = query({
       )
       .collect();
 
+    // Get tournament for settings
+    const tournament = await ctx.db.get(auctionRoom.tournamentId);
+
     // Get recent bids
     const recentBids = await ctx.db
       .query("bids")
@@ -370,6 +411,7 @@ export const getLiveAuction = query({
       currentBidTeam,
       teams,
       recentBids,
+      tournament,
     };
   },
 });
