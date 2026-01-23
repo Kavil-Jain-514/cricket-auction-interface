@@ -147,7 +147,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       toast.success(`Imported ${parsed.length} players successfully!`);
       onComplete();
     } catch (error) {
-      toast.error('Failed to import players');
+      toast.error('Failed to import players', { description: error.message });
     }
   };
 

@@ -3,7 +3,7 @@
 import { Doc } from '@/convex/_generated/dataModel';
 import { formatCurrency, getPlayerInitials } from '@/lib/utils';
 import { motion } from 'framer-motion';
-import { TrendingUp, Calendar } from 'lucide-react';
+import { Calendar } from 'lucide-react';
 
 interface PlayerCardProps {
   player: Doc<"players">;

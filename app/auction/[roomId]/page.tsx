@@ -9,7 +9,7 @@ import { Id } from '@/convex/_generated/dataModel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Play, Pause, SkipForward, Trophy, 
-  TrendingUp, Users, Timer, Gavel 
+  TrendingUp, Users, Gavel 
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
