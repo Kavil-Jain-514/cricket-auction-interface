@@ -1,0 +1,220 @@
+"use client";
+
+import { use } from 'react';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
+import Link from 'next/link';
+import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Edit, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Navbar } from '@/components/layout/Navbar';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { formatCurrency } from '@/lib/utils';
+
+export default function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const router = useRouter();
+  const { id } = use(params);
+  const tournamentId = id as Id<"tournaments">;
+  
+  const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
+  const teams = useQuery(api.teams.listByTournament, { tournamentId });
+  const players = useQuery(api.players.listByTournament, { tournamentId });
+  const updateTournament = useMutation(api.tournaments.update);
+
+  const handleStartAuction = async () => {
+    if (!teams || teams.length < 2) {
+      toast.error('You need at least 2 teams to start an auction');
+      return;
+    }
+    if (!players || players.length === 0) {
+      toast.error('You need to add players before starting');
+      return;
+    }
+
+    try {
+      await updateTournament({
+        id: tournamentId,
+        status: 'active',
+      });
+      router.push(`/auction/create?tournamentId=${tournamentId}`);
+    } catch (error) {
+      toast.error('Failed to start auction', { description: (error as Error).message });
+    }
+  };
+
+  if (!tournament) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950">
+        <Navbar />
+        <div className="flex items-center justify-center py-20">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
+        </div>
+      </div>
+    );
+  }
+
+  const pendingPlayers = players?.filter(p => p.auctionStatus === 'pending').length || 0;
+  const soldPlayers = players?.filter(p => p.auctionStatus === 'sold').length || 0;
+
+  return (
+    <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
+      <Navbar />
+
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Header */}
+        <div className="mb-8">
+          <Link href="/dashboard" className="flex items-center gap-2 text-slate-400 hover:text-white transition mb-4">
+            <ArrowLeft className="w-5 h-5" />
+            Back to Dashboard
+          </Link>
+
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <Trophy className="w-10 h-10 text-yellow-500" />
+                <h1 className="text-4xl font-bold">{tournament.name}</h1>
+                <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                  tournament.status === 'active' ? 'bg-green-600' :
+                  tournament.status === 'setup' ? 'bg-blue-600' :
+                  tournament.status === 'completed' ? 'bg-purple-600' :
+                  'bg-slate-600'
+                }`}>
+                  {tournament.status}
+                </span>
+              </div>
+              {tournament.description && (
+                <p className="text-slate-400">{tournament.description}</p>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <Button variant="outline" size="sm">
+                <Settings className="w-4 h-4 mr-2" />
+                Settings
+              </Button>
+              <Button 
+                onClick={handleStartAuction}
+                disabled={tournament.status === 'active' || tournament.status === 'completed'}
+              >
+                <Play className="w-4 h-4 mr-2" />
+                Start Auction
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-2">
+              <Users className="w-5 h-5 text-blue-500" />
+              <span className="text-slate-400 text-sm">Teams</span>
+            </div>
+            <div className="text-3xl font-bold">{teams?.length || 0}</div>
+          </div>
+
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-2">
+              <UserPlus className="w-5 h-5 text-green-500" />
+              <span className="text-slate-400 text-sm">Total Players</span>
+            </div>
+            <div className="text-3xl font-bold">{players?.length || 0}</div>
+          </div>
+
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-2">
+              <Trophy className="w-5 h-5 text-yellow-500" />
+              <span className="text-slate-400 text-sm">Pending</span>
+            </div>
+            <div className="text-3xl font-bold">{pendingPlayers}</div>
+          </div>
+
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-2">
+              <Trophy className="w-5 h-5 text-purple-500" />
+              <span className="text-slate-400 text-sm">Sold</span>
+            </div>
+            <div className="text-3xl font-bold">{soldPlayers}</div>
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="grid md:grid-cols-3 gap-6">
+          <Link href={`/tournament/${tournamentId}/teams`}>
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 hover:border-blue-500 transition cursor-pointer group">
+              <Users className="w-12 h-12 text-blue-500 mb-4 group-hover:scale-110 transition" />
+              <h3 className="text-2xl font-bold mb-2">Manage Teams</h3>
+              <p className="text-slate-400 mb-4">
+                Add, edit, and organize your tournament teams
+              </p>
+              <div className="flex items-center gap-2 text-blue-400">
+                <span>Manage Teams</span>
+                <ArrowLeft className="w-4 h-4 rotate-180" />
+              </div>
+            </div>
+          </Link>
+
+          <Link href={`/tournament/${tournamentId}/players`}>
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 hover:border-green-500 transition cursor-pointer group">
+              <UserPlus className="w-12 h-12 text-green-500 mb-4 group-hover:scale-110 transition" />
+              <h3 className="text-2xl font-bold mb-2">Manage Players</h3>
+              <p className="text-slate-400 mb-4">
+                Add players, import from Excel, set base prices
+              </p>
+              <div className="flex items-center gap-2 text-green-400">
+                <span>Manage Players</span>
+                <ArrowLeft className="w-4 h-4 rotate-180" />
+              </div>
+            </div>
+          </Link>
+
+          <Link href={`/tournament/${tournamentId}/stats`}>
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 hover:border-purple-500 transition cursor-pointer group">
+              <Trophy className="w-12 h-12 text-purple-500 mb-4 group-hover:scale-110 transition" />
+              <h3 className="text-2xl font-bold mb-2">View Statistics</h3>
+              <p className="text-slate-400 mb-4">
+                Analyze auction results and team compositions
+              </p>
+              <div className="flex items-center gap-2 text-purple-400">
+                <span>View Stats</span>
+                <ArrowLeft className="w-4 h-4 rotate-180" />
+              </div>
+            </div>
+          </Link>
+        </div>
+
+        {/* Tournament Settings Summary */}
+        <div className="mt-8 bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+          <h2 className="text-xl font-bold mb-4">Tournament Settings</h2>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <span className="text-slate-400 text-sm">Base Purse per Team</span>
+              <div className="text-xl font-bold text-green-400">
+                {formatCurrency(tournament.settings.basePurse)}
+              </div>
+            </div>
+            <div>
+              <span className="text-slate-400 text-sm">Minimum Bid Increment</span>
+              <div className="text-xl font-bold">
+                {formatCurrency(tournament.settings.minBidIncrement)}
+              </div>
+            </div>
+            <div>
+              <span className="text-slate-400 text-sm">Bid Timer</span>
+              <div className="text-xl font-bold">
+                {tournament.settings.bidTimerSeconds}s
+              </div>
+            </div>
+            <div>
+              <span className="text-slate-400 text-sm">Max Players per Team</span>
+              <div className="text-xl font-bold">
+                {tournament.settings.maxPlayersPerTeam}
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
