@@ -73,21 +73,37 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
 
           <div className="flex items-start justify-between">
             <div>
-              <div className="flex items-center gap-3 mb-2">
-                <Trophy className="w-10 h-10 text-yellow-500" />
-                <h1 className="text-4xl font-bold">{tournament.name}</h1>
-                <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                  tournament.status === 'active' ? 'bg-green-600' :
-                  tournament.status === 'setup' ? 'bg-blue-600' :
-                  tournament.status === 'completed' ? 'bg-purple-600' :
-                  'bg-slate-600'
-                }`}>
-                  {tournament.status}
-                </span>
+              <div className="flex items-center gap-4 mb-2">
+                {/* Tournament Logo */}
+                {tournament.logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img 
+                    src={tournament.logoUrl} 
+                    alt={`${tournament.name} logo`}
+                    className="w-16 h-16 rounded-xl object-cover border border-slate-600"
+                  />
+                ) : (
+                  <div className="w-16 h-16 rounded-xl bg-yellow-500/20 flex items-center justify-center">
+                    <Trophy className="w-10 h-10 text-yellow-500" />
+                  </div>
+                )}
+                <div>
+                  <div className="flex items-center gap-3">
+                    <h1 className="text-4xl font-bold">{tournament.name}</h1>
+                    <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                      tournament.status === 'active' ? 'bg-green-600' :
+                      tournament.status === 'setup' ? 'bg-blue-600' :
+                      tournament.status === 'completed' ? 'bg-purple-600' :
+                      'bg-slate-600'
+                    }`}>
+                      {tournament.status}
+                    </span>
+                  </div>
+                  {tournament.description && (
+                    <p className="text-slate-400 mt-1">{tournament.description}</p>
+                  )}
+                </div>
               </div>
-              {tournament.description && (
-                <p className="text-slate-400">{tournament.description}</p>
-              )}
             </div>
 
             <div className="flex gap-3">

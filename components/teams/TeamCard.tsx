@@ -27,18 +27,30 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
     >
       {/* Team Header */}
       <div className="flex items-start justify-between mb-4">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            <div 
-              className="w-4 h-4 rounded-full"
-              style={{ backgroundColor: team.colorPrimary }}
+        <div className="flex items-center gap-3 flex-1">
+          {/* Team Logo */}
+          {team.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img 
+              src={team.logoUrl} 
+              alt={`${team.name} logo`}
+              className="w-12 h-12 rounded-lg object-cover border border-slate-600"
             />
-            <h3 className="text-xl font-bold">{team.name}</h3>
-          </div>
-          <p className="text-sm text-slate-400">Owner: {team.ownerName}</p>
-          {team.sponsorName && (
-            <p className="text-xs text-slate-500">Sponsor: {team.sponsorName}</p>
+          ) : (
+            <div 
+              className="w-12 h-12 rounded-lg flex items-center justify-center text-xl font-bold"
+              style={{ backgroundColor: team.colorPrimary }}
+            >
+              {team.name.charAt(0)}
+            </div>
           )}
+          <div>
+            <h3 className="text-xl font-bold">{team.name}</h3>
+            <p className="text-sm text-slate-400">Owner: {team.ownerName}</p>
+            {team.sponsorName && (
+              <p className="text-xs text-slate-500">Sponsor: {team.sponsorName}</p>
+            )}
+          </div>
         </div>
       </div>
 

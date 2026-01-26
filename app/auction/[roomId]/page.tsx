@@ -301,10 +301,22 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <div 
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: team.colorPrimary }}
-                      />
+                      {/* Team Logo */}
+                      {team.logoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img 
+                          src={team.logoUrl} 
+                          alt={`${team.name} logo`}
+                          className="w-8 h-8 rounded-lg object-cover border border-slate-600"
+                        />
+                      ) : (
+                        <div 
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold"
+                          style={{ backgroundColor: team.colorPrimary }}
+                        >
+                          {team.name.charAt(0)}
+                        </div>
+                      )}
                       <span className="font-semibold text-sm">
                         {team.name}
                       </span>
@@ -412,7 +424,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                           {currentPlayer.age} years
                         </span>
                         <span className="px-4 py-2 bg-slate-700 rounded-full text-sm">
-                          {currentPlayer.battingBowlingHand}-handed
+                          {currentPlayer.battingBowlingHand}
                         </span>
                       </div>
 

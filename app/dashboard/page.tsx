@@ -117,17 +117,32 @@ export default function DashboardPage() {
               >
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-blue-500 transition cursor-pointer group">
                   <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold mb-1 group-hover:text-blue-400 transition">
-                        {tournament.name}
-                      </h3>
-                      {tournament.description && (
-                        <p className="text-sm text-slate-400 line-clamp-2">
-                          {tournament.description}
-                        </p>
+                    <div className="flex items-center gap-3 flex-1">
+                      {/* Tournament Logo */}
+                      {tournament.logoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img 
+                          src={tournament.logoUrl} 
+                          alt={`${tournament.name} logo`}
+                          className="w-12 h-12 rounded-lg object-cover border border-slate-600"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-yellow-500/20 flex items-center justify-center">
+                          <Trophy className="w-6 h-6 text-yellow-500" />
+                        </div>
                       )}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-lg font-bold mb-1 group-hover:text-blue-400 transition truncate">
+                          {tournament.name}
+                        </h3>
+                        {tournament.description && (
+                          <p className="text-sm text-slate-400 line-clamp-1">
+                            {tournament.description}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ml-2 ${
                       tournament.status === 'active' ? 'bg-green-600' :
                       tournament.status === 'setup' ? 'bg-blue-600' :
                       tournament.status === 'completed' ? 'bg-purple-600' :
