@@ -27,9 +27,6 @@ export function Navbar() {
                 <Link href="/dashboard" className="text-slate-300 hover:text-white transition">
                   Dashboard
                 </Link>
-                <Link href="/tournaments" className="text-slate-300 hover:text-white transition">
-                  Tournaments
-                </Link>
               </>
             ) : (
               <>

@@ -202,14 +202,14 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
               <Label htmlFor="battingHand">Batting/Bowling Hand *</Label>
               <Select
                 value={formData.battingBowlingHand}
-                onValueChange={(value) => setFormData({ ...formData, battingBowlingHand: value as 'Right' | 'Left' })}
+                onValueChange={(value) => setFormData({ ...formData, battingBowlingHand: value as 'Right-handed' | 'Left-handed' })}
               >
                 <SelectTrigger className="mt-2">
                   <SelectValue placeholder="Select hand" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Right">Right-handed</SelectItem>
-                  <SelectItem value="Left">Left-handed</SelectItem>
+                  <SelectItem value="Right-handed">Right-handed</SelectItem>
+                  <SelectItem value="Left-handed">Left-handed</SelectItem>
                 </SelectContent>
               </Select>
             </div>

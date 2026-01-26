@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
@@ -11,11 +11,13 @@ import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
+import { TournamentSettingsModal } from '@/components/tournament/TournamentSettingsModal';
 
 export default function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
   const tournamentId = id as Id<"tournaments">;
+  const [showSettings, setShowSettings] = useState(false);
   
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
@@ -89,7 +91,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             </div>
 
             <div className="flex gap-3">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={() => setShowSettings(true)}>
                 <Settings className="w-4 h-4 mr-2" />
                 Settings
               </Button>
@@ -215,6 +217,20 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
           </div>
         </div>
       </main>
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <TournamentSettingsModal
+          tournamentId={tournamentId}
+          currentSettings={{
+            name: tournament.name,
+            description: tournament.description,
+            logoUrl: tournament.logoUrl,
+            settings: tournament.settings,
+          }}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 }

@@ -19,9 +19,7 @@ interface ParsedPlayer {
   phoneNumber?: string;
   age: number;
   role: string;
-  battingHand: string;
-  bowlingHand?: string;
-  tshirtSize: string;
+  battingBowlingHand: string;
   jerseyNumber?: number;
   availability: {
     type: 'available' | 'unavailable';
@@ -80,10 +78,8 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             name: row['Player Name']?.trim(),
             phoneNumber: row['Phone Number']?.toString(),
             age: parseInt(row['Age']) || 0,
-            role: row['Player Role']?.trim() || 'All-Rounder',
-            battingHand: row['Batting Hand']?.includes('Left') ? 'Left' : 'Right',
-            bowlingHand: row['Bowling Hand']?.includes('Left') ? 'Left' : 'Right',
-            tshirtSize: row['T-shirt Size']?.toUpperCase() || 'M',
+            role: row['Player Role']?.trim() || 'All- Rounder',
+            battingBowlingHand: row['Batting/Bowling Hand']?.includes('Left-handed') ? 'Left-handed' : 'Right-handed',
             jerseyNumber: row['Jersey Number'] ? parseInt(row['Jersey Number']) : undefined,
             availability,
             basePrice: parseInt(row['Base Price']) || 150000,
@@ -94,11 +90,11 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             validationErrors.push(`Row ${idx + 2}: Missing player name`);
             return;
           }
-          if (player.age < 15 || player.age > 50) {
+          if (player.age < 15 || player.age > 65) {
             validationErrors.push(`Row ${idx + 2}: Invalid age for ${player.name}`);
             return;
           }
-          if (!['Batter', 'Bowler', 'All-Rounder', 'Wicket-Keeper'].includes(player.role)) {
+          if (!['Batter', 'Bowler', 'All-Rounder'].includes(player.role)) {
             validationErrors.push(`Row ${idx + 2}: Invalid role for ${player.name}`);
             return;
           }

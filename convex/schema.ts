@@ -61,8 +61,14 @@ export default defineSchema({
       v.literal("Batter"),
       v.literal("Bowler"),
       v.literal("All-Rounder"),
+      v.literal("All Rounder"),
     ),
-    battingBowlingHand: v.union(v.literal("Right"), v.literal("Left")),
+    battingBowlingHand: v.union(
+      v.literal("Right-handed"),
+      v.literal("Left-handed"),
+      v.literal("Right"),
+      v.literal("Left"),
+    ),
     jerseyNumber: v.optional(v.number()),
     availability: v.object({
       type: v.union(v.literal("available"), v.literal("unavailable")),

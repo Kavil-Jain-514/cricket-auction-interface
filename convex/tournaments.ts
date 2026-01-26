@@ -80,6 +80,7 @@ export const update = mutation({
     id: v.id("tournaments"),
     name: v.optional(v.string()),
     description: v.optional(v.string()),
+    logoUrl: v.optional(v.string()),
     status: v.optional(
       v.union(
         v.literal("draft"),

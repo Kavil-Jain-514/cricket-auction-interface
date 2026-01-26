@@ -11,7 +11,10 @@ export const create = mutation({
       v.literal("Bowler"),
       v.literal("All-Rounder"),
     ),
-    battingBowlingHand: v.union(v.literal("Right"), v.literal("Left")),
+    battingBowlingHand: v.union(
+      v.literal("Right-handed"),
+      v.literal("Left-handed"),
+    ),
     basePrice: v.number(),
     jerseyNumber: v.optional(v.number()),
     phoneNumber: v.optional(v.string()),
