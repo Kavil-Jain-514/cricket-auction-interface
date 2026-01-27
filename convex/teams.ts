@@ -53,6 +53,24 @@ export const getById = query({
   },
 });
 
+export const getWithPlayers = query({
+  args: { id: v.id("teams") },
+  handler: async (ctx, args) => {
+    const team = await ctx.db.get(args.id);
+    if (!team) return null;
+
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_team", (q) => q.eq("teamId", args.id))
+      .collect();
+
+    return {
+      ...team,
+      players,
+    };
+  },
+});
+
 export const update = mutation({
   args: {
     id: v.id("teams"),
@@ -64,6 +82,17 @@ export const update = mutation({
     colorSecondary: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const team = await ctx.db.get(args.id);
+    if (!team) throw new Error("Team not found");
+
+    // Check if tournament is active
+    const tournament = await ctx.db.get(team.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+
+    if (tournament.status === "active" || tournament.status === "completed") {
+      throw new Error("Cannot edit team during or after auction");
+    }
+
     const { id, ...updates } = args;
 
     await ctx.db.patch(id, {
@@ -78,6 +107,27 @@ export const update = mutation({
 export const deleteTeam = mutation({
   args: { id: v.id("teams") },
   handler: async (ctx, args) => {
+    const team = await ctx.db.get(args.id);
+    if (!team) throw new Error("Team not found");
+
+    // Check if tournament is active
+    const tournament = await ctx.db.get(team.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+
+    if (tournament.status === "active") {
+      throw new Error("Cannot delete team during active auction");
+    }
+
+    // Check if team has players
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_team", (q) => q.eq("teamId", args.id))
+      .collect();
+
+    if (players.length > 0) {
+      throw new Error("Cannot delete team with players. Remove players first.");
+    }
+
     await ctx.db.delete(args.id);
     return { success: true };
   },

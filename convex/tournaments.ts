@@ -5,6 +5,7 @@ export const create = mutation({
   args: {
     name: v.string(),
     description: v.optional(v.string()),
+    logoUrl: v.optional(v.string()),
     settings: v.object({
       basePurse: v.number(),
       minBidIncrement: v.number(),
@@ -36,6 +37,7 @@ export const create = mutation({
     const tournamentId = await ctx.db.insert("tournaments", {
       name: args.name,
       description: args.description,
+      logoUrl: args.logoUrl,
       createdBy: user._id,
       status: "draft",
       settings: args.settings,
@@ -99,6 +101,16 @@ export const update = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const tournament = await ctx.db.get(args.id);
+    if (!tournament) throw new Error("Tournament not found");
+
+    // Prevent editing if auction is active or completed
+    if (tournament.status === "active" || tournament.status === "completed") {
+      throw new Error("Cannot edit tournament during or after auction");
+    }
     const { id, ...updates } = args;
 
     await ctx.db.patch(id, {
@@ -113,7 +125,56 @@ export const update = mutation({
 export const deleteTournament = mutation({
   args: { id: v.id("tournaments") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const tournament = await ctx.db.get(args.id);
+    if (!tournament) throw new Error("Tournament not found");
+
+    // Prevent deletion if auction is active
+    if (tournament.status === "active") {
+      throw new Error("Cannot delete active tournament");
+    }
+
+    // Delete all related data
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+      .collect();
+
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+      .collect();
+
+    // Delete all players
+    for (const player of players) {
+      await ctx.db.delete(player._id);
+    }
+
+    // Delete all teams
+    for (const team of teams) {
+      await ctx.db.delete(team._id);
+    }
+
+    // Delete tournament
     await ctx.db.delete(args.id);
+
     return { success: true };
+  },
+});
+
+// Check if tournament can be edited/deleted
+export const canModify = query({
+  args: { id: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.id);
+    if (!tournament) return { canEdit: false, canDelete: false };
+
+    const canEdit =
+      tournament.status !== "active" && tournament.status !== "completed";
+    const canDelete = tournament.status !== "active";
+
+    return { canEdit, canDelete };
   },
 });

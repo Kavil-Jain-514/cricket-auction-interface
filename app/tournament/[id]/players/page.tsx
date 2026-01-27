@@ -77,7 +77,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           </div>
           <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
             <div className="text-sm text-slate-400 mb-1">Bowlers</div>
-            <div className="text-2xl font-bold text-red-400">{stats.bowlers}</div>
+            <div className="text-2xl font-bold text-orange-400">{stats.bowlers}</div>
           </div>
           <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
             <div className="text-sm text-slate-400 mb-1">All-Rounders</div>

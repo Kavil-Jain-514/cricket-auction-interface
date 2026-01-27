@@ -19,6 +19,7 @@ export default function CreateTournamentPage() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
+    logoUrl: '',
     basePurse: 4000000,
     minBidIncrement: 25000,
     bidTimerSeconds: 30,
@@ -36,6 +37,7 @@ export default function CreateTournamentPage() {
       const tournamentId = await createTournament({
         name: formData.name,
         description: formData.description,
+        logoUrl: logoPreview || undefined,
         settings: {
           basePurse: formData.basePurse,
           minBidIncrement: formData.minBidIncrement,

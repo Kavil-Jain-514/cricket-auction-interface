@@ -11,7 +11,7 @@ interface PlayerCardProps {
 
 const roleColors = {
   'Batter': 'bg-blue-600',
-  'Bowler': 'bg-red-600',
+  'Bowler': 'bg-orange-600',
   'All-Rounder': 'bg-purple-600',
 };
 

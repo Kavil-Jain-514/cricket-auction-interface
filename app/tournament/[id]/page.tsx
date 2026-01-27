@@ -5,7 +5,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
@@ -23,6 +23,10 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
   const players = useQuery(api.players.listByTournament, { tournamentId });
   const updateTournament = useMutation(api.tournaments.update);
+  const canModify = useQuery(api.tournaments.canModify, { id: tournamentId });
+  const deleteTournament = useMutation(api.tournaments.deleteTournament);
+
+  const [deleting, setDeleting] = useState(false);
 
   const handleStartAuction = async () => {
     if (!teams || teams.length < 2) {
@@ -42,6 +46,22 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
       router.push(`/auction/create?tournamentId=${tournamentId}`);
     } catch (error) {
       toast.error('Failed to start auction', { description: (error as Error).message });
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm(`Are you sure you want to delete "${tournament?.name}"? This will delete all teams, players, and auction data. This action cannot be undone.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      await deleteTournament({ id: tournamentId });
+      toast.success('Tournament deleted successfully');
+      router.push('/dashboard');
+    } catch (error) {
+      toast.error(error.message || 'Failed to delete tournament');
+      setDeleting(false);
     }
   };
 
@@ -107,10 +127,26 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             </div>
 
             <div className="flex gap-3">
+              {canModify?.canEdit && (
               <Button variant="outline" size="sm" onClick={() => setShowSettings(true)}>
                 <Settings className="w-4 h-4 mr-2" />
                 Settings
               </Button>
+              )}
+
+              {canModify?.canDelete && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </Button>
+              )}
+
               <Button 
                 onClick={handleStartAuction}
                 disabled={tournament.status === 'active' || tournament.status === 'completed'}
@@ -121,6 +157,24 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             </div>
           </div>
         </div>
+
+        {/* Warning Messages */}
+        {tournament.status === 'active' && (
+          <div className="mt-4 mb-4 bg-yellow-600/10 border border-yellow-600/30 rounded-lg p-4 ">
+            <p className="text-sm text-yellow-400">
+              ⚠️ Tournament is active. Editing and deletion are disabled during auction.
+            </p>
+          </div>
+        )}
+
+        {tournament.status === 'completed' && (
+          <div className="mt-4 mb-4 bg-purple-600/10 border border-purple-600/30 rounded-lg p-4">
+            <p className="text-sm text-purple-400">
+              ✓ Tournament completed. Editing is disabled for completed tournaments.
+            </p>
+          </div>
+        )}
+
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -158,7 +212,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
         </div>
 
         {/* Quick Actions */}
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-2 gap-6">
           <Link href={`/tournament/${tournamentId}/teams`}>
             <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 hover:border-blue-500 transition cursor-pointer group">
               <Users className="w-12 h-12 text-blue-500 mb-4 group-hover:scale-110 transition" />
@@ -187,19 +241,23 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             </div>
           </Link>
 
-          <Link href={`/tournament/${tournamentId}/stats`}>
-            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 hover:border-purple-500 transition cursor-pointer group">
-              <Trophy className="w-12 h-12 text-purple-500 mb-4 group-hover:scale-110 transition" />
-              <h3 className="text-2xl font-bold mb-2">View Statistics</h3>
-              <p className="text-slate-400 mb-4">
-                Analyze auction results and team compositions
-              </p>
-              <div className="flex items-center gap-2 text-purple-400">
-                <span>View Stats</span>
-                <ArrowLeft className="w-4 h-4 rotate-180" />
-              </div>
+
+        {/* Uncomment and use if you want the stats card */}
+        {/*
+        <Link href={`/tournament/${tournamentId}/stats`}>
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 hover:border-purple-500 transition cursor-pointer group">
+            <Trophy className="w-12 h-12 text-purple-500 mb-4 group-hover:scale-110 transition" />
+            <h3 className="text-2xl font-bold mb-2">View Statistics</h3>
+            <p className="text-slate-400 mb-4">
+              Analyze auction results and team compositions
+            </p>
+            <div className="flex items-center gap-2 text-purple-400">
+              <span>View Stats</span>
+              <ArrowLeft className="w-4 h-4 rotate-180" />
             </div>
-          </Link>
+          </div>
+        </Link>
+        */}
         </div>
 
         {/* Tournament Settings Summary */}
@@ -245,6 +303,10 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             settings: tournament.settings,
           }}
           onClose={() => setShowSettings(false)}
+          onSuccess={() => {
+            setShowSettings(false);
+            toast.success('Tournament updated successfully');
+          }}
         />
       )}
     </div>

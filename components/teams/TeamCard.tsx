@@ -4,8 +4,14 @@ import { Doc, Id } from '@/convex/_generated/dataModel';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Users } from 'lucide-react';
+import { useState } from 'react';
 import { formatCurrency } from '@/lib/utils';
 import { motion } from 'framer-motion';
+import { Trash2, Eye, Edit } from 'lucide-react';
+import { TeamEditForm } from './TeamEditForm';
+import { TeamDetailsModal } from './TeamDetailsModal';
+import { useMutation } from 'convex/react';
+import { toast } from 'sonner';
 
 interface TeamCardProps {
   team: Doc<"teams">;
@@ -13,18 +19,80 @@ interface TeamCardProps {
 }
 
 export function TeamCard({ team, tournamentId }: TeamCardProps) {
+  const [showEdit, setShowEdit] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const players = useQuery(api.players.listByTournament, { 
     tournamentId,
   });
-
+  const deleteTeam = useMutation(api.teams.deleteTeam);
   const teamPlayers = players?.filter(p => p.teamId === team._id) || [];
   const pursePercentage = (team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100;
 
+  // Check if can edit/delete (not during active auction)
+  const canModify = tournament && tournament.status !== "active" && tournament.status !== "completed";
+
+  const handleDelete = async () => {
+    if (!confirm(`Are you sure you want to delete ${team.name}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      await deleteTeam({ id: team._id });
+      toast.success('Team deleted successfully');
+    } catch (error) {
+      toast.error(error?.message || 'Failed to delete team');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
+   <> 
     <motion.div
       whileHover={{ scale: 1.02 }}
       className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-blue-500 transition"
     >
+      {canModify && (
+          <div className="absolute top-4 right-4 flex gap-2">
+            <button
+              onClick={() => setShowDetails(true)}
+              className="p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+              title="View Details"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setShowEdit(true)}
+              className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition"
+              title="Edit Team"
+            >
+              <Edit className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="p-2 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50"
+              title="Delete Team"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      
+      {!canModify && (
+          <div className="absolute top-4 right-4">
+            <button
+              onClick={() => setShowDetails(true)}
+              className="p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+              title="View Details"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       {/* Team Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3 flex-1">
@@ -118,5 +186,22 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
         <button className="text-blue-400 hover:underline">View Details</button>
       </div>
     </motion.div>
+    {/* Modals */}
+      {showEdit && (
+        <TeamEditForm
+          team={team}
+          onClose={() => setShowEdit(false)}
+          onSuccess={() => setShowEdit(false)}
+        />
+      )}
+
+      {showDetails && (
+        <TeamDetailsModal
+          teamId={team._id}
+          onClose={() => setShowDetails(false)}
+        />
+      )}
+    </>
+
   );
 }
