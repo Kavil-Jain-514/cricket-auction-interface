@@ -27,7 +27,30 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const deleteTournament = useMutation(api.tournaments.deleteTournament);
 
   const [deleting, setDeleting] = useState(false);
+  const auctionRooms = useQuery(api.auctions.getAuctionRooms, { tournamentId });
 
+  const canResumeAuction = () => 
+    {
+      if (!tournament || !players) return false;
+    
+      // Check if tournament is active or has pending players
+      const hasPendingPlayers = players.some(p => p.auctionStatus === 'pending');
+      const isActive = tournament.status === 'active';
+    
+      return (isActive || hasPendingPlayers) && auctionRooms && auctionRooms.length > 0;
+  };
+
+  // Add this function to handle resume
+  const handleResumeAuction = () => {
+  if (!auctionRooms || auctionRooms.length === 0) {
+    toast.error('No auction room found');
+    return;
+  }
+  
+  const activeRoom = auctionRooms[0];
+  router.push(`/auction/${activeRoom._id}`);
+};
+  
   const handleStartAuction = async () => {
     if (!teams || teams.length < 2) {
       toast.error('You need at least 2 teams to start an auction');
@@ -154,6 +177,15 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 <Play className="w-4 h-4 mr-2" />
                 Start Auction
               </Button>
+              {canResumeAuction() && (
+                <Button 
+                  onClick={handleResumeAuction}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Resume Auction
+                </Button>
+              )}
             </div>
           </div>
         </div>

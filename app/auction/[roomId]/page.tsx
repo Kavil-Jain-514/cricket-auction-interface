@@ -8,12 +8,14 @@ import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Play, Pause, SkipForward, Trophy, 
-  TrendingUp, Users, Gavel 
+  SkipForward, Trophy, 
+  TrendingUp, Users, Gavel , RotateCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import confetti from 'canvas-confetti';
+import { formatCurrency } from '@/lib/utils';
+import {useSound} from '@/hooks/useSound';
+import { PlayerResultPopup } from '@/components/auction/PlayerResultPopup';
 
 interface AuctionPageProps {
   params: Promise<{ roomId: string }>;
@@ -30,80 +32,73 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const placeBid = useMutation(api.auctions.placeBid);
   const finalizePlayer = useMutation(api.auctions.finalizePlayerSale);
   const startNext = useMutation(api.auctions.startNextPlayer);
-  const startAuction = useMutation(api.auctions.startAuction);
-  const pauseAuction = useMutation(api.auctions.pauseAuction);
-  const resumeAuction = useMutation(api.auctions.resumeAuction);
+  const revertBid = useMutation(api.auctions.revertLastBid);
 
   const [timeLeft, setTimeLeft] = useState(30);
   const [bidding, setBidding] = useState<Id<"teams"> | null>(null);
-  const [isAutoFinalizing, setIsAutoFinalizing] = useState(false);
+  const [showResult, setShowResult] = useState(false);
+  const [result, setResult] = useState<unknown>(null);
+  const { play } = useSound();
 
-  const handleFinalize = useCallback(async () => {
-    if (isAutoFinalizing) return; // Prevent multiple auto-finalizes
-    
-    try {
-      setIsAutoFinalizing(true);
-      const result = await finalizePlayer({ auctionRoomId });
-      
-      if (!result.success) {
-        // Silent fail for non-critical errors
-        console.log("Finalize skipped:", result.reason);
-        return;
-      }
-      
-      // Celebration effect if sold
-      if (auctionData?.currentBidTeam) {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
-        
-        const audio = new Audio('/sounds/sold.mp3');
-        audio.play().catch(() => {});
-      }
-      
-      toast.success(
-        auctionData?.currentBidTeam 
-          ? "Player sold!" 
-          : "Player unsold"
-      );
-    } catch {
-      // Silent fail to prevent error spam
-      console.log("Finalize failed");
-    } finally {
-      setIsAutoFinalizing(false);
-    }
-  }, [finalizePlayer, auctionRoomId, auctionData?.currentBidTeam, isAutoFinalizing]);
-
-  // Calculate time left from server timestamp
+  // Timer management with better precision
   useEffect(() => {
     if (!auctionData?.auctionRoom?.bidTimerEndsAt) {
-      setTimeLeft(30); // Reset to default when no timer
+      setTimeLeft(0);
       return;
-    }
-    
-    if (auctionData.auctionRoom.status !== 'live') {
-      return; // Don't run timer if not live
     }
 
     const updateTimer = () => {
       const remaining = Math.max(
         0, 
-        Math.floor((auctionData.auctionRoom.bidTimerEndsAt! - Date.now()) / 1000)
+        Math.ceil((auctionData.auctionRoom.bidTimerEndsAt! - Date.now()) / 1000)
       );
       setTimeLeft(remaining);
 
       // Auto-finalize when timer reaches 0
-      if (remaining === 0 && auctionData.auctionRoom.status === 'live' && auctionData.auctionRoom.currentPlayerId) {
+      if (remaining === 0 && 
+          auctionData.auctionRoom.status === 'live' && 
+          auctionData.auctionRoom.currentPlayerId) {
         handleFinalize();
+      }
+
+      // Play timer warning sound at 10 seconds
+      if (remaining === 10) {
+        play('timer', 0.3);
       }
     };
 
     updateTimer();
-    const interval = setInterval(updateTimer, 500); // Reduced frequency
+    const interval = setInterval(updateTimer, 100); // Update every 100ms for precision
     return () => clearInterval(interval);
-  }, [auctionData?.auctionRoom?.bidTimerEndsAt, auctionData?.auctionRoom?.status, auctionData?.auctionRoom?.currentPlayerId, handleFinalize]);
+  }, [auctionData?.auctionRoom?.bidTimerEndsAt, auctionData?.auctionRoom?.currentPlayerId, auctionData?.auctionRoom?.status, handleFinalize, play]);
+
+
+  const handleFinalize = useCallback(async () => {
+    if (showResult) return; // Prevent multiple auto-finalizes
+    
+    try {
+      const result = await finalizePlayer({ auctionRoomId });
+      
+      setResult({
+        playerName: res.playerName,
+        teamName: res.teamName,
+        amount: res.amount,
+        sold: res.sold,
+        teamColor: auctionData?.teams?.find(t => t.name === res.teamName)?.colorPrimary,
+      });
+      setShowResult(true);
+      
+      // Play sound
+      if (res.sold) {
+        play('sold', 0.7);
+      } else {
+        play('unsold', 0.5);
+      }
+      
+    } catch (error) {
+      toast.error(error.message || "Failed to finalize");
+    }
+  }, [showResult, finalizePlayer, auctionRoomId, auctionData?.teams, play]);
 
   const handleBid = useCallback(async (teamId: Id<"teams">, amount: number) => {
     if (bidding) return;
@@ -111,45 +106,48 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
     setBidding(teamId);
     try {
-      const result = await placeBid({ 
+      await placeBid({ 
         auctionRoomId, 
         teamId, 
         amount 
       });
       
-      if (!result.success) {
-        // Silent fail for non-critical issues
-        console.log("Bid skipped:", result.reason);
-        setBidding(null);
-        return;
-      }
+      play('bid', 0.5);
       
-      // Play sound effect
-      const audio = new Audio('/sounds/bid.mp3');
-      audio.play().catch(() => {});
-      
-    } catch (err) {
-      const error = err as Error;
+    } catch (error) {
       toast.error(error.message || "Failed to place bid");
     } finally {
       setBidding(null);
     }
-  }, [placeBid, auctionRoomId, bidding, auctionData?.auctionRoom?.status]);
+  }, [bidding, auctionData?.auctionRoom?.status, placeBid, auctionRoomId, play]);
+
 
   const handleNextPlayer = useCallback(async () => {
     try {
-      const result = await startNext({ auctionRoomId });
+      const res = await startNext({ auctionRoomId });
       
-      if (result.completed) {
-        toast.success("Auction completed!");
+      if (res.completed) {
+        toast.success("Auction completed! All players have been auctioned.");
       } else {
-        toast.success("Next player up!");
+        play('nextPlayer', 0.5);
+        toast.success("Next player loaded!");
       }
-    } catch {
-      toast.error("Failed to load next player");
+    } catch (error) {
+      toast.error(error.message || "Failed to load next player");
     }
-  }, [startNext, auctionRoomId]);
+  }, [startNext, auctionRoomId, play]);
 
+  const handleRevertBid = useCallback(async () => {
+    if (!confirm("Are you sure you want to revert the last bid?")) return;
+
+    try {
+      await revertBid({ auctionRoomId });
+      toast.success("Last bid reverted successfully");
+    } catch (error) {
+      toast.error(error.message || "Failed to revert bid");
+    }
+  }, [revertBid, auctionRoomId]);
+  
   if (!auctionData) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -161,6 +159,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const { auctionRoom, currentPlayer, currentBidTeam, teams, recentBids } = auctionData;
   const currentBid = auctionRoom.currentBidAmount || currentPlayer?.basePrice || 0;
   const minNextBid = currentBid + (auctionData.tournament?.settings.minBidIncrement || 25000);
+
+  const isFirstBid = !recentBids || recentBids.length === 0 || 
+                     (recentBids.length === 0 && currentBid === currentPlayer?.basePrice);
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
@@ -175,75 +176,24 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   {auctionData.tournament?.name}
                 </h1>
                 <p className="text-sm text-slate-400">
-                  {auctionRoom.status === 'waiting' && 'Waiting to start'}
-                  {auctionRoom.status === 'live' && 'Live Auction'}
-                  {auctionRoom.status === 'paused' && 'Auction Paused'}
-                  {auctionRoom.status === 'completed' && 'Auction Completed'}
+                  {stats?.sold} Sold • {stats?.pending} Pending • {stats?.unsold} Unsold
                 </p>
               </div>
             </div>
 
-            <div className="flex gap-2">
-              {/* Start/Pause/Resume buttons based on status */}
-              {auctionRoom.status === 'waiting' && (
-                <Button
-                  onClick={async () => {
-                    try {
-                      await startAuction({ auctionRoomId });
-                      toast.success('Auction started!');
-                    } catch {
-                      toast.error('Failed to start auction');
-                    }
-                  }}
-                  variant="default"
-                  size="lg"
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <Play className="w-5 h-5 mr-2" />
-                  Start Auction
-                </Button>
-              )}
-
-              {auctionRoom.status === 'live' && (
-                <Button
-                  onClick={async () => {
-                    try {
-                      await pauseAuction({ auctionRoomId });
-                      toast.info('Auction paused');
-                    } catch {
-                      toast.error('Failed to pause auction');
-                    }
-                  }}
-                  variant="outline"
-                  size="lg"
-                >
-                  <Pause className="w-5 h-5 mr-2" />
-                  Pause
-                </Button>
-              )}
-
-              {auctionRoom.status === 'paused' && (
-                <Button
-                  onClick={async () => {
-                    try {
-                      await resumeAuction({ auctionRoomId });
-                      toast.success('Auction resumed!');
-                    } catch {
-                      toast.error('Failed to resume auction');
-                    }
-                  }}
-                  variant="default"
-                  size="lg"
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <Play className="w-5 h-5 mr-2" />
-                  Resume
-                </Button>
-              )}
-
+             <div className="flex gap-2">
+              <Button
+                onClick={handleRevertBid}
+                disabled={!recentBids || recentBids.length === 0}
+                variant="outline"
+                size="sm"
+                title="Revert last bid"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </Button>
               <Button
                 onClick={handleFinalize}
-                disabled={!currentPlayer || auctionRoom.status !== 'live'}
+                disabled={!currentPlayer}
                 variant="outline"
                 size="lg"
               >
@@ -252,7 +202,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               </Button>
               <Button
                 onClick={handleNextPlayer}
-                disabled={auctionRoom.currentPlayerId !== undefined || auctionRoom.status !== 'live'}
+                disabled={auctionRoom.currentPlayerId !== undefined}
                 size="lg"
               >
                 <SkipForward className="w-5 h-5 mr-2" />
@@ -274,50 +224,39 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             
             {teams?.map((team) => {
               const isCurrentBidder = team._id === currentBidTeam?._id;
-              const canBid = team.purseRemaining >= minNextBid;
+              const canBid = team.purseRemaining >= (isFirstBid ? currentPlayer?.basePrice || 0 : minNextBid);
+              const bidAmount = isFirstBid ? (currentPlayer?.basePrice || 0) : minNextBid;
               
               return (
                 <motion.div
                   key={team._id}
-                  whileHover={{ scale: canBid ? 1.02 : 1 }}
+                  whileHover={{ scale: canBid && currentPlayer ? 1.02 : 1 }}
                   className={`
-                    relative rounded-xl p-4 border-2 transition-all
+                    relative rounded-xl p-4 border-2 transition-all cursor-pointer
                     ${isCurrentBidder 
                       ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' 
                       : 'border-slate-700 bg-slate-800/50'
                     }
-                    ${canBid ? 'cursor-pointer hover:border-blue-500' : 'opacity-50'}
+                    ${canBid && currentPlayer ? 'hover:border-blue-500' : 'opacity-50 cursor-not-allowed'}
                   `}
                   onClick={() => 
                     canBid && currentPlayer && 
-                    handleBid(team._id, minNextBid)
+                    handleBid(team._id, bidAmount)
                   }
                 >
                   {bidding === team._id && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl">
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl z-10">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
                     </div>
                   )}
 
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      {/* Team Logo */}
-                      {team.logoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img 
-                          src={team.logoUrl} 
-                          alt={`${team.name} logo`}
-                          className="w-8 h-8 rounded-lg object-cover border border-slate-600"
-                        />
-                      ) : (
-                        <div 
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold"
-                          style={{ backgroundColor: team.colorPrimary }}
-                        >
-                          {team.name.charAt(0)}
-                        </div>
-                      )}
-                      <span className="font-semibold text-sm">
+                      <div 
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: team.colorPrimary }}
+                      />
+                      <span className="font-semibold text-sm truncate">
                         {team.name}
                       </span>
                     </div>
@@ -330,21 +269,33 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     <div className="flex justify-between text-xs">
                       <span className="text-slate-400">Purse Left</span>
                       <span className="font-semibold text-green-400">
-                        ₹{(team.purseRemaining / 100000).toFixed(1)}L
+                        {formatCurrency(team.purseRemaining)}
                       </span>
                     </div>
                     
-                    <div className="w-full bg-slate-700 rounded-full h-2">
+                    <div className="w-full bg-slate-700 rounded-full h-1.5">
                       <motion.div
-                        className="h-2 rounded-full"
-                        style={{ backgroundColor: team.colorPrimary }}
-                        initial={{ width: 0 }}
-                        animate={{ 
-                          width: `${(team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100}%` 
+                        className="h-1.5 rounded-full transition-all"
+                        style={{
+                          width: `${(team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100}%`,
+                          backgroundColor: team.colorPrimary
                         }}
-                        transition={{ duration: 0.5 }}
                       />
                     </div>
+
+                    {currentPlayer && (
+                      <div className="text-xs text-center mt-2 pt-2 border-t border-slate-700">
+                        {canBid ? (
+                          <span className="text-blue-400 font-semibold">
+                            Bid: {formatCurrency(bidAmount)}
+                          </span>
+                        ) : (
+                          <span className="text-red-400">
+                            Insufficient purse
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               );
@@ -375,8 +326,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     fill="none"
                     className={timeLeft <= 10 ? "text-red-500" : "text-blue-500"}
                     strokeDasharray="364"
-                    strokeDashoffset={364 - (timeLeft / 30) * 364}
-                    transition={{ duration: 1, ease: "linear" }}
+                    strokeDashoffset={364 - ((timeLeft / (tournament?.settings.bidTimerSeconds || 30)) * 364)}
+                    transition={{ duration: 0.1, ease: "linear" }}
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
@@ -385,8 +336,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       className={`text-5xl font-bold ${
                         timeLeft <= 10 ? 'text-red-500' : 'text-blue-500'
                       }`}
-                      animate={{ scale: timeLeft <= 5 ? [1, 1.1, 1] : 1 }}
-                      transition={{ repeat: timeLeft <= 5 ? Infinity : 0, duration: 1 }}
+                      animate={{ scale: timeLeft <= 5 && timeLeft > 0 ? [1, 1.1, 1] : 1 }}
+                      transition={{ repeat: timeLeft <= 5 && timeLeft > 0 ? Infinity : 0, duration: 1 }}
                     >
                       {timeLeft}
                     </motion.div>
@@ -398,7 +349,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
             {/* Player Card */}
             <AnimatePresence mode="wait">
-              {currentPlayer && (
+              {currentPlayer ? (
                 <motion.div
                   key={currentPlayer._id}
                   initial={{ opacity: 0, y: 20 }}
@@ -408,7 +359,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 >
                   <div className="flex gap-6 mb-6">
                     <div className="w-48 h-48 bg-linear-to-br from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center text-6xl font-bold">
-                      {currentPlayer.name.split(' ').map(n => n[0]).join('')}
+                      {currentPlayer.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                     </div>
                     
                     <div className="flex-1">
@@ -424,30 +375,36 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                           {currentPlayer.age} years
                         </span>
                         <span className="px-4 py-2 bg-slate-700 rounded-full text-sm">
-                          {currentPlayer.battingBowlingHand}
+                          {currentPlayer.battingHand}-handed
                         </span>
                       </div>
 
                       {currentPlayer.stats && (
                         <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <div className="text-sm text-slate-400">Matches</div>
-                            <div className="text-2xl font-bold text-blue-400">
-                              {currentPlayer.stats.matches}
+                          {currentPlayer.stats.matches && (
+                            <div>
+                              <div className="text-sm text-slate-400">Matches</div>
+                              <div className="text-2xl font-bold text-blue-400">
+                                {currentPlayer.stats.matches}
+                              </div>
                             </div>
-                          </div>
-                          <div>
-                            <div className="text-sm text-slate-400">Runs</div>
-                            <div className="text-2xl font-bold text-green-400">
-                              {currentPlayer.stats.runs}
+                          )}
+                          {currentPlayer.stats.runs && (
+                            <div>
+                              <div className="text-sm text-slate-400">Runs</div>
+                              <div className="text-2xl font-bold text-green-400">
+                                {currentPlayer.stats.runs}
+                              </div>
                             </div>
-                          </div>
-                          <div>
-                            <div className="text-sm text-slate-400">Wickets</div>
-                            <div className="text-2xl font-bold text-red-400">
-                              {currentPlayer.stats.wickets}
+                          )}
+                          {currentPlayer.stats.wickets && (
+                            <div>
+                              <div className="text-sm text-slate-400">Wickets</div>
+                              <div className="text-2xl font-bold text-red-400">
+                                {currentPlayer.stats.wickets}
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -460,7 +417,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     transition={{ repeat: Infinity, duration: 2 }}
                   >
                     <div className="text-sm font-semibold mb-2 opacity-90">
-                      CURRENT BID
+                      {isFirstBid ? "STARTING PRICE" : "CURRENT BID"}
                     </div>
                     <motion.div 
                       className="text-6xl font-bold mb-2"
@@ -468,24 +425,32 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       initial={{ scale: 1.2 }}
                       animate={{ scale: 1 }}
                     >
-                      ₹{(currentBid / 100000).toFixed(2)}L
+                      {formatCurrency(currentBid)}
                     </motion.div>
-                    {currentBidTeam && (
+                    {currentBidTeam && !isFirstBid && (
                       <div className="text-sm opacity-90">
                         by {currentBidTeam.name}
                       </div>
                     )}
                   </motion.div>
                 </motion.div>
+              ) : (
+                <div className="text-center py-20 text-slate-400">
+                  <Trophy className="w-20 h-20 mx-auto mb-4 opacity-50" />
+                  <p className="text-xl mb-4">
+                    {auctionRoom.status === 'completed' 
+                      ? 'Auction Completed!' 
+                      : 'Click "Next Player" to start auction'
+                    }
+                  </p>
+                  {auctionRoom.status === 'completed' && (
+                    <p className="text-sm">
+                      All {stats?.total} players have been auctioned
+                    </p>
+                  )}
+                </div>
               )}
             </AnimatePresence>
-
-            {!currentPlayer && (
-              <div className="text-center py-20 text-slate-400">
-                <Trophy className="w-20 h-20 mx-auto mb-4 opacity-50" />
-                <p className="text-xl">Click &quot;Next Player&quot; to start auction</p>
-              </div>
-            )}
           </div>
 
           {/* Live Feed */}
@@ -496,34 +461,81 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             </h3>
 
             <div className="space-y-2">
-              <AnimatePresence>
-                {recentBids?.slice(0, 8).map((bid, idx) => (
-                  <motion.div
-                    key={bid._id}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ delay: idx * 0.05 }}
-                    className="bg-slate-800/70 backdrop-blur rounded-lg p-3 border border-slate-700"
-                  >
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-sm font-semibold">
-                        {teams?.find(t => t._id === bid.teamId)?.name}
-                      </span>
-                      <span className="text-xs text-slate-400">
-                        {new Date(bid.timestamp).toLocaleTimeString()}
-                      </span>
-                    </div>
-                    <div className="text-lg font-bold text-yellow-400">
-                      ₹{(bid.amount / 100000).toFixed(2)}L
-                    </div>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+              {(!recentBids || recentBids.length === 0) ? (
+                <div className="text-center py-8 text-slate-500">
+                  <p className="text-sm">No bids yet</p>
+                  <p className="text-xs mt-1">
+                    {isFirstBid ? "First bid starts at base price" : "Waiting for bids..."}
+                  </p>
+                </div>
+              ) : (
+                <AnimatePresence>
+                  {recentBids.slice(0, 8).map((bid, idx) => (
+                    <motion.div
+                      key={bid._id}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ delay: idx * 0.05 }}
+                      className="bg-slate-800/70 backdrop-blur rounded-lg p-3 border border-slate-700"
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-sm font-semibold truncate">
+                          {teams?.find(t => t._id === bid.teamId)?.name}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          {new Date(bid.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <div className="text-lg font-bold text-yellow-400">
+                        {formatCurrency(bid.amount)}
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              )}
             </div>
+
+            {/* Quick Stats */}
+            {currentPlayer && (
+              <div className="mt-8 bg-slate-800/50 rounded-lg p-4 border border-slate-700">
+                <h4 className="font-semibold mb-3 text-sm">Player Info</h4>
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-400">Base Price</span>
+                    <span className="font-semibold">
+                      {formatCurrency(currentPlayer.basePrice)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-400">Next Bid</span>
+                    <span className="font-semibold text-green-400">
+                      {formatCurrency(isFirstBid ? currentPlayer.basePrice : minNextBid)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-400">Total Bids</span>
+                    <span className="font-semibold">{recentBids?.length || 0}</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </aside>
         </div>
       </main>
+
+      {/* Result Popup */}
+      {showResult && result && (
+        <PlayerResultPopup
+          show={showResult}
+          playerName={result.playerName}
+          teamName={result.teamName}
+          amount={result.amount}
+          sold={result.sold}
+          teamColor={result.teamColor}
+          onClose={() => setShowResult(false)}
+        />
+      )}
     </div>
   );
 }

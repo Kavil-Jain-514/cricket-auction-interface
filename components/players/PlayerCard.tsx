@@ -3,7 +3,12 @@
 import { Doc } from '@/convex/_generated/dataModel';
 import { formatCurrency, getPlayerInitials } from '@/lib/utils';
 import { motion } from 'framer-motion';
-import { Calendar } from 'lucide-react';
+import { Calendar, Edit, Trash2 } from 'lucide-react';
+import {PlayerEditForm} from './PlayerEditForm';
+import { useState } from 'react';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import { toast } from 'sonner';
 
 interface PlayerCardProps {
   player: Doc<"players">;
@@ -23,11 +28,54 @@ const statusColors = {
 };
 
 export function PlayerCard({ player }: PlayerCardProps) {
+  const [showEdit, setShowEdit] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const deletePlayer = useMutation(api.players.deletePlayer);
+
+  const canModify = player.auctionStatus === "pending" || player.auctionStatus === "unsold";
+
+  const handleDelete = async () => {
+    if (!confirm(`Are you sure you want to delete ${player.name}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      await deletePlayer({ id: player._id });
+      toast.success('Player deleted successfully');
+    } catch (error) {
+      toast.error(error?.message || 'Failed to delete player');
+    } finally {
+      setDeleting(false);
+    }
+  };
   return (
+    <>
     <motion.div
       whileHover={{ scale: 1.02 }}
       className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 hover:border-blue-500 transition"
     >
+      {/* Action Buttons */}
+        {canModify && (
+          <div className="absolute top-2 right-2 flex gap-1">
+            <button
+              onClick={() => setShowEdit(true)}
+              className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition"
+              title="Edit Player"
+            >
+              <Edit className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="p-1.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50"
+              title="Delete Player"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
       {/* Player Avatar */}
       <div className="flex items-start gap-3 mb-3">
         <div className="w-16 h-16 bg-linear-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center text-xl font-bold shrink-0">
@@ -83,31 +131,16 @@ export function PlayerCard({ player }: PlayerCardProps) {
             </div>
           </div>
         )}
-
-        {/* Stats */}
-        {player.stats && (
-          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-700">
-            {player.stats.matches && (
-              <div>
-                <div className="text-xs text-slate-400">Matches</div>
-                <div className="font-semibold">{player.stats.matches}</div>
-              </div>
-            )}
-            {player.stats.runs && (
-              <div>
-                <div className="text-xs text-slate-400">Runs</div>
-                <div className="font-semibold text-green-400">{player.stats.runs}</div>
-              </div>
-            )}
-            {player.stats.wickets && (
-              <div>
-                <div className="text-xs text-slate-400">Wickets</div>
-                <div className="font-semibold text-red-400">{player.stats.wickets}</div>
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </motion.div>
+    {/* Edit Modal */}
+      {showEdit && (
+        <PlayerEditForm
+          player={player}
+          onClose={() => setShowEdit(false)}
+          onSuccess={() => setShowEdit(false)}
+        />
+      )}
+      </>
   );
 }

@@ -35,6 +35,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     jerseyNumber: undefined as number | undefined,
     basePrice: 150000,
     availability: 'all' as 'all' | '5' | '6' | '7' | '8',
+    photoUrl: '',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -65,6 +66,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
         jerseyNumber: formData.jerseyNumber,
         availability,
         basePrice: formData.basePrice,
+        photoUrl: formData.photoUrl || undefined,
       });
 
       toast.success('Player added successfully!');
@@ -246,6 +248,17 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
               <p className="text-xs text-slate-400 mt-1">
                 Current: ₹{(formData.basePrice / 100000).toFixed(2)}L
               </p>
+            </div>
+
+            <div>
+              <Label htmlFor="photoUrl">Photo URL</Label>
+              <Input
+                id="photoUrl"
+                value={formData.photoUrl}
+                onChange={(e) => setFormData({ ...formData, photoUrl: e.target.value })}
+                placeholder="e.g., https://example.com/photo.jpg"
+                className="mt-2"
+              />
             </div>
 
             <div className="md:col-span-2">
