@@ -82,7 +82,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             battingBowlingHand: row['Batting/Bowling Hand']?.includes('Left-handed') ? 'Left-handed' : 'Right-handed',
             jerseyNumber: row['Jersey Number'] ? parseInt(row['Jersey Number']) : undefined,
             availability,
-            basePrice: parseInt(row['Base Price']) || 150000,
+            basePrice: parseInt(row['Base Price']) || 100000,
           };
 
           // Validation
@@ -235,7 +235,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm">{player.age}</td>
-                      <td className="px-4 py-3 text-sm">{player.battingHand}</td>
+                      <td className="px-4 py-3 text-sm">{player.battingBowlingHand}</td>
                       <td className="px-4 py-3 text-sm font-semibold">
                         ₹{(player.basePrice / 100000).toFixed(1)}L
                       </td>

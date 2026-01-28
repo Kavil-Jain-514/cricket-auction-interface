@@ -38,7 +38,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
             <div className="flex items-center gap-3 mb-2">
               <Trophy className="w-5 h-5 text-yellow-500" />
@@ -54,16 +54,6 @@ export default function DashboardPage() {
             </div>
             <div className="text-3xl font-bold">
               {tournaments?.filter(t => t.status === 'active').length || 0}
-            </div>
-          </div>
-
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <Calendar className="w-5 h-5 text-green-500" />
-              <span className="text-slate-400 text-sm">Upcoming</span>
-            </div>
-            <div className="text-3xl font-bold">
-              {tournaments?.filter(t => t.status === 'setup').length || 0}
             </div>
           </div>
 

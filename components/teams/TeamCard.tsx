@@ -183,7 +183,6 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
       {/* Footer */}
       <div className="pt-4 border-t border-slate-700 flex items-center justify-between text-xs text-slate-400">
         <span>Updated {new Date(team.updatedAt).toLocaleDateString()}</span>
-        <button className="text-blue-400 hover:underline">View Details</button>
       </div>
     </motion.div>
     {/* Modals */}

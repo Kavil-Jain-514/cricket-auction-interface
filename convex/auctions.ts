@@ -156,7 +156,7 @@ export const placeBid = mutation({
     if (!team) throw new Error("Team not found");
 
     if (team.purseRemaining < args.amount) {
-      throw new Error("Insufficient purse balance");
+      return { success: false, reason: "Insufficient purse balance" };
     }
 
     // Validate bid amount
@@ -167,24 +167,33 @@ export const placeBid = mutation({
     // Check if this is the first bid (base price)
     const currentBid = auctionRoom.currentBidAmount || player.basePrice || 0;
 
-    // Allow same team to increase their bid
-    if (args.amount <= currentBid) {
-      throw new Error(`Bid must be higher than current bid ₹${currentBid}`);
-    }
-
-    /// For first bid, must be at least base price
-    // For subsequent bids, must be current + increment
+    // Allow bids equal to the current bid. Enforce minimum increment only for increases.
+    // First bid (when currentBid equals player.basePrice) must be at least base price (equal allowed)
     if (currentBid === 0 || currentBid === player.basePrice) {
-      // First bid - must be at least base price
       if (args.amount < player.basePrice) {
-        throw new Error(
-          `First bid must be at least base price: ₹${player.basePrice}`,
-        );
+        return {
+          success: false,
+          reason: `First bid must be at least base price: ₹${player.basePrice}`,
+        };
       }
     } else {
-      // Subsequent bids - must be current + increment
-      if (args.amount < currentBid + minBidIncrement) {
-        throw new Error(`Minimum bid is ₹${currentBid + minBidIncrement}`);
+      // If bid is less than current bid -> reject
+      if (args.amount < currentBid) {
+        return {
+          success: false,
+          reason: `Bid must be at least the current bid ₹${currentBid}`,
+        };
+      }
+
+      // If bid is an increase (strictly greater), it must respect the min increment
+      if (
+        args.amount > currentBid &&
+        args.amount < currentBid + minBidIncrement
+      ) {
+        return {
+          success: false,
+          reason: `Minimum increase is ₹${minBidIncrement} (next valid: ₹${currentBid + minBidIncrement})`,
+        };
       }
     }
 

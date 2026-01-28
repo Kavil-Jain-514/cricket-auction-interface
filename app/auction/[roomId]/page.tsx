@@ -9,7 +9,7 @@ import { Id } from '@/convex/_generated/dataModel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   SkipForward, Trophy, 
-  TrendingUp, Users, Gavel , RotateCcw
+  TrendingUp, Users, Gavel , RotateCcw, Play, Pause
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -33,6 +33,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const finalizePlayer = useMutation(api.auctions.finalizePlayerSale);
   const startNext = useMutation(api.auctions.startNextPlayer);
   const revertBid = useMutation(api.auctions.revertLastBid);
+  const startAuction = useMutation(api.auctions.startAuction);
+  const pauseAuction = useMutation(api.auctions.pauseAuction);
+  const resumeAuction = useMutation(api.auctions.resumeAuction);
 
   const [timeLeft, setTimeLeft] = useState(30);
   const [bidding, setBidding] = useState<Id<"teams"> | null>(null);
@@ -41,6 +44,37 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const { play } = useSound();
 
   // Timer management with better precision
+    const handleFinalize = useCallback(async () => {
+    if (showResult) return; // Prevent multiple auto-finalizes
+    
+    try {
+      const res = (await finalizePlayer({ auctionRoomId })) as {
+        playerName?: string;
+        teamName?: string | null;
+        amount?: number;
+        sold?: boolean;
+      } | null;
+
+      setResult({
+        playerName: res?.playerName,
+        teamName: res?.teamName ?? null,
+        amount: res?.amount ?? 0,
+        sold: res?.sold ?? false,
+        teamColor: auctionData?.teams?.find(t => t.name === res?.teamName)?.colorPrimary,
+      });
+      setShowResult(true);
+
+      // Play sound
+      if (res?.sold) {
+        play('sold', 0.7);
+      } else {
+        play('unsold', 0.5);
+      }
+
+    } catch (error) {
+      toast.error(error.message || "Failed to finalize");
+    }
+  }, [showResult, finalizePlayer, auctionRoomId, auctionData?.teams, play]);
   useEffect(() => {
     if (!auctionData?.auctionRoom?.bidTimerEndsAt) {
       setTimeLeft(0);
@@ -72,50 +106,32 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     return () => clearInterval(interval);
   }, [auctionData?.auctionRoom?.bidTimerEndsAt, auctionData?.auctionRoom?.currentPlayerId, auctionData?.auctionRoom?.status, handleFinalize, play]);
 
-
-  const handleFinalize = useCallback(async () => {
-    if (showResult) return; // Prevent multiple auto-finalizes
-    
-    try {
-      const result = await finalizePlayer({ auctionRoomId });
-      
-      setResult({
-        playerName: res.playerName,
-        teamName: res.teamName,
-        amount: res.amount,
-        sold: res.sold,
-        teamColor: auctionData?.teams?.find(t => t.name === res.teamName)?.colorPrimary,
-      });
-      setShowResult(true);
-      
-      // Play sound
-      if (res.sold) {
-        play('sold', 0.7);
-      } else {
-        play('unsold', 0.5);
-      }
-      
-    } catch (error) {
-      toast.error(error.message || "Failed to finalize");
-    }
-  }, [showResult, finalizePlayer, auctionRoomId, auctionData?.teams, play]);
-
   const handleBid = useCallback(async (teamId: Id<"teams">, amount: number) => {
     if (bidding) return;
     if (auctionData?.auctionRoom?.status !== 'live') return; // Don't bid if not live
 
     setBidding(teamId);
     try {
-      await placeBid({ 
+      const res = await placeBid({ 
         auctionRoomId, 
         teamId, 
         amount 
       });
-      
+
+      // The mutation now returns { success, reason } for validation failures.
+      if (res && typeof res === 'object' && 'success' in res) {
+        if (!res.success) {
+          // Show friendly message for common validation failures
+          toast.error(res.reason || 'Bid rejected');
+          return;
+        }
+      }
+
       play('bid', 0.5);
-      
+
     } catch (error) {
-      toast.error(error.message || "Failed to place bid");
+      // Fallback for unexpected errors
+      toast.error((error as Error).message || "Failed to place bid");
     } finally {
       setBidding(null);
     }
@@ -176,24 +192,87 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   {auctionData.tournament?.name}
                 </h1>
                 <p className="text-sm text-slate-400">
-                  {stats?.sold} Sold • {stats?.pending} Pending • {stats?.unsold} Unsold
+                  {auctionRoom.status === 'waiting' && 'Waiting to start'}
+                  {auctionRoom.status === 'live' && 'Live Auction'}
+                  {auctionRoom.status === 'paused' && 'Auction Paused'}
+                  {auctionRoom.status === 'completed' && 'Auction Completed'}
                 </p>
               </div>
             </div>
 
              <div className="flex gap-2">
+              {/* Revert Last Bid */}
               <Button
                 onClick={handleRevertBid}
                 disabled={!recentBids || recentBids.length === 0}
                 variant="outline"
-                size="sm"
+                size="lg"
                 title="Revert last bid"
-              >
+              > 
                 <RotateCcw className="w-4 h-4" />
+                Revert Last Bid
               </Button>
+
+              {/* Start/Pause/Resume buttons based on status */}
+              {auctionRoom.status === 'waiting' && (
+                <Button
+                    onClick={async () => {
+                    try {
+                      await startAuction({ auctionRoomId });
+                      toast.success('Auction started!');
+                    } catch {
+                      toast.error('Failed to start auction');
+                    }
+                  }}
+                  variant="default"
+                  size="lg"
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <Play className="w-5 h-5 mr-2" />
+                  Start Auction
+                </Button>
+              )}
+
+              {auctionRoom.status === 'live' && (
+                <Button
+                  onClick={async () => {
+                    try {
+                      await pauseAuction({ auctionRoomId });
+                      toast.info('Auction paused');
+                    } catch {
+                      toast.error('Failed to pause auction');
+                    }
+                  }}
+                  variant="outline"
+                  size="lg"
+                >
+                  <Pause className="w-5 h-5 mr-2" />
+                  Pause
+                </Button>
+              )}
+
+              {auctionRoom.status === 'paused' && (
+                <Button
+                  onClick={async () => {
+                    try {
+                      await resumeAuction({ auctionRoomId });
+                      toast.success('Auction resumed!');
+                    } catch {
+                      toast.error('Failed to resume auction');
+                    }
+                  }}
+                  variant="default"
+                  size="lg"
+                  className="bg-green-600 hover:bg-green-700">
+                  <Play className="w-5 h-5 mr-2" />
+                  Resume
+                </Button>
+              )}
+
+
               <Button
                 onClick={handleFinalize}
-                disabled={!currentPlayer}
+                disabled={!currentPlayer || auctionRoom.status !== 'live'}
                 variant="outline"
                 size="lg"
               >
@@ -202,7 +281,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               </Button>
               <Button
                 onClick={handleNextPlayer}
-                disabled={auctionRoom.currentPlayerId !== undefined}
+                disabled={auctionRoom.currentPlayerId !== undefined || auctionRoom.status !== 'live'}
                 size="lg"
               >
                 <SkipForward className="w-5 h-5 mr-2" />
@@ -252,10 +331,23 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
+                                            {/* Team Logo */}
+                      {team.logoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img 
+                          src={team.logoUrl} 
+                          alt={`${team.name} logo`}
+                          className="w-8 h-8 rounded-lg object-cover border border-slate-600"
+                        />
+                      ) : (
+
                       <div 
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: team.colorPrimary }}
-                      />
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold"
+                        style={{ backgroundColor: team.colorPrimary }}>
+                          {team.name.charAt(0)}
+                        </div>
+                      )}
+
                       <span className="font-semibold text-sm truncate">
                         {team.name}
                       </span>
@@ -326,7 +418,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     fill="none"
                     className={timeLeft <= 10 ? "text-red-500" : "text-blue-500"}
                     strokeDasharray="364"
-                    strokeDashoffset={364 - ((timeLeft / (tournament?.settings.bidTimerSeconds || 30)) * 364)}
+                    strokeDashoffset={364 - ((timeLeft / (auctionData.tournament?.settings.bidTimerSeconds || 30)) * 364)}
                     transition={{ duration: 0.1, ease: "linear" }}
                   />
                 </svg>
@@ -375,38 +467,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                           {currentPlayer.age} years
                         </span>
                         <span className="px-4 py-2 bg-slate-700 rounded-full text-sm">
-                          {currentPlayer.battingHand}-handed
+                          {currentPlayer.battingBowlingHand}
                         </span>
                       </div>
-
-                      {currentPlayer.stats && (
-                        <div className="grid grid-cols-3 gap-4">
-                          {currentPlayer.stats.matches && (
-                            <div>
-                              <div className="text-sm text-slate-400">Matches</div>
-                              <div className="text-2xl font-bold text-blue-400">
-                                {currentPlayer.stats.matches}
-                              </div>
-                            </div>
-                          )}
-                          {currentPlayer.stats.runs && (
-                            <div>
-                              <div className="text-sm text-slate-400">Runs</div>
-                              <div className="text-2xl font-bold text-green-400">
-                                {currentPlayer.stats.runs}
-                              </div>
-                            </div>
-                          )}
-                          {currentPlayer.stats.wickets && (
-                            <div>
-                              <div className="text-sm text-slate-400">Wickets</div>
-                              <div className="text-2xl font-bold text-red-400">
-                                {currentPlayer.stats.wickets}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </div>
 
@@ -445,7 +508,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   </p>
                   {auctionRoom.status === 'completed' && (
                     <p className="text-sm">
-                      All {stats?.total} players have been auctioned
+                      All {auctionData.total} players have been auctioned
                     </p>
                   )}
                 </div>
@@ -470,7 +533,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 </div>
               ) : (
                 <AnimatePresence>
-                  {recentBids.slice(0, 8).map((bid, idx) => (
+                  {recentBids.slice(0, 5).map((bid, idx) => (
                     <motion.div
                       key={bid._id}
                       initial={{ opacity: 0, x: 20 }}
@@ -494,6 +557,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   ))}
                 </AnimatePresence>
               )}
+              
             </div>
 
             {/* Quick Stats */}

@@ -100,7 +100,7 @@ export function PlayerCard({ player }: PlayerCardProps) {
       <div className="space-y-2 text-sm">
         <div className="flex justify-between">
           <span className="text-slate-400">Batting</span>
-          <span className="font-semibold">{player.battingBowlingHand}-handed</span>
+          <span className="font-semibold">{player.battingBowlingHand}</span>
         </div>
 
         <div className="flex justify-between">

@@ -33,7 +33,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     role: 'All-Rounder' as 'Batter' | 'Bowler' | 'All-Rounder',
     battingBowlingHand: 'Right' as 'Right' | 'Left',
     jerseyNumber: undefined as number | undefined,
-    basePrice: 150000,
+    basePrice: 100000,
     availability: 'all' as 'all' | '5' | '6' | '7' | '8',
     photoUrl: '',
   });
