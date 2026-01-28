@@ -19,16 +19,23 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
   const [showImport, setShowImport] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [filterRole, setFilterRole] = useState<string>('all');
-  
+  type StatusFilter = 'all' | 'pending' | 'in_auction' | 'sold' | 'unsold';
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>('all');
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const allPlayers = useQuery(api.players.listByTournament, { tournamentId });
 
   const players = allPlayers?.filter(p => 
-    filterRole === 'all' || p.role === filterRole
+    {const statusMatch = filterStatus === 'all' || p.auctionStatus === filterStatus;
+    const roleMatch = filterRole === 'all' || p.role === filterRole;
+    return statusMatch && roleMatch;}
   );
 
   const stats = {
     total: allPlayers?.length || 0,
+    pending: allPlayers?.filter(p => p.auctionStatus === 'pending').length || 0,
+    inAuction: allPlayers?.filter(p => p.auctionStatus === 'in_auction').length || 0,
+    sold: allPlayers?.filter(p => p.auctionStatus === 'sold').length || 0,
+    unsold: allPlayers?.filter(p => p.auctionStatus === 'unsold').length || 0,
     batters: allPlayers?.filter(p => p.role === 'Batter').length || 0,
     bowlers: allPlayers?.filter(p => p.role === 'Bowler').length || 0,
     allRounders: allPlayers?.filter(p => p.role === 'All-Rounder').length || 0,
@@ -65,28 +72,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-            <div className="text-sm text-slate-400 mb-1">Total</div>
-            <div className="text-2xl font-bold">{stats.total}</div>
-          </div>
-          <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-            <div className="text-sm text-slate-400 mb-1">Batters</div>
-            <div className="text-2xl font-bold text-blue-400">{stats.batters}</div>
-          </div>
-          <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-            <div className="text-sm text-slate-400 mb-1">Bowlers</div>
-            <div className="text-2xl font-bold text-orange-400">{stats.bowlers}</div>
-          </div>
-          <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-            <div className="text-sm text-slate-400 mb-1">All-Rounders</div>
-            <div className="text-2xl font-bold text-purple-400">{stats.allRounders}</div>
-          </div>
-        </div>
-
         {/* Filters */}
-        <div className="flex items-center gap-3 mb-6">
+        {/* <div className="flex items-center gap-3 mb-6">
           <Filter className="w-5 h-5 text-slate-400" />
           <div className="flex gap-2">
             {['all', 'Batter', 'Bowler', 'All-Rounder'].map((role) => (
@@ -103,7 +90,122 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
               </button>
             ))}
           </div>
+        </div> */}
+
+      {/* Stats - Status Based */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <button
+            onClick={() => setFilterStatus('all')}
+            className={`bg-slate-800/50 border rounded-lg p-4 text-left transition hover:border-blue-500 ${
+              filterStatus === 'all' ? 'border-blue-500' : 'border-slate-700'
+            }`}
+          >
+            <div className="text-sm text-slate-400 mb-1">Total</div>
+            <div className="text-2xl font-bold">{stats.total}</div>
+          </button>
+          
+          <button
+            onClick={() => setFilterStatus('pending')}
+            className={`bg-slate-800/50 border rounded-lg p-4 text-left transition hover:border-slate-500 ${
+              filterStatus === 'pending' ? 'border-slate-500' : 'border-slate-700'
+            }`}
+          >
+            <div className="text-sm text-slate-400 mb-1">Pending</div>
+            <div className="text-2xl font-bold text-slate-400">{stats.pending}</div>
+          </button>
+
+          <button
+            onClick={() => setFilterStatus('in_auction')}
+            className={`bg-slate-800/50 border rounded-lg p-4 text-left transition hover:border-yellow-500 ${
+              filterStatus === 'in_auction' ? 'border-yellow-500' : 'border-slate-700'
+            }`}
+          >
+            <div className="text-sm text-slate-400 mb-1">In Auction</div>
+            <div className="text-2xl font-bold text-yellow-400">{stats.inAuction}</div>
+          </button>
+          
+          <button
+            onClick={() => setFilterStatus('sold')}
+            className={`bg-slate-800/50 border rounded-lg p-4 text-left transition hover:border-green-500 ${
+              filterStatus === 'sold' ? 'border-green-500' : 'border-slate-700'
+            }`}
+          >
+            <div className="text-sm text-slate-400 mb-1">Sold</div>
+            <div className="text-2xl font-bold text-green-400">{stats.sold}</div>
+          </button>
+          
+          <button
+            onClick={() => setFilterStatus('unsold')}
+            className={`bg-slate-800/50 border rounded-lg p-4 text-left transition hover:border-red-500 ${
+              filterStatus === 'unsold' ? 'border-red-500' : 'border-slate-700'
+            }`}
+          >
+            <div className="text-sm text-slate-400 mb-1">Unsold</div>
+            <div className="text-2xl font-bold text-red-400">{stats.unsold}</div>
+          </button>
         </div>
+
+        {/* Stats - Role Based */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+          <button
+            onClick={() => setFilterRole('Batter')}
+            className={`bg-slate-800/50 border rounded-lg p-4 text-left transition hover:border-blue-500 ${
+              filterRole === 'Batter' ? 'border-blue-500' : 'border-slate-700'
+            }`}
+          >
+            <div className="text-sm text-slate-400 mb-1">Batters</div>
+            <div className="text-2xl font-bold text-blue-400">{stats.batters}</div>
+          </button>
+          
+          <button
+            onClick={() => setFilterRole('Bowler')}
+            className={`bg-slate-800/50 border rounded-lg p-4 text-left transition hover:border-red-500 ${
+              filterRole === 'Bowler' ? 'border-red-500' : 'border-slate-700'
+            }`}
+          >
+            <div className="text-sm text-slate-400 mb-1">Bowlers</div>
+            <div className="text-2xl font-bold text-red-400">{stats.bowlers}</div>
+          </button>
+          
+          <button
+            onClick={() => setFilterRole('All-Rounder')}
+            className={`bg-slate-800/50 border rounded-lg p-4 text-left transition hover:border-purple-500 ${
+              filterRole === 'All-Rounder' ? 'border-purple-500' : 'border-slate-700'
+            }`}
+          >
+            <div className="text-sm text-slate-400 mb-1">All-Rounders</div>
+            <div className="text-2xl font-bold text-purple-400">{stats.allRounders}</div>
+          </button>
+        </div>
+
+        {/* Active Filters Display */}
+        {(filterStatus !== 'all' || filterRole !== 'all') && (
+          <div className="flex items-center gap-3 mb-6 p-4 bg-blue-600/10 border border-blue-600/30 rounded-lg">
+            <Filter className="w-5 h-5 text-blue-400" />
+            <div className="flex items-center gap-2 flex-1">
+              <span className="text-sm text-slate-300">Active Filters:</span>
+              {filterStatus !== 'all' && (
+                <span className="px-3 py-1 bg-blue-600 rounded-full text-xs font-semibold">
+                  Status: {filterStatus}
+                </span>
+              )}
+              {filterRole !== 'all' && (
+                <span className="px-3 py-1 bg-purple-600 rounded-full text-xs font-semibold">
+                  Role: {filterRole}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                setFilterStatus('all');
+                setFilterRole('all');
+              }}
+              className="text-sm text-blue-400 hover:text-blue-300 transition"
+            >
+              Clear All
+            </button>
+          </div>
+        )}
 
         {/* Players Grid */}
         {!players ? (

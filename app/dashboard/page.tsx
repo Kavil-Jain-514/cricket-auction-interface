@@ -3,7 +3,7 @@
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import Link from 'next/link';
-import { Plus, Trophy, Users, Calendar, TrendingUp } from 'lucide-react';
+import { Plus, Trophy, Users, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useUser } from '@clerk/nextjs';

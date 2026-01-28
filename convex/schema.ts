@@ -112,6 +112,7 @@ export default defineSchema({
     currentBidAmount: v.optional(v.number()),
     currentBidTeamId: v.optional(v.id("teams")),
     bidTimerEndsAt: v.optional(v.number()), // Timestamp when timer expires
+    pausedTimeRemaining: v.optional(v.number()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
