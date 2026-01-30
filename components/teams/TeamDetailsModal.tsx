@@ -43,7 +43,7 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
   // Get top 3 most expensive players
   const topPlayers = [...players]
     .sort((a, b) => (b.soldPrice || 0) - (a.soldPrice || 0))
-    .slice(0, 3);
+    .slice(0, 2);
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">

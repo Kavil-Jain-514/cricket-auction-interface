@@ -9,11 +9,11 @@ interface SoundEffects {
 }
 
 const SOUNDS: SoundEffects = {
-  bid: "/sounds/bid.mp3",
-  sold: "/sounds/sold.mp3",
-  unsold: "/sounds/unsold.mp3",
+  bid: "/sounds/bid.wav",
+  sold: "/sounds/sold.wav",
+  unsold: "/sounds/unsold.wav",
   timer: "/sounds/timer.mp3",
-  nextPlayer: "/sounds/next.mp3",
+  nextPlayer: "/sounds/next.wav",
 };
 
 export function useSound() {
