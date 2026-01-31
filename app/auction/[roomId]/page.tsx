@@ -597,7 +597,20 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           amount={result.amount}
           sold={result.sold}
           teamColor={result.teamColor}
-          onClose={() => setShowResult(false)}
+          onClose={async () => {
+            setShowResult(false);
+            // Auto-advance if auction is still live and there are more players
+            // Wait a tick to let popup close visually
+            setTimeout(async () => {
+              // Only auto-advance if auction is live and not completed
+              if (
+                auctionData?.auctionRoom?.status === 'live' &&
+                (auctionData?.stats?.pending > 0 || auctionData?.stats?.unsold > 0 || auctionData?.stats?.inAuction > 0)
+              ) {
+                await handleNextPlayer();
+              }
+            }, 100);
+          }}
         />
       )}
     </div>

@@ -56,8 +56,8 @@ export function PlayerResultPopup({
     }
 
     if (show) {
-      // Auto-close after 4 seconds
-      const timeout = setTimeout(onClose, 4000);
+      // Auto-close after 1.5 seconds
+      const timeout = setTimeout(onClose, 1500);
       return () => clearTimeout(timeout);
     }
   }, [show, sold, teamColor, onClose]);
