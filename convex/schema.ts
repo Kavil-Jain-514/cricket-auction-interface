@@ -96,7 +96,9 @@ export default defineSchema({
   })
     .index("by_tournament", ["tournamentId"])
     .index("by_team", ["teamId"])
-    .index("by_status", ["auctionStatus"]),
+    .index("by_status", ["auctionStatus"])
+    // CRITICAL: Compound index for efficient player filtering in auctions
+    .index("by_tournament_status", ["tournamentId", "auctionStatus"]),
 
   // Auction Rooms (Live Auction Sessions)
   auctionRooms: defineTable({
@@ -131,7 +133,9 @@ export default defineSchema({
   })
     .index("by_auction_room", ["auctionRoomId"])
     .index("by_player", ["playerId"])
-    .index("by_team", ["teamId"]),
+    .index("by_team", ["teamId"])
+    // Compound index for efficient bid queries by player with ordering
+    .index("by_player_timestamp", ["playerId", "timestamp"]),
 
   // Auction Events (For live feed/notifications)
   auctionEvents: defineTable({
@@ -147,5 +151,7 @@ export default defineSchema({
     timestamp: v.number(),
   })
     .index("by_auction_room", ["auctionRoomId"])
-    .index("by_timestamp", ["timestamp"]),
+    .index("by_timestamp", ["timestamp"])
+    // Compound index for efficient event filtering by room and time
+    .index("by_room_timestamp", ["auctionRoomId", "timestamp"]),
 });

@@ -136,28 +136,50 @@ export const deleteTournament = mutation({
       throw new Error("Cannot delete active tournament");
     }
 
-    // Delete all related data
-    const teams = await ctx.db
-      .query("teams")
-      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
-      .collect();
+    // Fetch all related data in parallel
+    const [teams, players, auctionRooms] = await Promise.all([
+      ctx.db
+        .query("teams")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("players")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("auctionRooms")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+    ]);
 
-    const players = await ctx.db
-      .query("players")
-      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
-      .collect();
+    // Delete all related data in parallel batches
+    const deletePromises: Promise<unknown>[] = [
+      ...players.map((player) => ctx.db.delete(player._id)),
+      ...teams.map((team) => ctx.db.delete(team._id)),
+      ...auctionRooms.map((room) => ctx.db.delete(room._id)),
+    ];
 
-    // Delete all players
-    for (const player of players) {
-      await ctx.db.delete(player._id);
+    // Also delete related bids and events for each auction room
+    for (const room of auctionRooms) {
+      const [bids, events] = await Promise.all([
+        ctx.db
+          .query("bids")
+          .withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id))
+          .collect(),
+        ctx.db
+          .query("auctionEvents")
+          .withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id))
+          .collect(),
+      ]);
+
+      deletePromises.push(
+        ...bids.map((bid) => ctx.db.delete(bid._id)),
+        ...events.map((event) => ctx.db.delete(event._id)),
+      );
     }
 
-    // Delete all teams
-    for (const team of teams) {
-      await ctx.db.delete(team._id);
-    }
-
-    // Delete tournament
+    // Execute all deletes then delete tournament
+    await Promise.all(deletePromises);
     await ctx.db.delete(args.id);
 
     return { success: true };

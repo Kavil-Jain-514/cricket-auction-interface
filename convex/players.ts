@@ -52,10 +52,11 @@ export const bulkImport = mutation({
     players: v.array(v.any()),
   },
   handler: async (ctx, args) => {
-    const playerIds = [];
+    const now = Date.now();
 
-    for (const player of args.players) {
-      const id = await ctx.db.insert("players", {
+    // Batch insert all players in parallel for much better performance
+    const insertPromises = args.players.map((player) =>
+      ctx.db.insert("players", {
         tournamentId: args.tournamentId,
         name: player.name,
         phoneNumber: player.phoneNumber,
@@ -67,12 +68,12 @@ export const bulkImport = mutation({
         basePrice: player.basePrice,
         jerseyNumber: player.jerseyNumber,
         auctionStatus: "pending",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-      playerIds.push(id);
-    }
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
 
+    const playerIds = await Promise.all(insertPromises);
     return { count: playerIds.length, ids: playerIds };
   },
 });

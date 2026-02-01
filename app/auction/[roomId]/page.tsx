@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
 import {useSound} from '@/hooks/useSound';
 import { PlayerResultPopup } from '@/components/auction/PlayerResultPopup';
+import { AuctionCompleteScreen } from '@/components/auction/AuctionCompleteScreen';
 
 interface AuctionPageProps {
   params: Promise<{ roomId: string }>;
@@ -44,8 +45,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const { play } = useSound();
 
   // Timer management with better precision
-    const handleFinalize = useCallback(async () => {
+  const handleFinalize = useCallback(async () => {
     if (showResult) return; // Prevent multiple auto-finalizes
+    
+    // Capture current bid state BEFORE calling finalize mutation
+    // This is important because the mutation clears the auction room state
+    const hadBidder = Boolean(auctionData?.currentBidTeam);
+    const bidAmount = auctionData?.auctionRoom?.currentBidAmount ?? 0;
+    const bidderTeam = auctionData?.currentBidTeam;
+    const playerName = auctionData?.currentPlayer?.name ?? '';
     
     try {
       const res = (await finalizePlayer({ auctionRoomId })) as {
@@ -53,19 +61,27 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         teamName?: string | null;
         amount?: number;
         sold?: boolean;
+        success?: boolean;
       } | null;
 
+      // Use the mutation response, but fall back to captured state if needed
+      // The server sets sold=true when currentBidTeamId && currentBidAmount exist
+      const isSold = res?.sold ?? hadBidder;
+      const finalTeamName = res?.teamName ?? bidderTeam?.name ?? null;
+      const finalAmount = res?.amount ?? bidAmount;
+      const finalPlayerName = res?.playerName ?? playerName;
+
       setResult({
-        playerName: res?.playerName,
-        teamName: res?.teamName ?? null,
-        amount: res?.amount ?? 0,
-        sold: res?.sold ?? false,
-        teamColor: auctionData?.teams?.find(t => t.name === res?.teamName)?.colorPrimary,
+        playerName: finalPlayerName,
+        teamName: finalTeamName,
+        amount: finalAmount,
+        sold: isSold,
+        teamColor: auctionData?.teams?.find(t => t.name === finalTeamName || t._id === bidderTeam?._id)?.colorPrimary,
       });
       setShowResult(true);
 
-      // Play sound
-      if (res?.sold) {
+      // Play sound based on actual sold status
+      if (isSold) {
         play('sold', 0.7);
       } else {
         play('unsold', 0.5);
@@ -74,24 +90,36 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     } catch (error) {
       toast.error(error.message || "Failed to finalize");
     }
-  }, [showResult, finalizePlayer, auctionRoomId, auctionData?.teams, play]);
+  }, [showResult, finalizePlayer, auctionRoomId, auctionData, play]);
+
+  // Timer effect - only runs when auction is live and has a timer
   useEffect(() => {
+    // Don't run timer when paused or no timer set
+    if (auctionData?.auctionRoom?.status !== 'live') {
+      return;
+    }
+
     if (!auctionData?.auctionRoom?.bidTimerEndsAt) {
-      setTimeLeft(0);
       return;
     }
 
     const updateTimer = () => {
+      // Double-check we're still live before updating
+      if (auctionData?.auctionRoom?.status !== 'live') return;
+
       const remaining = Math.max(
         0, 
         Math.ceil((auctionData.auctionRoom.bidTimerEndsAt! - Date.now()) / 1000)
       );
-      setTimeLeft(remaining);
+      
+      // Only update state if value changed (prevents unnecessary re-renders)
+      setTimeLeft((prev) => (prev !== remaining ? remaining : prev));
 
-      // Auto-finalize when timer reaches 0
+      // Auto-finalize when timer reaches 0 AND auction is still live
       if (remaining === 0 && 
           auctionData.auctionRoom.status === 'live' && 
-          auctionData.auctionRoom.currentPlayerId) {
+          auctionData.auctionRoom.currentPlayerId &&
+          !showResult) {
         handleFinalize();
       }
 
@@ -101,16 +129,29 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       }
     };
 
+    // Run immediately then on interval (500ms is smooth enough, reduces CPU)
     updateTimer();
-    const interval = setInterval(updateTimer, 100); // Update every 100ms for precision
+    const interval = setInterval(updateTimer, 500);
     return () => clearInterval(interval);
-  }, [auctionData?.auctionRoom?.bidTimerEndsAt, auctionData?.auctionRoom?.currentPlayerId, auctionData?.auctionRoom?.status, handleFinalize, play]);
+  }, [auctionData?.auctionRoom?.bidTimerEndsAt, auctionData?.auctionRoom?.currentPlayerId, auctionData?.auctionRoom?.status, handleFinalize, play, showResult]);
+
+  // Show paused time when auction is paused (computed, not in effect)
+  const displayTimeLeft = auctionData?.auctionRoom?.status === 'paused' && auctionData?.auctionRoom?.pausedTimeRemaining
+    ? auctionData.auctionRoom.pausedTimeRemaining
+    : timeLeft;
 
   const handleBid = useCallback(async (teamId: Id<"teams">, amount: number) => {
-    if (bidding) return;
-    if (auctionData?.auctionRoom?.status !== 'live') return; // Don't bid if not live
+    // Use a short debounce instead of blocking - allows rapid clicks but prevents spam
+    if (bidding === teamId) return;
+    if (auctionData?.auctionRoom?.status !== 'live') return;
 
+    // Play sound immediately for responsiveness
+    play('bid', 0.5);
     setBidding(teamId);
+
+    // Clear bidding state after a short delay (allows quick successive bids from different teams)
+    setTimeout(() => setBidding(null), 300);
+
     try {
       const res = await placeBid({ 
         auctionRoomId, 
@@ -118,22 +159,13 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         amount 
       });
 
-      // The mutation now returns { success, reason } for validation failures.
       if (res && typeof res === 'object' && 'success' in res) {
         if (!res.success) {
-          // Show friendly message for common validation failures
           toast.error(res.reason || 'Bid rejected');
-          return;
         }
       }
-
-      play('bid', 0.5);
-
     } catch (error) {
-      // Fallback for unexpected errors
       toast.error((error as Error).message || "Failed to place bid");
-    } finally {
-      setBidding(null);
     }
   }, [bidding, auctionData?.auctionRoom?.status, placeBid, auctionRoomId, play]);
 
@@ -172,7 +204,38 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     );
   }
 
-  const { auctionRoom, currentPlayer, currentBidTeam, teams, recentBids } = auctionData;
+  const { auctionRoom, currentPlayer, currentBidTeam, teams, recentBids, soldPlayers } = auctionData;
+
+  // Show auction complete screen when auction is completed
+  if (auctionRoom.status === 'completed') {
+    return (
+      <AuctionCompleteScreen
+        tournamentName={auctionData.tournament?.name || 'Tournament'}
+        tournamentId={auctionData.tournament?._id || ''}
+        soldPlayers={soldPlayers?.map(p => ({
+          _id: p._id,
+          name: p.name,
+          role: p.role,
+          soldPrice: p.soldPrice || 0,
+          teamId: p.teamId || '',
+        })) || []}
+        teams={teams?.map(t => ({
+          _id: t._id,
+          name: t.name,
+          colorPrimary: t.colorPrimary,
+          logoUrl: t.logoUrl,
+          purseSpent: t.purseSpent,
+          purseRemaining: t.purseRemaining,
+        })) || []}
+        stats={{
+          total: auctionData.stats?.total || 0,
+          sold: auctionData.stats?.sold || 0,
+          unsold: auctionData.stats?.unsold || 0,
+        }}
+      />
+    );
+  }
+
   const currentBid = auctionRoom.currentBidAmount || currentPlayer?.basePrice || 0;
   const minNextBid = currentBid + (auctionData.tournament?.settings.minBidIncrement || 25000);
 
@@ -295,103 +358,104 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="grid grid-cols-12 gap-6">
           {/* Teams Panel */}
-          <aside className="col-span-3 space-y-4">
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Users className="w-5 h-5" />
-              Teams
-            </h3>
+          <aside className="col-span-3">
+        <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
+          <Users className="w-5 h-5" />
+          Teams
+        </h3>
+
+        <div className="grid grid-cols-2 gap-4">
+          {teams?.map((team) => {
+            const isCurrentBidder = team._id === currentBidTeam?._id;
+            const canBid = team.purseRemaining >= (isFirstBid ? currentPlayer?.basePrice || 0 : minNextBid);
+            const bidAmount = isFirstBid ? (currentPlayer?.basePrice || 0) : minNextBid;
             
-            {teams?.map((team) => {
-              const isCurrentBidder = team._id === currentBidTeam?._id;
-              const canBid = team.purseRemaining >= (isFirstBid ? currentPlayer?.basePrice || 0 : minNextBid);
-              const bidAmount = isFirstBid ? (currentPlayer?.basePrice || 0) : minNextBid;
+            return (
+          <motion.div
+            key={team._id}
+            whileHover={{ scale: canBid && currentPlayer ? 1.02 : 1 }}
+            className={`
+              relative rounded-xl p-4 border-2 transition-all
+              ${isCurrentBidder 
+            ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' 
+            : 'border-slate-700 bg-slate-800/50'
+              }
+              ${canBid && currentPlayer ? 'hover:border-blue-500 cursor-pointer' : 'opacity-50 cursor-not-allowed'}
+            `}
+            onClick={() => 
+              canBid && currentPlayer && 
+              handleBid(team._id, bidAmount)
+            }
+          >
+            {bidding === team._id && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl z-10">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
+              </div>
+            )}
+
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+            {/* Team Logo */}
+            {team.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img 
+                src={team.logoUrl} 
+                alt={`${team.name} logo`}
+                className="w-8 h-8 rounded-lg object-cover border border-slate-600"
+              />
+            ) : (
+              <div 
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold"
+                style={{ backgroundColor: team.colorPrimary }}>
+                {team.name.charAt(0)}
+              </div>
+            )}
+
+            <span className="font-semibold text-sm truncate">
+              {team.name.substring(0, 10)}
+            </span>
+              </div>
+              {isCurrentBidder && (
+            <Gavel className="w-4 h-4 text-yellow-500 animate-pulse" />
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs">
+            <span className="text-slate-400">Purse Left</span>
+            <span className="font-semibold text-green-400">
+              {formatCurrency(team.purseRemaining)}
+            </span>
+              </div>
               
-              return (
-                <motion.div
-                  key={team._id}
-                  whileHover={{ scale: canBid && currentPlayer ? 1.02 : 1 }}
-                  className={`
-                    relative rounded-xl p-4 border-2 transition-all cursor-pointer
-                    ${isCurrentBidder 
-                      ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' 
-                      : 'border-slate-700 bg-slate-800/50'
-                    }
-                    ${canBid && currentPlayer ? 'hover:border-blue-500' : 'opacity-50 cursor-not-allowed'}
-                  `}
-                  onClick={() => 
-                    canBid && currentPlayer && 
-                    handleBid(team._id, bidAmount)
-                  }
-                >
-                  {bidding === team._id && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl z-10">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
-                    </div>
-                  )}
+              <div className="w-full bg-slate-700 rounded-full h-1.5">
+            <motion.div
+              className="h-1.5 rounded-full transition-all"
+              style={{
+                width: `${(team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100}%`,
+                backgroundColor: team.colorPrimary
+              }}
+            />
+              </div>
 
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                                            {/* Team Logo */}
-                      {team.logoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img 
-                          src={team.logoUrl} 
-                          alt={`${team.name} logo`}
-                          className="w-8 h-8 rounded-lg object-cover border border-slate-600"
-                        />
-                      ) : (
-
-                      <div 
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold"
-                        style={{ backgroundColor: team.colorPrimary }}>
-                          {team.name.charAt(0)}
-                        </div>
-                      )}
-
-                      <span className="font-semibold text-sm truncate">
-                        {team.name}
-                      </span>
-                    </div>
-                    {isCurrentBidder && (
-                      <Gavel className="w-4 h-4 text-yellow-500 animate-pulse" />
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-400">Purse Left</span>
-                      <span className="font-semibold text-green-400">
-                        {formatCurrency(team.purseRemaining)}
-                      </span>
-                    </div>
-                    
-                    <div className="w-full bg-slate-700 rounded-full h-1.5">
-                      <motion.div
-                        className="h-1.5 rounded-full transition-all"
-                        style={{
-                          width: `${(team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100}%`,
-                          backgroundColor: team.colorPrimary
-                        }}
-                      />
-                    </div>
-
-                    {currentPlayer && (
-                      <div className="text-xs text-center mt-2 pt-2 border-t border-slate-700">
-                        {canBid ? (
-                          <span className="text-blue-400 font-semibold">
-                            Bid: {formatCurrency(bidAmount)}
-                          </span>
-                        ) : (
-                          <span className="text-red-400">
-                            Insufficient purse
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              );
-            })}
+              {currentPlayer && (
+            <div className="text-xs text-center mt-2 pt-2 border-t border-slate-700">
+              {canBid ? (
+                <span className="text-blue-400 font-semibold">
+              Bid: {formatCurrency(bidAmount)}
+                </span>
+              ) : (
+                <span className="text-red-400">
+              Insufficient purse
+                </span>
+              )}
+            </div>
+              )}
+            </div>
+          </motion.div>
+            );
+          })}
+        </div>
           </aside>
 
           {/* Center Stage */}
@@ -416,9 +480,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     stroke="currentColor"
                     strokeWidth="8"
                     fill="none"
-                    className={timeLeft <= 10 ? "text-red-500" : "text-blue-500"}
+                    className={displayTimeLeft <= 10 ? "text-red-500" : "text-blue-500"}
                     strokeDasharray="364"
-                    strokeDashoffset={364 - ((timeLeft / (auctionData.tournament?.settings.bidTimerSeconds || 30)) * 364)}
+                    strokeDashoffset={364 - ((displayTimeLeft / (auctionData.tournament?.settings.bidTimerSeconds || 30)) * 364)}
                     transition={{ duration: 0.1, ease: "linear" }}
                   />
                 </svg>
@@ -426,12 +490,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <div className="text-center">
                     <motion.div 
                       className={`text-5xl font-bold ${
-                        timeLeft <= 10 ? 'text-red-500' : 'text-blue-500'
+                        displayTimeLeft <= 10 ? 'text-red-500' : 'text-blue-500'
                       }`}
-                      animate={{ scale: timeLeft <= 5 && timeLeft > 0 ? [1, 1.1, 1] : 1 }}
-                      transition={{ repeat: timeLeft <= 5 && timeLeft > 0 ? Infinity : 0, duration: 1 }}
+                      animate={{ scale: displayTimeLeft <= 5 && displayTimeLeft > 0 ? [1, 1.1, 1] : 1 }}
+                      transition={{ repeat: displayTimeLeft <= 5 && displayTimeLeft > 0 ? Infinity : 0, duration: 1 }}
                     >
-                      {timeLeft}
+                      {displayTimeLeft}
                     </motion.div>
                     <div className="text-xs text-slate-400 mt-1">seconds</div>
                   </div>
