@@ -8,6 +8,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ImageUpload } from '@/components/ui/image-upload';
 import {
   Select,
   SelectContent,
@@ -81,7 +82,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full p-6 my-8">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full p-6 my-8">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold">Add New Player</h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg transition">
@@ -89,63 +90,9 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <Label>Availability *</Label>
-              <div className="flex flex-col gap-2 mt-2">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="availability"
-                    value="all"
-                    checked={formData.availability === 'all'}
-                    onChange={() => setFormData({ ...formData, availability: 'all' })}
-                  />
-                  <span>Available all days</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="availability"
-                    value="5"
-                    checked={formData.availability === '5'}
-                    onChange={() => setFormData({ ...formData, availability: '5' })}
-                  />
-                  <span>Not available on 5th March 2026</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="availability"
-                    value="6"
-                    checked={formData.availability === '6'}
-                    onChange={() => setFormData({ ...formData, availability: '6' })}
-                  />
-                  <span>Not available on 6th March 2026</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="availability"
-                    value="7"
-                    checked={formData.availability === '7'}
-                    onChange={() => setFormData({ ...formData, availability: '7' })}
-                  />
-                  <span>Not available on 7th March 2026</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="availability"
-                    value="8"
-                    checked={formData.availability === '8'}
-                    onChange={() => setFormData({ ...formData, availability: '8' })}
-                  />
-                  <span>Not available on 8th March 2026</span>
-                </label>
-              </div>
-            </div>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Row 1: Name and Phone */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="name">Player Name *</Label>
               <Input
@@ -168,7 +115,10 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 className="mt-2"
               />
             </div>
+          </div>
 
+          {/* Row 2: Age, Role, Hand, Jersey */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <Label htmlFor="age">Age *</Label>
               <Input
@@ -204,14 +154,14 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
               <Label htmlFor="battingHand">Batting/Bowling Hand *</Label>
               <Select
                 value={formData.battingBowlingHand}
-                onValueChange={(value) => setFormData({ ...formData, battingBowlingHand: value as 'Right-handed' | 'Left-handed' })}
+                onValueChange={(value) => setFormData({ ...formData, battingBowlingHand: value as 'Right' | 'Left' })}
               >
                 <SelectTrigger className="mt-2">
                   <SelectValue placeholder="Select hand" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Right-handed">Right-handed</SelectItem>
-                  <SelectItem value="Left-handed">Left-handed</SelectItem>
+                  <SelectItem value="Right">Right-handed</SelectItem>
+                  <SelectItem value="Left">Left-handed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -232,39 +182,102 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 className="mt-2"
               />
             </div>
+          </div>
 
-            <div className="md:col-span-2">
-              <Label htmlFor="basePrice">Base Price (₹) *</Label>
-              <Input
-                id="basePrice"
-                type="number"
-                required
-                min="50000"
-                step="25000"
-                value={formData.basePrice}
-                onChange={(e) => setFormData({ ...formData, basePrice: parseInt(e.target.value) })}
-                className="mt-2"
-              />
-              <p className="text-xs text-slate-400 mt-1">
-                Current: ₹{(formData.basePrice / 100000).toFixed(2)}L
-              </p>
+          {/* Row 3: Base Price and Photo side by side */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="basePrice">Base Price (₹) *</Label>
+                <Input
+                  id="basePrice"
+                  type="number"
+                  required
+                  min="50000"
+                  step="25000"
+                  value={formData.basePrice}
+                  onChange={(e) => setFormData({ ...formData, basePrice: parseInt(e.target.value) })}
+                  className="mt-2"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  Current: ₹{(formData.basePrice / 100000).toFixed(2)}L
+                </p>
+              </div>
+
+              {/* Availability in left column */}
+              <div>
+                <Label>Availability *</Label>
+                <div className="grid grid-cols-1 gap-1.5 mt-2 text-sm">
+                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="availability"
+                      value="all"
+                      checked={formData.availability === 'all'}
+                      onChange={() => setFormData({ ...formData, availability: 'all' })}
+                      className="accent-blue-500"
+                    />
+                    <span>Available all days</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="availability"
+                      value="5"
+                      checked={formData.availability === '5'}
+                      onChange={() => setFormData({ ...formData, availability: '5' })}
+                      className="accent-blue-500"
+                    />
+                    <span>Not available on 5th March 2026</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="availability"
+                      value="6"
+                      checked={formData.availability === '6'}
+                      onChange={() => setFormData({ ...formData, availability: '6' })}
+                      className="accent-blue-500"
+                    />
+                    <span>Not available on 6th March 2026</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="availability"
+                      value="7"
+                      checked={formData.availability === '7'}
+                      onChange={() => setFormData({ ...formData, availability: '7' })}
+                      className="accent-blue-500"
+                    />
+                    <span>Not available on 7th March 2026</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="availability"
+                      value="8"
+                      checked={formData.availability === '8'}
+                      onChange={() => setFormData({ ...formData, availability: '8' })}
+                      className="accent-blue-500"
+                    />
+                    <span>Not available on 8th March 2026</span>
+                  </label>
+                </div>
+              </div>
             </div>
 
             <div>
-              <Label htmlFor="photoUrl">Photo URL</Label>
-              <Input
-                id="photoUrl"
-                value={formData.photoUrl}
-                onChange={(e) => setFormData({ ...formData, photoUrl: e.target.value })}
-                placeholder="e.g., https://example.com/photo.jpg"
-                className="mt-2"
-              />
+              <Label>Player Photo</Label>
+              <div className="mt-2">
+                <ImageUpload
+                  value={formData.photoUrl}
+                  onChange={(url) => setFormData({ ...formData, photoUrl: url || '' })}
+                  folder="players"
+                  aspectRatio="square"
+                />
+              </div>
             </div>
-
-            <div className="md:col-span-2">
-
-            </div>
-            
           </div>
 
           <div className="pt-4 flex gap-3">

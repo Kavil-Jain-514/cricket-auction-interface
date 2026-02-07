@@ -181,6 +181,37 @@ export const deletePlayer = mutation({
   },
 });
 
+export const deleteAllByTournament = mutation({
+  args: {
+    tournamentId: v.id("tournaments"),
+    includesSold: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_tournament", (q) =>
+        q.eq("tournamentId", args.tournamentId),
+      )
+      .collect();
+
+    // Filter out sold players unless explicitly included
+    const playersToDelete = args.includesSold
+      ? players.filter((p) => p.auctionStatus !== "in_auction")
+      : players.filter(
+          (p) => p.auctionStatus !== "sold" && p.auctionStatus !== "in_auction",
+        );
+
+    // Delete in parallel for performance
+    await Promise.all(playersToDelete.map((p) => ctx.db.delete(p._id)));
+
+    return {
+      success: true,
+      deletedCount: playersToDelete.length,
+      skippedCount: players.length - playersToDelete.length,
+    };
+  },
+});
+
 export const assignToTeam = mutation({
   args: {
     playerId: v.id("players"),

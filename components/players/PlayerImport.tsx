@@ -26,6 +26,49 @@ interface ParsedPlayer {
     dates?: string[];
   };
   basePrice: number;
+  photoUrl?: string;
+}
+
+// Convert Google Drive sharing link to direct image URL
+function parseGoogleDriveUrl(url: string | undefined): string | undefined {
+  if (!url || typeof url !== 'string') return undefined;
+  
+  const trimmedUrl = url.trim();
+  if (!trimmedUrl) return undefined;
+
+  // Pattern 1: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
+  // Pattern 2: https://drive.google.com/open?id=FILE_ID
+  // Pattern 3: https://drive.google.com/uc?id=FILE_ID
+  
+  let fileId: string | null = null;
+
+  // Extract file ID from various Google Drive URL formats
+  const patterns = [
+    /\/file\/d\/([a-zA-Z0-9_-]+)/,  // /file/d/FILE_ID/
+    /[?&]id=([a-zA-Z0-9_-]+)/,      // ?id=FILE_ID or &id=FILE_ID
+    /\/d\/([a-zA-Z0-9_-]+)/,        // /d/FILE_ID/
+  ];
+
+  for (const pattern of patterns) {
+    const match = trimmedUrl.match(pattern);
+    if (match) {
+      fileId = match[1];
+      break;
+    }
+  }
+
+  if (fileId) {
+    // Use the direct export URL - works for publicly shared files
+    // This format bypasses CORS issues better than thumbnail URL
+    return `https://lh3.googleusercontent.com/d/${fileId}=w400`;
+  }
+
+  // If it's already a direct image URL, return as-is
+  if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
+    return trimmedUrl;
+  }
+
+  return undefined;
 }
 
 export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
@@ -83,7 +126,11 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             jerseyNumber: row['Jersey Number'] ? parseInt(row['Jersey Number']) : undefined,
             availability,
             basePrice: parseInt(row['Base Price']) || 100000,
+            photoUrl: parseGoogleDriveUrl(row['Profile Photo'] as string | undefined),
           };
+
+          // Debug: Log photo URL parsing
+          console.log(`Player ${player.name}: Raw URL = "${row['Profile Photo']}" -> Parsed = "${player.photoUrl}"`);
 
           // Validation
           if (!player.name) {
@@ -217,6 +264,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
               <table className="w-full">
                 <thead className="bg-slate-900">
                   <tr>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Photo</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Name</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Role</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Age</th>
@@ -228,6 +276,38 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                 <tbody className="divide-y divide-slate-700">
                   {parsed.slice(0, 10).map((player, idx) => (
                     <tr key={idx} className="hover:bg-slate-700/50">
+                      <td className="px-4 py-3">
+                        {player.photoUrl ? (
+                          <div className="relative w-10 h-10">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img 
+                              src={player.photoUrl} 
+                              alt={player.name}
+                              className="w-10 h-10 rounded-full object-cover border border-slate-600"
+                              referrerPolicy="no-referrer"
+                              crossOrigin="anonymous"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.onerror = null;
+                                // Show initials as fallback
+                                target.style.display = 'none';
+                                const fallback = target.nextElementSibling as HTMLElement;
+                                if (fallback) fallback.style.display = 'flex';
+                              }}
+                            />
+                            <div 
+                              className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 items-center justify-center text-white text-xs font-bold absolute inset-0"
+                              style={{ display: 'none' }}
+                            >
+                              {player.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-white text-xs font-bold">
+                            {player.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-sm">{player.name}</td>
                       <td className="px-4 py-3">
                         <span className="px-2 py-1 bg-purple-600 rounded text-xs">

@@ -12,6 +12,7 @@ import { TeamEditForm } from './TeamEditForm';
 import { TeamDetailsModal } from './TeamDetailsModal';
 import { useMutation } from 'convex/react';
 import { toast } from 'sonner';
+import { TeamLogo } from '@/components/ui/team-logo';
 
 interface TeamCardProps {
   team: Doc<"teams">;
@@ -97,21 +98,12 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3 flex-1">
           {/* Team Logo */}
-          {team.logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img 
-              src={team.logoUrl} 
-              alt={`${team.name} logo`}
-              className="w-12 h-12 rounded-lg object-cover border border-slate-600"
-            />
-          ) : (
-            <div 
-              className="w-12 h-12 rounded-lg flex items-center justify-center text-xl font-bold"
-              style={{ backgroundColor: team.colorPrimary }}
-            >
-              {team.name.charAt(0)}
-            </div>
-          )}
+          <TeamLogo
+            name={team.name}
+            logoUrl={team.logoUrl}
+            primaryColor={team.colorPrimary}
+            size="md"
+          />
           <div>
             <h3 className="text-xl font-bold">{team.name}</h3>
             <p className="text-sm text-slate-400">Owner: {team.ownerName}</p>

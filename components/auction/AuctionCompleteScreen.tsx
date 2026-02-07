@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react';
 import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { TeamLogo } from '@/components/ui/team-logo';
+import { PlayerAvatarCircle } from '@/components/ui/player-avatar';
 
 interface SoldPlayer {
   _id: string;
@@ -14,6 +16,7 @@ interface SoldPlayer {
   role: string;
   soldPrice: number;
   teamId: string;
+  photoUrl?: string;
 }
 
 interface Team {
@@ -182,6 +185,12 @@ export function AuctionCompleteScreen({
                         {index + 1}
                       </div>
 
+                      <PlayerAvatarCircle 
+                        name={player.name}
+                        photoUrl={player.photoUrl}
+                        size="sm"
+                      />
+
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold truncate">{player.name}</p>
                         <p className="text-sm text-slate-400">{player.role}</p>
@@ -234,21 +243,12 @@ export function AuctionCompleteScreen({
                         className="p-3 bg-slate-800/50 rounded-xl"
                       >
                         <div className="flex items-center gap-3 mb-2">
-                          {team.logoUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img 
-                              src={team.logoUrl} 
-                              alt={team.name}
-                              className="w-10 h-10 rounded-lg object-cover"
-                            />
-                          ) : (
-                            <div 
-                              className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold"
-                              style={{ backgroundColor: team.colorPrimary }}
-                            >
-                              {team.name.charAt(0)}
-                            </div>
-                          )}
+                          <TeamLogo
+                            name={team.name}
+                            logoUrl={team.logoUrl}
+                            primaryColor={team.colorPrimary}
+                            size="md"
+                          />
                           <div className="flex-1">
                             <p className="font-semibold">{team.name}</p>
                             <p className="text-sm text-slate-400">{playersCount} players</p>

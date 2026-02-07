@@ -3,10 +3,11 @@
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
-import { X, Users, TrendingUp, Award, ShoppingBag } from 'lucide-react';
+import { X, Users, TrendingUp, Award, ShoppingBag, Crown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatCurrency, getPlayerInitials } from '@/lib/utils';
 import { motion } from 'framer-motion';
+import { PlayerAvatarCircle } from '@/components/ui/player-avatar';
 
 interface TeamDetailsModalProps {
   teamId: Id<"teams">;
@@ -133,6 +134,43 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
             />
           </div>
         </div>
+
+        {/* Captain Section */}
+        {team.captainName && (
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Crown className="w-5 h-5 text-yellow-500" />
+              <h3 className="text-lg font-bold">Team Captain</h3>
+            </div>
+            <div className="bg-linear-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/30 rounded-xl p-4">
+              <div className="flex items-center gap-4">
+                <PlayerAvatarCircle 
+                  name={team.captainName} 
+                  photoUrl={team.captainPhotoUrl} 
+                  size="lg"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl font-bold">{team.captainName}</span>
+                    <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded text-xs font-bold">(C)</span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 text-sm text-slate-400">
+                    {team.captainAge && <span>{team.captainAge} years</span>}
+                    {team.captainRole && (
+                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                        team.captainRole === 'Batter' ? 'bg-blue-600' :
+                        team.captainRole === 'Bowler' ? 'bg-red-600' : 'bg-purple-600'
+                      }`}>
+                        {team.captainRole}
+                      </span>
+                    )}
+                    {team.captainHand && <span>{team.captainHand}-handed</span>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Team Composition */}
         <div className="mb-6">

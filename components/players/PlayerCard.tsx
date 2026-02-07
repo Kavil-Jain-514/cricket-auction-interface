@@ -1,14 +1,15 @@
 "use client";
 
 import { Doc } from '@/convex/_generated/dataModel';
-import { formatCurrency, getPlayerInitials } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { Calendar, Edit, Trash2 } from 'lucide-react';
-import {PlayerEditForm} from './PlayerEditForm';
+import { PlayerEditForm } from './PlayerEditForm';
 import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { toast } from 'sonner';
+import { PlayerAvatar } from '@/components/ui/player-avatar';
 
 interface PlayerCardProps {
   player: Doc<"players">;
@@ -78,9 +79,11 @@ export function PlayerCard({ player }: PlayerCardProps) {
 
       {/* Player Avatar */}
       <div className="flex items-start gap-3 mb-3">
-        <div className="w-16 h-16 bg-linear-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center text-xl font-bold shrink-0">
-          {getPlayerInitials(player.name)}
-        </div>
+        <PlayerAvatar 
+          name={player.name} 
+          photoUrl={player.photoUrl} 
+          size="lg"
+        />
         
         <div className="flex-1 min-w-0">
           <h3 className="font-bold text-lg truncate">{player.name}</h3>

@@ -5,10 +5,12 @@ import { Trophy, XCircle, Sparkles } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useEffect } from 'react';
 import { formatCurrency } from '@/lib/utils';
+import { PlayerAvatar } from '@/components/ui/player-avatar';
 
 interface PlayerResultPopupProps {
   show: boolean;
   playerName: string;
+  playerPhotoUrl?: string;
   teamName: string | null;
   amount: number;
   sold: boolean;
@@ -19,6 +21,7 @@ interface PlayerResultPopupProps {
 export function PlayerResultPopup({
   show,
   playerName,
+  playerPhotoUrl,
   teamName,
   amount,
   sold,
@@ -106,6 +109,12 @@ export function PlayerResultPopup({
                   transition={{ delay: 0.3 }}
                   className="space-y-4"
                 >
+                  <PlayerAvatar 
+                    name={playerName} 
+                    photoUrl={playerPhotoUrl} 
+                    size="xl" 
+                    className="mx-auto rounded-2xl"
+                  />
                   <p className="text-4xl font-bold text-white">{playerName}</p>
                   <p className="text-3xl font-semibold" style={{ color: teamColor }}>
                     to {teamName}
@@ -149,6 +158,12 @@ export function PlayerResultPopup({
                   transition={{ delay: 0.3 }}
                   className="space-y-4"
                 >
+                  <PlayerAvatar 
+                    name={playerName} 
+                    photoUrl={playerPhotoUrl} 
+                    size="xl" 
+                    className="mx-auto rounded-2xl grayscale opacity-75"
+                  />
                   <p className="text-4xl font-bold text-white">{playerName}</p>
                   <p className="text-2xl text-slate-400">
                     Base Price: {formatCurrency(amount)}

@@ -17,6 +17,8 @@ import { formatCurrency } from '@/lib/utils';
 import {useSound} from '@/hooks/useSound';
 import { PlayerResultPopup } from '@/components/auction/PlayerResultPopup';
 import { AuctionCompleteScreen } from '@/components/auction/AuctionCompleteScreen';
+import { PlayerAvatar } from '@/components/ui/player-avatar';
+import { TeamLogo } from '@/components/ui/team-logo';
 
 interface AuctionPageProps {
   params: Promise<{ roomId: string }>;
@@ -41,7 +43,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const [timeLeft, setTimeLeft] = useState(30);
   const [bidding, setBidding] = useState<Id<"teams"> | null>(null);
   const [showResult, setShowResult] = useState(false);
-  const [result, setResult] = useState<unknown>(null);
+  const [result, setResult] = useState<{
+    playerName: string;
+    playerPhotoUrl?: string;
+    teamName: string | null;
+    amount: number;
+    sold: boolean;
+    teamColor?: string;
+  } | null>(null);
   const { play } = useSound();
 
   // Timer management with better precision
@@ -54,6 +63,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     const bidAmount = auctionData?.auctionRoom?.currentBidAmount ?? 0;
     const bidderTeam = auctionData?.currentBidTeam;
     const playerName = auctionData?.currentPlayer?.name ?? '';
+    const playerPhotoUrl = auctionData?.currentPlayer?.photoUrl;
     
     try {
       const res = (await finalizePlayer({ auctionRoomId })) as {
@@ -73,6 +83,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
       setResult({
         playerName: finalPlayerName,
+        playerPhotoUrl,
         teamName: finalTeamName,
         amount: finalAmount,
         sold: isSold,
@@ -395,25 +406,17 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-            {/* Team Logo */}
-            {team.logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img 
-                src={team.logoUrl} 
-                alt={`${team.name} logo`}
-                className="w-8 h-8 rounded-lg object-cover border border-slate-600"
-              />
-            ) : (
-              <div 
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold"
-                style={{ backgroundColor: team.colorPrimary }}>
-                {team.name.charAt(0)}
-              </div>
-            )}
+                {/* Team Logo */}
+                <TeamLogo
+                  name={team.name}
+                  logoUrl={team.logoUrl}
+                  primaryColor={team.colorPrimary}
+                  size="sm"
+                />
 
-            <span className="font-semibold text-sm truncate">
-              {team.name.substring(0, 10)}
-            </span>
+                <span className="font-semibold text-sm truncate">
+                  {team.name.substring(0, 10)}
+                </span>
               </div>
               {isCurrentBidder && (
             <Gavel className="w-4 h-4 text-yellow-500 animate-pulse" />
@@ -514,9 +517,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   className="bg-linear-to-br from-slate-800 to-slate-900 rounded-2xl p-8 border border-slate-700 shadow-2xl"
                 >
                   <div className="flex gap-6 mb-6">
-                    <div className="w-48 h-48 bg-linear-to-br from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center text-6xl font-bold">
-                      {currentPlayer.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                    </div>
+                    <PlayerAvatar 
+                      name={currentPlayer.name} 
+                      photoUrl={currentPlayer.photoUrl} 
+                      size="2xl"
+                      className="rounded-2xl"
+                    />
                     
                     <div className="flex-1">
                       <h2 className="text-4xl font-bold mb-3">
@@ -657,6 +663,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         <PlayerResultPopup
           show={showResult}
           playerName={result.playerName}
+          playerPhotoUrl={result.playerPhotoUrl}
           teamName={result.teamName}
           amount={result.amount}
           sold={result.sold}

@@ -4,11 +4,20 @@ import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
-import { X } from 'lucide-react';
+import { X, Crown, Users, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ImageUpload } from '@/components/ui/image-upload';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface TeamFormProps {
   tournamentId: Id<"tournaments">;
@@ -18,19 +27,20 @@ interface TeamFormProps {
 const PRESET_COLORS = [
   { primary: '#3B82F6', secondary: '#1D4ED8', name: 'Blue' },
   { primary: '#EF4444', secondary: '#DC2626', name: 'Red' },
-  { primary: '#10B981', secondary: '#059669', name: 'Green' },
-  { primary: '#F59E0B', secondary: '#D97706', name: 'Orange' },
   { primary: '#8B5CF6', secondary: '#7C3AED', name: 'Purple' },
-  { primary: '#EC4899', secondary: '#DB2777', name: 'Pink' },
   { primary: '#14B8A6', secondary: '#0D9488', name: 'Teal' },
   { primary: '#F97316', secondary: '#EA580C', name: 'Amber' },
-  { primary: '#6366F1', secondary: '#4F46E5', name: 'Indigo' },
+  { primary: '#FACC15', secondary: '#EAB308', name: 'Yellow' },
+  { primary: '#78716C', secondary: '#57534E', name: 'Stone Gray' },
+  { primary: '#FFF7E6', secondary: '#F3E8D0', name: 'Creame' },
+  { primary: '#A855F7', secondary: '#9333EA', name: 'Violet' },
+  { primary: '#800000', secondary: '#5A0000', name: 'Maroon' },
 ];
 
 export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
   const createTeam = useMutation(api.teams.create);
   const [loading, setLoading] = useState(false);
-  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [step, setStep] = useState<1 | 2>(1);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -39,6 +49,12 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
     logoUrl: '',
     colorPrimary: PRESET_COLORS[0].primary,
     colorSecondary: PRESET_COLORS[0].secondary,
+    // Captain details
+    captainName: '',
+    captainPhotoUrl: '',
+    captainAge: undefined as number | undefined,
+    captainRole: '' as '' | 'Batter' | 'Bowler' | 'All-Rounder',
+    captainHand: '' as '' | 'Right' | 'Left',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -54,6 +70,11 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
         logoUrl: formData.logoUrl || undefined,
         colorPrimary: formData.colorPrimary,
         colorSecondary: formData.colorSecondary,
+        captainName: formData.captainName || undefined,
+        captainPhotoUrl: formData.captainPhotoUrl || undefined,
+        captainAge: formData.captainAge,
+        captainRole: formData.captainRole || undefined,
+        captainHand: formData.captainHand || undefined,
       });
 
       toast.success('Team created successfully!');
@@ -66,9 +87,32 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
     }
   };
 
+  const validateStep1 = () => {
+    if (!formData.name.trim()) {
+      toast.error('Team name is required');
+      return false;
+    }
+    if (!formData.ownerName.trim()) {
+      toast.error('Owner name is required');
+      return false;
+    }
+    return true;
+  };
+
+  const handleNext = () => {
+    if (validateStep1()) {
+      setStep(2);
+    }
+  };
+
+  const handleBack = () => {
+    setStep(1);
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-6">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-3xl w-full p-6 my-8">
+        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold">Add New Team</h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg transition">
@@ -76,147 +120,263 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label htmlFor="name">Team Name *</Label>
-            <Input
-              id="name"
-              required
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="e.g., Mumbai Masters"
-              className="mt-2"
-            />
+        {/* Step Indicator */}
+        <div className="flex items-center justify-center gap-4 mb-8">
+          <div className="flex items-center gap-2">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${
+              step === 1 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-green-600 text-white'
+            }`}>
+              {step > 1 ? <Check className="w-5 h-5" /> : '1'}
+            </div>
+            <span className={`font-medium ${step === 1 ? 'text-white' : 'text-slate-400'}`}>
+              Team Details
+            </span>
           </div>
-
-          <div>
-            <Label htmlFor="ownerName">Owner Name *</Label>
-            <Input
-              id="ownerName"
-              required
-              value={formData.ownerName}
-              onChange={(e) => setFormData({ ...formData, ownerName: e.target.value })}
-              placeholder="e.g., John Doe"
-              className="mt-2"
-            />
+          
+          <div className="w-16 h-0.5 bg-slate-700">
+            <div className={`h-full bg-blue-600 transition-all ${step === 2 ? 'w-full' : 'w-0'}`} />
           </div>
-
-          <div>
-            <Label htmlFor="sponsorName">Sponsor Name (Optional)</Label>
-            <Input
-              id="sponsorName"
-              value={formData.sponsorName}
-              onChange={(e) => setFormData({ ...formData, sponsorName: e.target.value })}
-              placeholder="e.g., ABC Company"
-              className="mt-2"
-            />
+          
+          <div className="flex items-center gap-2">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${
+              step === 2 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-slate-700 text-slate-400'
+            }`}>
+              2
+            </div>
+            <span className={`font-medium ${step === 2 ? 'text-white' : 'text-slate-400'}`}>
+              Captain Details
+            </span>
           </div>
+        </div>
 
-          <div>
-              <Label htmlFor="logoUrl">Team Logo</Label>
-              <div className="mt-2">
-                {logoPreview ? (
-                  <div className="relative w-full">
-                    <div className="flex items-center gap-4 p-4 border border-slate-600 rounded-xl bg-slate-800/30">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img 
-                        src={logoPreview} 
-                        alt="Logo preview" 
-                        className="w-20 h-20 rounded-lg object-cover border border-slate-500"
+        <form onSubmit={handleSubmit}>
+          <AnimatePresence mode="wait">
+            {step === 1 ? (
+              <motion.div
+                key="step1"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-5"
+              >
+                {/* Step 1: Team Details */}
+                <div className="flex items-center gap-2 mb-4">
+                  <Users className="w-5 h-5 text-blue-500" />
+                  <h3 className="text-lg font-semibold">Team Information</h3>
+                </div>
+
+                {/* Row 1: Team Name and Owner Name */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="name">Team Name *</Label>
+                    <Input
+                      id="name"
+                      required
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="e.g., Mumbai Masters"
+                      className="mt-2"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="ownerName">Owner Name *</Label>
+                    <Input
+                      id="ownerName"
+                      required
+                      value={formData.ownerName}
+                      onChange={(e) => setFormData({ ...formData, ownerName: e.target.value })}
+                      placeholder="e.g., John Doe"
+                      className="mt-2"
+                    />
+                  </div>
+                </div>
+
+                {/* Row 2: Sponsor Name */}
+                <div>
+                  <Label htmlFor="sponsorName">Sponsor Name (Optional)</Label>
+                  <Input
+                    id="sponsorName"
+                    value={formData.sponsorName}
+                    onChange={(e) => setFormData({ ...formData, sponsorName: e.target.value })}
+                    placeholder="e.g., ABC Company"
+                    className="mt-2"
+                  />
+                </div>
+
+                {/* Row 3: Logo and Colors side by side */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <Label>Team Logo</Label>
+                    <div className="mt-2">
+                      <ImageUpload
+                        value={formData.logoUrl}
+                        onChange={(url) => setFormData({ ...formData, logoUrl: url || '' })}
+                        folder="teams"
+                        aspectRatio="square"
                       />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-white">Logo uploaded</p>
-                        <p className="text-xs text-slate-400">Click the trash icon to remove</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLogoPreview(null);
-                          setFormData({ ...formData, logoUrl: '' });
-                        }}
-                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
                     </div>
                   </div>
-                ) : (
-                  <label 
-                    htmlFor="logoUrl" 
-                    className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-600 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-slate-800/50 transition-all group"
-                  >
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <svg className="w-8 h-8 mb-2 text-slate-400 group-hover:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      <p className="text-sm text-slate-400 group-hover:text-slate-300">
-                        <span className="font-semibold text-blue-400">Click to upload</span> or drag and drop
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">PNG, JPG, SVG (max 2MB)</p>
+
+                  <div>
+                    <Label>Team Color</Label>
+                    <div className="grid grid-cols-3 gap-2 mt-2">
+                      {PRESET_COLORS.map((color) => (
+                        <button
+                          key={color.name}
+                          type="button"
+                          onClick={() => setFormData({
+                            ...formData,
+                            colorPrimary: color.primary,
+                            colorSecondary: color.secondary,
+                          })}
+                          className={`p-3 rounded-lg border-2 transition ${
+                            formData.colorPrimary === color.primary
+                              ? 'border-white'
+                              : 'border-transparent hover:border-slate-600'
+                          }`}
+                          style={{
+                            background: `linear-gradient(135deg, ${color.primary}, ${color.secondary})`
+                          }}
+                        >
+                          <span className="text-xs font-semibold text-white drop-shadow">
+                            {color.name}
+                          </span>
+                        </button>
+                      ))}
                     </div>
-                  </label>
-                )}
-                <input
-                  id="logoUrl"
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onloadend = () => {
-                        const result = reader.result as string;
-                        setLogoPreview(result);
-                        setFormData({ ...formData, logoUrl: result });
-                      };
-                      reader.readAsDataURL(file);
-                      toast.success('Logo uploaded successfully!');
-                    }
-                  }}
-                />
-              </div>
-            </div>
+                  </div>
+                </div>
 
-          <div>
-            <Label>Team Color</Label>
-            <div className="grid grid-cols-3 gap-3 mt-2">
-              {PRESET_COLORS.map((color) => (
-                <button
-                  key={color.name}
-                  type="button"
-                  onClick={() => setFormData({
-                    ...formData,
-                    colorPrimary: color.primary,
-                    colorSecondary: color.secondary,
-                  })}
-                  className={`p-4 rounded-lg border-2 transition ${
-                    formData.colorPrimary === color.primary
-                      ? 'border-white'
-                      : 'border-transparent hover:border-slate-600'
-                  }`}
-                  style={{
-                    background: `linear-gradient(135deg, ${color.primary}, ${color.secondary})`
-                  }}
-                >
-                  <span className="text-xs font-semibold text-white drop-shadow">
-                    {color.name}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+                {/* Step 1 Actions */}
+                <div className="pt-6 flex gap-3">
+                  <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+                    Cancel
+                  </Button>
+                  <Button type="button" onClick={handleNext} className="flex-1">
+                    Next: Captain Details
+                    <ChevronRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="step2"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-5"
+              >
+                {/* Step 2: Captain Details */}
+                <div className="flex items-center gap-2 mb-4">
+                  <Crown className="w-5 h-5 text-yellow-500" />
+                  <h3 className="text-lg font-semibold">Captain Information (Optional)</h3>
+                </div>
 
-          <div className="pt-4 flex gap-3">
-            <Button type="button" variant="outline" onClick={onClose} className="flex-1">
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading} className="flex-1">
-              {loading ? 'Creating...' : 'Create Team'}
-            </Button>
-          </div>
+                <p className="text-sm text-slate-400 -mt-2 mb-4">
+                  Add details about your team captain. You can skip this step and add later.
+                </p>
+
+                {/* Captain Row 1: Name and Age */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2">
+                    <Label htmlFor="captainName">Captain Name</Label>
+                    <Input
+                      id="captainName"
+                      value={formData.captainName}
+                      onChange={(e) => setFormData({ ...formData, captainName: e.target.value })}
+                      placeholder="e.g., Virat Kohli"
+                      className="mt-2"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="captainAge">Age</Label>
+                    <Input
+                      id="captainAge"
+                      type="number"
+                      min="15"
+                      max="50"
+                      value={formData.captainAge || ''}
+                      onChange={(e) => setFormData({ 
+                        ...formData, 
+                        captainAge: e.target.value ? parseInt(e.target.value) : undefined 
+                      })}
+                      placeholder="e.g., 35"
+                      className="mt-2"
+                    />
+                  </div>
+                </div>
+
+                {/* Captain Row 2: Role and Hand */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Role</Label>
+                    <Select
+                      value={formData.captainRole}
+                      onValueChange={(value) => setFormData({ ...formData, captainRole: value as 'Batter' | 'Bowler' | 'All-Rounder' })}
+                    >
+                      <SelectTrigger className="mt-2">
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Batter">Batter</SelectItem>
+                        <SelectItem value="Bowler">Bowler</SelectItem>
+                        <SelectItem value="All-Rounder">All-Rounder</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label>Batting/Bowling Hand</Label>
+                    <Select
+                      value={formData.captainHand}
+                      onValueChange={(value) => setFormData({ ...formData, captainHand: value as 'Right' | 'Left' })}
+                    >
+                      <SelectTrigger className="mt-2">
+                        <SelectValue placeholder="Select hand" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Right">Right-handed</SelectItem>
+                        <SelectItem value="Left">Left-handed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Captain Photo */}
+                <div>
+                  <Label>Captain Photo</Label>
+                  <div className="mt-2">
+                    <ImageUpload
+                      value={formData.captainPhotoUrl}
+                      onChange={(url) => setFormData({ ...formData, captainPhotoUrl: url || '' })}
+                      folder="players"
+                      aspectRatio="square"
+                      className="max-w-48"
+                    />
+                  </div>
+                </div>
+
+                {/* Step 2 Actions */}
+                <div className="pt-6 flex gap-3">
+                  <Button type="button" variant="outline" onClick={handleBack} className="flex-1">
+                    <ChevronLeft className="w-4 h-4 mr-2" />
+                    Back
+                  </Button>
+                  <Button type="submit" disabled={loading} className="flex-1">
+                    {loading ? 'Creating...' : 'Create Team'}
+                    <Check className="w-4 h-4 ml-2" />
+                  </Button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </form>
       </div>
     </div>

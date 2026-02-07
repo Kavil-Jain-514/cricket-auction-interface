@@ -4,10 +4,18 @@ import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Doc } from '@/convex/_generated/dataModel';
-import { X } from 'lucide-react';
+import { X, Crown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ImageUpload } from '@/components/ui/image-upload';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 
 interface TeamEditFormProps {
@@ -31,7 +39,6 @@ const PRESET_COLORS = [
 export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
   const updateTeam = useMutation(api.teams.update);
   const [loading, setLoading] = useState(false);
-   const [logoPreview, setLogoPreview] = useState<string | null>(team.logoUrl || null);
 
   const [formData, setFormData] = useState({
     name: team.name,
@@ -40,6 +47,12 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
     logoUrl: team.logoUrl || '',
     colorPrimary: team.colorPrimary,
     colorSecondary: team.colorSecondary,
+    // Captain details
+    captainName: team.captainName || '',
+    captainPhotoUrl: team.captainPhotoUrl || '',
+    captainAge: team.captainAge,
+    captainRole: (team.captainRole || '') as '' | 'Batter' | 'Bowler' | 'All-Rounder',
+    captainHand: (team.captainHand || '') as '' | 'Right' | 'Left',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -55,6 +68,11 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
         logoUrl: formData.logoUrl || undefined,
         colorPrimary: formData.colorPrimary,
         colorSecondary: formData.colorSecondary,
+        captainName: formData.captainName || undefined,
+        captainPhotoUrl: formData.captainPhotoUrl || undefined,
+        captainAge: formData.captainAge,
+        captainRole: formData.captainRole || undefined,
+        captainHand: formData.captainHand || undefined,
       });
 
       toast.success('Team updated successfully!');
@@ -69,8 +87,8 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-6">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-3xl w-full p-6 my-8">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold">Edit Team</h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg transition">
@@ -78,31 +96,35 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label htmlFor="name">Team Name *</Label>
-            <Input
-              id="name"
-              required
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="e.g., Mumbai Masters"
-              className="mt-2"
-            />
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Row 1: Team Name and Owner Name */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="name">Team Name *</Label>
+              <Input
+                id="name"
+                required
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="e.g., Mumbai Masters"
+                className="mt-2"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="ownerName">Owner Name *</Label>
+              <Input
+                id="ownerName"
+                required
+                value={formData.ownerName}
+                onChange={(e) => setFormData({ ...formData, ownerName: e.target.value })}
+                placeholder="e.g., John Doe"
+                className="mt-2"
+              />
+            </div>
           </div>
 
-          <div>
-            <Label htmlFor="ownerName">Owner Name *</Label>
-            <Input
-              id="ownerName"
-              required
-              value={formData.ownerName}
-              onChange={(e) => setFormData({ ...formData, ownerName: e.target.value })}
-              placeholder="e.g., John Doe"
-              className="mt-2"
-            />
-          </div>
-
+          {/* Row 2: Sponsor Name */}
           <div>
             <Label htmlFor="sponsorName">Sponsor Name (Optional)</Label>
             <Input
@@ -114,100 +136,134 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
             />
           </div>
 
-          <div>
-            <Label htmlFor="logoUrl">Team Logo</Label>
-            <div className="mt-2">
-                {logoPreview ? (
-                  <div className="relative w-full">
-                    <div className="flex items-center gap-4 p-4 border border-slate-600 rounded-xl bg-slate-800/30">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img 
-                        src={logoPreview} 
-                        alt="Logo preview" 
-                        className="w-20 h-20 rounded-lg object-cover border border-slate-500"
-                      />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-white">Logo uploaded</p>
-                        <p className="text-xs text-slate-400">Click the trash icon to remove</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLogoPreview(null);
-                          setFormData({ ...formData, logoUrl: '' });
-                        }}
-                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <label 
-                    htmlFor="logoUrl" 
-                    className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-600 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-slate-800/50 transition-all group"
-                  >
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <svg className="w-8 h-8 mb-2 text-slate-400 group-hover:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      <p className="text-sm text-slate-400 group-hover:text-slate-300">
-                        <span className="font-semibold text-blue-400">Click to upload</span> or drag and drop
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">PNG, JPG, SVG (max 2MB)</p>
-                    </div>
-                  </label>
-                )}
-                <input
-                  id="logoUrl"
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onloadend = () => {
-                        const result = reader.result as string;
-                        setLogoPreview(result);
-                        setFormData({ ...formData, logoUrl: result });
-                      };
-                      reader.readAsDataURL(file);
-                      toast.success('Logo uploaded successfully!');
-                    }
-                  }}
+          {/* Row 3: Logo and Colors side by side */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <Label>Team Logo</Label>
+              <div className="mt-2">
+                <ImageUpload
+                  value={formData.logoUrl}
+                  onChange={(url) => setFormData({ ...formData, logoUrl: url || '' })}
+                  folder="teams"
+                  aspectRatio="square"
                 />
               </div>
             </div>
 
-          <div>
-            <Label>Team Color</Label>
-            <div className="grid grid-cols-3 gap-3 mt-2">
-              {PRESET_COLORS.map((color) => (
-                <button
-                  key={color.name}
-                  type="button"
-                  onClick={() => setFormData({
-                    ...formData,
-                    colorPrimary: color.primary,
-                    colorSecondary: color.secondary,
+            <div>
+              <Label>Team Color</Label>
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                {PRESET_COLORS.map((color) => (
+                  <button
+                    key={color.name}
+                    type="button"
+                    onClick={() => setFormData({
+                      ...formData,
+                      colorPrimary: color.primary,
+                      colorSecondary: color.secondary,
+                    })}
+                    className={`p-3 rounded-lg border-2 transition ${
+                      formData.colorPrimary === color.primary
+                        ? 'border-white'
+                        : 'border-transparent hover:border-slate-600'
+                    }`}
+                    style={{
+                      background: `linear-gradient(135deg, ${color.primary}, ${color.secondary})`
+                    }}
+                  >
+                    <span className="text-xs font-semibold text-white drop-shadow">
+                      {color.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Captain Section */}
+          <div className="border-t border-slate-700 pt-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Crown className="w-5 h-5 text-yellow-500" />
+              <h3 className="text-lg font-semibold">Captain Details (Optional)</h3>
+            </div>
+            
+            {/* Captain Row 1: Name and Age */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div className="md:col-span-2">
+                <Label htmlFor="captainName">Captain Name</Label>
+                <Input
+                  id="captainName"
+                  value={formData.captainName}
+                  onChange={(e) => setFormData({ ...formData, captainName: e.target.value })}
+                  placeholder="e.g., Virat Kohli"
+                  className="mt-2"
+                />
+              </div>
+              <div>
+                <Label htmlFor="captainAge">Age</Label>
+                <Input
+                  id="captainAge"
+                  type="number"
+                  min="15"
+                  max="50"
+                  value={formData.captainAge || ''}
+                  onChange={(e) => setFormData({ 
+                    ...formData, 
+                    captainAge: e.target.value ? parseInt(e.target.value) : undefined 
                   })}
-                  className={`p-4 rounded-lg border-2 transition ${
-                    formData.colorPrimary === color.primary
-                      ? 'border-white'
-                      : 'border-transparent hover:border-slate-600'
-                  }`}
-                  style={{
-                    background: `linear-gradient(135deg, ${color.primary}, ${color.secondary})`
-                  }}
+                  placeholder="e.g., 35"
+                  className="mt-2"
+                />
+              </div>
+            </div>
+
+            {/* Captain Row 2: Role and Hand */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <Label>Role</Label>
+                <Select
+                  value={formData.captainRole}
+                  onValueChange={(value) => setFormData({ ...formData, captainRole: value as 'Batter' | 'Bowler' | 'All-Rounder' })}
                 >
-                  <span className="text-xs font-semibold text-white drop-shadow">
-                    {color.name}
-                  </span>
-                </button>
-              ))}
+                  <SelectTrigger className="mt-2">
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Batter">Batter</SelectItem>
+                    <SelectItem value="Bowler">Bowler</SelectItem>
+                    <SelectItem value="All-Rounder">All-Rounder</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Batting/Bowling Hand</Label>
+                <Select
+                  value={formData.captainHand}
+                  onValueChange={(value) => setFormData({ ...formData, captainHand: value as 'Right' | 'Left' })}
+                >
+                  <SelectTrigger className="mt-2">
+                    <SelectValue placeholder="Select hand" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Right">Right-handed</SelectItem>
+                    <SelectItem value="Left">Left-handed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Captain Photo */}
+            <div>
+              <Label>Captain Photo</Label>
+              <div className="mt-2">
+                <ImageUpload
+                  value={formData.captainPhotoUrl}
+                  onChange={(url) => setFormData({ ...formData, captainPhotoUrl: url || '' })}
+                  folder="players"
+                  aspectRatio="square"
+                />
+              </div>
             </div>
           </div>
 

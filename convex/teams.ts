@@ -10,6 +10,18 @@ export const create = mutation({
     logoUrl: v.optional(v.string()),
     colorPrimary: v.string(),
     colorSecondary: v.string(),
+    // Captain details
+    captainName: v.optional(v.string()),
+    captainPhotoUrl: v.optional(v.string()),
+    captainAge: v.optional(v.number()),
+    captainRole: v.optional(
+      v.union(
+        v.literal("Batter"),
+        v.literal("Bowler"),
+        v.literal("All-Rounder"),
+      ),
+    ),
+    captainHand: v.optional(v.union(v.literal("Right"), v.literal("Left"))),
   },
   handler: async (ctx, args) => {
     // Get tournament to get base purse
@@ -24,6 +36,11 @@ export const create = mutation({
       logoUrl: args.logoUrl,
       colorPrimary: args.colorPrimary,
       colorSecondary: args.colorSecondary,
+      captainName: args.captainName,
+      captainPhotoUrl: args.captainPhotoUrl,
+      captainAge: args.captainAge,
+      captainRole: args.captainRole,
+      captainHand: args.captainHand,
       purseRemaining: tournament.settings.basePurse,
       purseSpent: 0,
       createdAt: Date.now(),
@@ -80,6 +97,18 @@ export const update = mutation({
     logoUrl: v.optional(v.string()),
     colorPrimary: v.optional(v.string()),
     colorSecondary: v.optional(v.string()),
+    // Captain details
+    captainName: v.optional(v.string()),
+    captainPhotoUrl: v.optional(v.string()),
+    captainAge: v.optional(v.number()),
+    captainRole: v.optional(
+      v.union(
+        v.literal("Batter"),
+        v.literal("Bowler"),
+        v.literal("All-Rounder"),
+      ),
+    ),
+    captainHand: v.optional(v.union(v.literal("Right"), v.literal("Left"))),
   },
   handler: async (ctx, args) => {
     const team = await ctx.db.get(args.id);
