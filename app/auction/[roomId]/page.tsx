@@ -48,6 +48,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     playerName: string;
     playerPhotoUrl?: string;
     teamName: string | null;
+    teamLogoUrl?: string;
     amount: number;
     sold: boolean;
     teamColor?: string;
@@ -81,14 +82,16 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       const finalTeamName = res?.teamName ?? bidderTeam?.name ?? null;
       const finalAmount = res?.amount ?? bidAmount;
       const finalPlayerName = res?.playerName ?? playerName;
+      const winningTeam = auctionData?.teams?.find(t => t.name === finalTeamName || t._id === bidderTeam?._id);
 
       setResult({
         playerName: finalPlayerName,
         playerPhotoUrl,
         teamName: finalTeamName,
+        teamLogoUrl: winningTeam?.logoUrl,
         amount: finalAmount,
         sold: isSold,
-        teamColor: auctionData?.teams?.find(t => t.name === finalTeamName || t._id === bidderTeam?._id)?.colorPrimary,
+        teamColor: winningTeam?.colorPrimary,
       });
       setShowResult(true);
 
@@ -261,7 +264,31 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Trophy className="w-8 h-8 text-yellow-500" />
+              {/* Tournament Logo */}
+              {auctionData.tournament?.logoUrl ? (
+                <div className="relative">
+                  <div className="w-14 h-14 rounded-xl overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img 
+                      src={auctionData.tournament.logoUrl} 
+                      alt={auctionData.tournament.name}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
+                    <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                  </div>
+                </div>
+              ) : (
+                <div className="relative">
+                  <div className="w-14 h-14 rounded-xl bg-linear-to-br from-yellow-500 to-orange-600 flex items-center justify-center border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
+                    <Trophy className="w-8 h-8 text-white" />
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
+                    <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                  </div>
+                </div>
+              )}
               <div>
                 <h1 className="text-2xl font-bold">
                   {auctionData.tournament?.name}
@@ -386,7 +413,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           </div>
         </div>
       </header>
-
+                
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="grid grid-cols-12 gap-6">
           {/* Teams Panel */}
@@ -399,7 +426,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         <div className="grid grid-cols-2 gap-4">
           {teams?.map((team) => {
             const isCurrentBidder = team._id === currentBidTeam?._id;
-            const canBid = team.purseRemaining >= (isFirstBid ? currentPlayer?.basePrice || 0 : minNextBid);
+            const teamPlayerCount = soldPlayers?.filter(p => p.teamId === team._id).length || 0;
+            const maxPlayersPerTeam = auctionData.tournament?.settings.maxPlayersPerTeam || 15;
+            const hasReachedMaxPlayers = teamPlayerCount >= maxPlayersPerTeam;
+            const hasSufficientPurse = team.purseRemaining >= (isFirstBid ? currentPlayer?.basePrice || 0 : minNextBid);
+            const canBid = hasSufficientPurse && !hasReachedMaxPlayers;
             const bidAmount = isFirstBid ? (currentPlayer?.basePrice || 0) : minNextBid;
             
             return (
@@ -445,6 +476,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             </div>
 
             <div className="space-y-2">
+              {/* Players count */}
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400">Players</span>
+                <span className={`font-semibold ${hasReachedMaxPlayers ? 'text-red-400' : 'text-blue-400'}`}>
+                  {teamPlayerCount}/{maxPlayersPerTeam}
+                </span>
+              </div>
+
               <div className="flex justify-between text-xs">
             <span className="text-slate-400">Purse Left</span>
             <span className="font-semibold text-green-400">
@@ -464,7 +503,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
               {currentPlayer && (
             <div className="text-xs text-center mt-2 pt-2 border-t border-slate-700">
-              {canBid ? (
+              {hasReachedMaxPlayers ? (
+                <span className="text-red-400">
+                  Squad full
+                </span>
+              ) : canBid ? (
                 <span className="text-blue-400 font-semibold">
               Bid: {formatCurrency(bidAmount)}
                 </span>
@@ -686,6 +729,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           playerName={result.playerName}
           playerPhotoUrl={result.playerPhotoUrl}
           teamName={result.teamName}
+          teamLogoUrl={result.teamLogoUrl}
           amount={result.amount}
           sold={result.sold}
           teamColor={result.teamColor}

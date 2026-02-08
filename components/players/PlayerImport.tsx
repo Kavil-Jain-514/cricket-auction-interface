@@ -296,14 +296,14 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                               }}
                             />
                             <div 
-                              className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 items-center justify-center text-white text-xs font-bold absolute inset-0"
+                              className="w-10 h-10 rounded-full bg-linear-to-br from-blue-500 to-purple-600 items-center justify-center text-white text-xs font-bold absolute inset-0"
                               style={{ display: 'none' }}
                             >
                               {player.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                             </div>
                           </div>
                         ) : (
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-white text-xs font-bold">
+                          <div className="w-10 h-10 rounded-full bg-linear-to-br from-slate-600 to-slate-700 flex items-center justify-center text-white text-xs font-bold">
                             {player.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                           </div>
                         )}

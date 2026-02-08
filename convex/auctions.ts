@@ -219,14 +219,24 @@ export const placeBid = mutation({
       }
     }
 
-    // SINGLE WRITE - no auctionRoom update!
-    await ctx.db.insert("liveBids", {
-      auctionRoomId: args.auctionRoomId,
-      playerId: auctionRoom.currentPlayerId,
-      teamId: args.teamId,
-      amount: args.amount,
-      timestamp: Date.now(),
-    });
+    const now = Date.now();
+    const bidTimerSeconds = tournament.settings.bidTimerSeconds || 30;
+
+    // Insert bid AND reset timer on every bid
+    await Promise.all([
+      ctx.db.insert("liveBids", {
+        auctionRoomId: args.auctionRoomId,
+        playerId: auctionRoom.currentPlayerId,
+        teamId: args.teamId,
+        amount: args.amount,
+        timestamp: now,
+      }),
+      // Reset timer on every bid
+      ctx.db.patch(args.auctionRoomId, {
+        bidTimerEndsAt: now + bidTimerSeconds * 1000,
+        updatedAt: now,
+      }),
+    ]);
 
     return { success: true, amount: args.amount, teamId: args.teamId };
   },
@@ -360,27 +370,42 @@ export const startNextPlayer = mutation({
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
 
-    let nextPlayer = await ctx.db
+    // Get all pending players and pick randomly
+    const pendingPlayers = await ctx.db
       .query("players")
       .withIndex("by_tournament_status", (q) =>
         q
           .eq("tournamentId", auctionRoom.tournamentId)
           .eq("auctionStatus", "pending"),
       )
-      .first();
+      .collect();
 
-    if (!nextPlayer) {
-      nextPlayer = await ctx.db
+    let nextPlayer = null;
+
+    if (pendingPlayers.length > 0) {
+      // Shuffle and pick a random player from pending
+      const randomIndex = Math.floor(Math.random() * pendingPlayers.length);
+      nextPlayer = pendingPlayers[randomIndex];
+    } else {
+      // No pending players, check for unsold players (second round)
+      const unsoldPlayers = await ctx.db
         .query("players")
         .withIndex("by_tournament_status", (q) =>
           q
             .eq("tournamentId", auctionRoom.tournamentId)
             .eq("auctionStatus", "unsold"),
         )
-        .first();
+        .collect();
+
+      if (unsoldPlayers.length > 0) {
+        // Shuffle and pick a random player from unsold
+        const randomIndex = Math.floor(Math.random() * unsoldPlayers.length);
+        nextPlayer = unsoldPlayers[randomIndex];
+      }
     }
 
     if (!nextPlayer) {
+      // No pending or unsold players - auction complete
       const now = Date.now();
       await Promise.all([
         ctx.db.patch(args.auctionRoomId, {

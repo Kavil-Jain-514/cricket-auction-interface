@@ -3,7 +3,7 @@
 import { Doc, Id } from '@/convex/_generated/dataModel';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import { Users } from 'lucide-react';
+import { Users, Download } from 'lucide-react';
 import { useState } from 'react';
 import { formatCurrency } from '@/lib/utils';
 import { motion } from 'framer-motion';
@@ -13,6 +13,7 @@ import { TeamDetailsModal } from './TeamDetailsModal';
 import { useMutation } from 'convex/react';
 import { toast } from 'sonner';
 import { TeamLogo } from '@/components/ui/team-logo';
+import { generateTeamPdf } from '@/lib/generateTeamPdf';
 
 interface TeamCardProps {
   team: Doc<"teams">;
@@ -33,6 +34,31 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
 
   // Check if can edit/delete (not during active auction)
   const canModify = tournament && tournament.status !== "active" && tournament.status !== "completed";
+
+  const handleDownloadPdf = () => {
+    generateTeamPdf({
+      name: team.name,
+      ownerName: team.ownerName,
+      sponsorName: team.sponsorName,
+      colorPrimary: team.colorPrimary,
+      colorSecondary: team.colorSecondary,
+      purseRemaining: team.purseRemaining,
+      purseSpent: team.purseSpent,
+      captainName: team.captainName,
+      captainAge: team.captainAge,
+      captainRole: team.captainRole,
+      captainHand: team.captainHand,
+      players: teamPlayers.map(p => ({
+        name: p.name,
+        role: p.role,
+        soldPrice: p.soldPrice,
+        age: p.age,
+        battingBowlingHand: p.battingBowlingHand,
+      })),
+      tournamentName: tournament?.name,
+    });
+    toast.success('PDF downloaded successfully');
+  };
 
   const handleDelete = async () => {
     if (!confirm(`Are you sure you want to delete ${team.name}? This action cannot be undone.`)) {
@@ -59,6 +85,13 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
       {canModify && (
           <div className="absolute top-4 right-4 flex gap-2">
             <button
+              onClick={handleDownloadPdf}
+              className="p-2 bg-green-600 hover:bg-green-700 rounded-lg transition"
+              title="Download PDF"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            <button
               onClick={() => setShowDetails(true)}
               className="p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
               title="View Details"
@@ -84,7 +117,14 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
         )}
       
       {!canModify && (
-          <div className="absolute top-4 right-4">
+          <div className="absolute top-4 right-4 flex gap-2">
+            <button
+              onClick={handleDownloadPdf}
+              className="p-2 bg-green-600 hover:bg-green-700 rounded-lg transition"
+              title="Download PDF"
+            >
+              <Download className="w-4 h-4" />
+            </button>
             <button
               onClick={() => setShowDetails(true)}
               className="p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"

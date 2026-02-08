@@ -6,12 +6,14 @@ import confetti from 'canvas-confetti';
 import { useEffect } from 'react';
 import { formatCurrency } from '@/lib/utils';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
+import { TeamLogo } from '@/components/ui/team-logo';
 
 interface PlayerResultPopupProps {
   show: boolean;
   playerName: string;
   playerPhotoUrl?: string;
   teamName: string | null;
+  teamLogoUrl?: string;
   amount: number;
   sold: boolean;
   teamColor?: string;
@@ -23,6 +25,7 @@ export function PlayerResultPopup({
   playerName,
   playerPhotoUrl,
   teamName,
+  teamLogoUrl,
   amount,
   sold,
   teamColor = '#3B82F6',
@@ -31,7 +34,7 @@ export function PlayerResultPopup({
   useEffect(() => {
     if (show && sold) {
       // Confetti burst for sold players
-      const duration = 2000;
+      const duration = 5000;
       const end = Date.now() + duration;
 
       const frame = () => {
@@ -60,7 +63,7 @@ export function PlayerResultPopup({
 
     if (show) {
       // Auto-close after 1.5 seconds
-      const timeout = setTimeout(onClose, 1500);
+      const timeout = setTimeout(onClose, 5000);
       return () => clearTimeout(timeout);
     }
   }, [show, sold, teamColor, onClose]);
@@ -116,9 +119,20 @@ export function PlayerResultPopup({
                     className="mx-auto rounded-2xl"
                   />
                   <p className="text-4xl font-bold text-white">{playerName}</p>
-                  <p className="text-3xl font-semibold" style={{ color: teamColor }}>
-                    to {teamName}
-                  </p>
+                  
+                  {/* Team Logo and Name */}
+                  <div className="flex items-center justify-center gap-3">
+                    <TeamLogo 
+                      name={teamName || ''} 
+                      logoUrl={teamLogoUrl} 
+                      primaryColor={teamColor}
+                      size="lg"
+                    />
+                    <p className="text-3xl font-semibold" style={{ color: teamColor }}>
+                      {teamName}
+                    </p>
+                  </div>
+                  
                   <p className="text-6xl font-bold text-yellow-500 mt-4">
                     {formatCurrency(amount)}
                   </p>
