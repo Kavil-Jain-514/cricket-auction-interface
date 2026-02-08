@@ -247,7 +247,10 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
         <div className="grid md:grid-cols-2 gap-6">
           <Link href={`/tournament/${tournamentId}/teams`}>
             <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 hover:border-blue-500 transition cursor-pointer group">
-              <Users className="w-12 h-12 text-blue-500 mb-4 group-hover:scale-110 transition" />
+              <div className="flex items-center justify-between mb-4">
+                <Users className="w-12 h-12 text-blue-500 group-hover:scale-110 transition" />
+                <span className="text-3xl font-bold text-blue-400">{teams?.length || 0}</span>
+              </div>
               <h3 className="text-2xl font-bold mb-2">Manage Teams</h3>
               <p className="text-slate-400 mb-4">
                 Add, edit, and organize your tournament teams
@@ -261,7 +264,10 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
 
           <Link href={`/tournament/${tournamentId}/players`}>
             <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 hover:border-green-500 transition cursor-pointer group">
-              <UserPlus className="w-12 h-12 text-green-500 mb-4 group-hover:scale-110 transition" />
+              <div className="flex items-center justify-between mb-4">
+                <UserPlus className="w-12 h-12 text-green-500 group-hover:scale-110 transition" />
+                <span className="text-3xl font-bold text-green-400">{players?.length || 0}</span>
+              </div>
               <h3 className="text-2xl font-bold mb-2">Manage Players</h3>
               <p className="text-slate-400 mb-4">
                 Add players, import from Excel, set base prices

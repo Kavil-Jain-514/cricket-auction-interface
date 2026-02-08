@@ -63,13 +63,6 @@ export const listByTournament = query({
   },
 });
 
-export const getById = query({
-  args: { id: v.id("teams") },
-  handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
-  },
-});
-
 export const getWithPlayers = query({
   args: { id: v.id("teams") },
   handler: async (ctx, args) => {
@@ -158,23 +151,6 @@ export const deleteTeam = mutation({
     }
 
     await ctx.db.delete(args.id);
-    return { success: true };
-  },
-});
-
-export const updatePurse = mutation({
-  args: {
-    id: v.id("teams"),
-    purseRemaining: v.number(),
-    purseSpent: v.number(),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, {
-      purseRemaining: args.purseRemaining,
-      purseSpent: args.purseSpent,
-      updatedAt: Date.now(),
-    });
-
     return { success: true };
   },
 });

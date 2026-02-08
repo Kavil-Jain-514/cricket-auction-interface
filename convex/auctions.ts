@@ -572,23 +572,95 @@ export const getAuctionRooms = query({
   },
 });
 
-// Stream live bids for real-time updates
-export const streamLiveBids = query({
-  args: { auctionRoomId: v.id("auctionRooms") },
+// Restart auction - reset all players, teams, and auction state
+export const restartAuction = mutation({
+  args: {
+    auctionRoomId: v.id("auctionRooms"),
+  },
   handler: async (ctx, args) => {
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom || !auctionRoom.currentPlayerId) {
-      return { bids: [], currentPlayerId: null };
-    }
+    if (!auctionRoom) throw new Error("Auction room not found");
 
-    const bids = await ctx.db
-      .query("liveBids")
-      .withIndex("by_player", (q) =>
-        q.eq("playerId", auctionRoom.currentPlayerId!),
-      )
-      .order("desc")
-      .take(20);
+    const tournament = await ctx.db.get(auctionRoom.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
 
-    return { bids, currentPlayerId: auctionRoom.currentPlayerId };
+    const now = Date.now();
+    const basePurse = tournament.settings.basePurse;
+
+    // Get all related data
+    const [players, teams, liveBids, bids, events] = await Promise.all([
+      ctx.db
+        .query("players")
+        .withIndex("by_tournament", (q) =>
+          q.eq("tournamentId", auctionRoom.tournamentId),
+        )
+        .collect(),
+      ctx.db
+        .query("teams")
+        .withIndex("by_tournament", (q) =>
+          q.eq("tournamentId", auctionRoom.tournamentId),
+        )
+        .collect(),
+      ctx.db
+        .query("liveBids")
+        .withIndex("by_room", (q) => q.eq("auctionRoomId", args.auctionRoomId))
+        .collect(),
+      ctx.db
+        .query("bids")
+        .withIndex("by_auction_room", (q) =>
+          q.eq("auctionRoomId", args.auctionRoomId),
+        )
+        .collect(),
+      ctx.db
+        .query("auctionEvents")
+        .withIndex("by_auction_room", (q) =>
+          q.eq("auctionRoomId", args.auctionRoomId),
+        )
+        .collect(),
+    ]);
+
+    // Reset everything in parallel
+    await Promise.all([
+      // Reset auction room
+      ctx.db.patch(args.auctionRoomId, {
+        status: "waiting",
+        currentPlayerId: undefined,
+        currentBidAmount: undefined,
+        currentBidTeamId: undefined,
+        bidTimerEndsAt: undefined,
+        pausedTimeRemaining: undefined,
+        updatedAt: now,
+      }),
+      // Reset tournament status
+      ctx.db.patch(auctionRoom.tournamentId, {
+        status: "setup",
+        updatedAt: now,
+      }),
+      // Reset all players
+      ...players.map((player) =>
+        ctx.db.patch(player._id, {
+          auctionStatus: "pending",
+          soldPrice: undefined,
+          teamId: undefined,
+          updatedAt: now,
+        }),
+      ),
+      // Reset all team purses
+      ...teams.map((team) =>
+        ctx.db.patch(team._id, {
+          purseRemaining: basePurse,
+          purseSpent: 0,
+          updatedAt: now,
+        }),
+      ),
+      // Delete all live bids
+      ...liveBids.map((bid) => ctx.db.delete(bid._id)),
+      // Delete all permanent bids
+      ...bids.map((bid) => ctx.db.delete(bid._id)),
+      // Delete all auction events
+      ...events.map((event) => ctx.db.delete(event._id)),
+    ]);
+
+    return { success: true, message: "Auction has been reset" };
   },
 });

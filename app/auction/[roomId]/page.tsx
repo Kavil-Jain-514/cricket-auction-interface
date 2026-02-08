@@ -9,7 +9,7 @@ import { Id } from '@/convex/_generated/dataModel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   SkipForward, Trophy, 
-  TrendingUp, Users, Gavel , RotateCcw, Play, Pause
+  TrendingUp, Users, Gavel , RotateCcw, Play, Pause, RefreshCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -39,6 +39,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const startAuction = useMutation(api.auctions.startAuction);
   const pauseAuction = useMutation(api.auctions.pauseAuction);
   const resumeAuction = useMutation(api.auctions.resumeAuction);
+  const restartAuction = useMutation(api.auctions.restartAuction);
 
   const [timeLeft, setTimeLeft] = useState(30);
   const [bidding, setBidding] = useState<Id<"teams"> | null>(null);
@@ -342,6 +343,26 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   Resume
                 </Button>
               )}
+
+              {/* Restart Auction Button */}
+              <Button
+                onClick={async () => {
+                  if (!confirm("Are you sure you want to restart the auction? This will reset ALL players, teams purses, and bid history. This action cannot be undone.")) return;
+                  try {
+                    await restartAuction({ auctionRoomId });
+                    toast.success('Auction has been reset!');
+                  } catch (error) {
+                    toast.error((error as Error).message || 'Failed to restart auction');
+                  }
+                }}
+                variant="outline"
+                size="lg"
+                className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                title="Restart auction from the beginning"
+              >
+                <RefreshCcw className="w-5 h-5 mr-2" />
+                Restart
+              </Button>
 
 
               <Button

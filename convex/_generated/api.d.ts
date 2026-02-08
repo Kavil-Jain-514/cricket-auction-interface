@@ -12,7 +12,6 @@ import type * as auctions from "../auctions.js";
 import type * as players from "../players.js";
 import type * as teams from "../teams.js";
 import type * as tournaments from "../tournaments.js";
-import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -25,7 +24,6 @@ declare const fullApi: ApiFromModules<{
   players: typeof players;
   teams: typeof teams;
   tournaments: typeof tournaments;
-  users: typeof users;
 }>;
 
 /**

@@ -100,13 +100,6 @@ export const listByTournament = query({
   },
 });
 
-export const getById = query({
-  args: { id: v.id("players") },
-  handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
-  },
-});
-
 export const update = mutation({
   args: {
     id: v.id("players"),

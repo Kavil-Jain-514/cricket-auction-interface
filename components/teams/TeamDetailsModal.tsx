@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { formatCurrency, getPlayerInitials } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { PlayerAvatarCircle } from '@/components/ui/player-avatar';
+import { TeamLogo } from '@/components/ui/team-logo';
 
 interface TeamDetailsModalProps {
   teamId: Id<"teams">;
@@ -56,14 +57,12 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div className="flex items-center gap-4">
-            <div 
-              className="w-16 h-16 rounded-xl flex items-center justify-center text-2xl font-bold"
-              style={{ 
-                background: `linear-gradient(135deg, ${team.colorPrimary}, ${team.colorSecondary})` 
-              }}
-            >
-              {team.name.substring(0, 2).toUpperCase()}
-            </div>
+            <TeamLogo
+            name={team.name}
+            logoUrl={team.logoUrl}
+            primaryColor={team.colorPrimary}
+            size="lg"
+          />
             <div>
               <h2 className="text-3xl font-bold">{team.name}</h2>
               <p className="text-slate-400">Owner: {team.ownerName}</p>

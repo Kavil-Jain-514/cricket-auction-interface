@@ -42,7 +42,7 @@ export function PlayerAvatar({
   return (
     <div 
       className={cn(
-        'relative rounded-lg overflow-hidden flex-shrink-0',
+        'relative rounded-lg overflow-hidden shrink-0',
         sizeClasses[size],
         showBorder && borderSizeClasses[size],
         showBorder && 'border-slate-600',
@@ -82,7 +82,7 @@ export function PlayerAvatarCircle({
   return (
     <div 
       className={cn(
-        'relative rounded-full overflow-hidden flex-shrink-0',
+        'relative rounded-full overflow-hidden shrink-0',
         sizeClasses[size],
         showBorder && borderSizeClasses[size],
         showBorder && 'border-slate-600',
