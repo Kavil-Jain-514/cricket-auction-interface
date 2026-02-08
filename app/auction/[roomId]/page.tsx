@@ -19,6 +19,7 @@ import { PlayerResultPopup } from '@/components/auction/PlayerResultPopup';
 import { AuctionCompleteScreen } from '@/components/auction/AuctionCompleteScreen';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { TeamLogo } from '@/components/ui/team-logo';
+import Image from 'next/image';
 
 interface AuctionPageProps {
   params: Promise<{ roomId: string }>;
@@ -423,7 +424,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           Teams
         </h3>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-3">
           {teams?.map((team) => {
             const isCurrentBidder = team._id === currentBidTeam?._id;
             const teamPlayerCount = soldPlayers?.filter(p => p.teamId === team._id).length || 0;
@@ -436,14 +437,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             return (
           <motion.div
             key={team._id}
-            whileHover={{ scale: canBid && currentPlayer ? 1.02 : 1 }}
+            whileHover={{ scale: canBid && currentPlayer ? 1.03 : 1 }}
+            whileTap={{ scale: canBid && currentPlayer ? 0.97 : 1 }}
             className={`
-              relative rounded-xl p-4 border-2 transition-all
+              relative rounded-xl p-3 border-2 transition-all cursor-pointer
               ${isCurrentBidder 
             ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' 
             : 'border-slate-700 bg-slate-800/50'
               }
-              ${canBid && currentPlayer ? 'hover:border-blue-500 cursor-pointer' : 'opacity-50 cursor-not-allowed'}
+              ${canBid && currentPlayer ? 'hover:border-blue-500' : 'opacity-50 cursor-not-allowed'}
             `}
             onClick={() => 
               canBid && currentPlayer && 
@@ -452,71 +454,38 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           >
             {bidding === team._id && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl z-10">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white" />
               </div>
             )}
 
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                {/* Team Logo */}
-                <TeamLogo
-                  name={team.name}
-                  logoUrl={team.logoUrl}
-                  primaryColor={team.colorPrimary}
-                  size="sm"
-                />
+            <div className="flex items-center gap-2">
+              {/* Team Logo */}
+              <TeamLogo
+                name={team.name}
+                logoUrl={team.logoUrl}
+                primaryColor={team.colorPrimary}
+                size="sm"
+              />
 
-                <span className="font-semibold text-sm truncate">
-                  {team.name.substring(0, 10)}
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold text-sm truncate block">
+                  {team.name}
                 </span>
+                {currentPlayer && (
+                  <span className={`text-xs ${
+                    hasReachedMaxPlayers ? 'text-red-400' : 
+                    !hasSufficientPurse ? 'text-red-400' : 
+                    'text-blue-400'
+                  }`}>
+                    {hasReachedMaxPlayers ? 'Full' : 
+                     !hasSufficientPurse ? 'Low purse' : 
+                     formatCurrency(bidAmount)}
+                  </span>
+                )}
               </div>
+
               {isCurrentBidder && (
-            <Gavel className="w-4 h-4 text-yellow-500 animate-pulse" />
-              )}
-            </div>
-
-            <div className="space-y-2">
-              {/* Players count */}
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-400">Players</span>
-                <span className={`font-semibold ${hasReachedMaxPlayers ? 'text-red-400' : 'text-blue-400'}`}>
-                  {teamPlayerCount}/{maxPlayersPerTeam}
-                </span>
-              </div>
-
-              <div className="flex justify-between text-xs">
-            <span className="text-slate-400">Purse Left</span>
-            <span className="font-semibold text-green-400">
-              {formatCurrency(team.purseRemaining)}
-            </span>
-              </div>
-              
-              <div className="w-full bg-slate-700 rounded-full h-1.5">
-            <motion.div
-              className="h-1.5 rounded-full transition-all"
-              style={{
-                width: `${(team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100}%`,
-                backgroundColor: team.colorPrimary
-              }}
-            />
-              </div>
-
-              {currentPlayer && (
-            <div className="text-xs text-center mt-2 pt-2 border-t border-slate-700">
-              {hasReachedMaxPlayers ? (
-                <span className="text-red-400">
-                  Squad full
-                </span>
-              ) : canBid ? (
-                <span className="text-blue-400 font-semibold">
-              Bid: {formatCurrency(bidAmount)}
-                </span>
-              ) : (
-                <span className="text-red-400">
-              Insufficient purse
-                </span>
-              )}
-            </div>
+                <Gavel className="w-4 h-4 text-yellow-500 animate-pulse shrink-0" />
               )}
             </div>
           </motion.div>
@@ -749,6 +718,67 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           }}
         />
       )}
+
+      {/* Live Stats Crawler/Ticker */}
+      <div className="fixed bottom-0 left-0 right-0 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 border-t border-slate-700 py-2 z-40 overflow-hidden">
+        <div className="relative flex items-center">
+          <div className="absolute left-0 w-16 h-full bg-linear-to-r from-slate-900 to-transparent z-10" />
+          <div className="absolute right-0 w-16 h-full bg-linear-to-l from-slate-900 to-transparent z-10" />
+          <motion.div
+            className="flex gap-8 px-8 whitespace-nowrap"
+            animate={{ x: ["0%", "-50%"] }}
+            transition={{
+              x: {
+                repeat: Infinity,
+                repeatType: "loop",
+                duration: 20,
+                ease: "linear",
+              },
+            }}
+          >
+            {/* Duplicate content for seamless loop */}
+            {[...Array(2)].map((_, loopIndex) => (
+              <div key={loopIndex} className="flex gap-8">
+                {auctionData?.teams?.map((team) => {
+                  const teamPlayers = soldPlayers?.filter(p => p.teamId === team._id) || [];
+                  return (
+                    <div 
+                      key={`${loopIndex}-${team._id}`}
+                      className="flex items-center gap-2 bg-slate-800/50 rounded-full px-4 py-1.5 border border-slate-700 shrink-0"
+                    >
+                      {team.logoUrl ? (
+                        <Image 
+                          src={team.logoUrl} 
+                          alt={team.name} 
+                          width={24}
+                          height={24}
+                          className="w-6 h-6 rounded-full object-cover shrink-0"
+                        />
+                      ) : (
+                        <div 
+                          className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                          style={{ backgroundColor: team.primaryColor || '#6366f1' }}
+                        >
+                          {team.name.charAt(0)}
+                        </div>
+                      )}
+                      <span className="font-medium text-white text-sm">{team.name}</span>
+                      <span className="text-slate-500">•</span>
+                      <span className="text-emerald-400 font-semibold text-sm">
+                        {formatCurrency(team.purseRemaining || 0)}
+                      </span>
+                      <span className="text-slate-500">•</span>
+                      <span className={`text-sm font-medium ${teamPlayers.length >= (auctionData.tournament?.settings.maxPlayersPerTeam || 15) ? 'text-red-400' : 'text-sky-400'}`}>
+                        {teamPlayers.length}/{auctionData.tournament?.settings.maxPlayersPerTeam || 15}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </motion.div>
+        </div>
+      </div>
     </div>
   );
 }
