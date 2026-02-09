@@ -15,13 +15,15 @@ interface PlayerCardProps {
   player: Doc<"players">;
 }
 
-const roleColors = {
+const roleColors: Record<string, string> = {
   'Batter': 'bg-blue-600',
   'Bowler': 'bg-orange-600',
   'All-Rounder': 'bg-purple-600',
+  'All Rounder': 'bg-purple-600',
+  'Wicket-Keeper': 'bg-green-600',
 };
 
-const statusColors = {
+const statusColors: Record<string, string> = {
   'pending': 'bg-slate-600',
   'in_auction': 'bg-yellow-600',
   'sold': 'bg-green-600',
@@ -45,7 +47,7 @@ export function PlayerCard({ player }: PlayerCardProps) {
       await deletePlayer({ id: player._id });
       toast.success('Player deleted successfully');
     } catch (error) {
-      toast.error(error?.message || 'Failed to delete player');
+      toast.error((error as Error)?.message || 'Failed to delete player');
     } finally {
       setDeleting(false);
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -13,7 +13,7 @@ import { ArrowLeft, Play, Trophy } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
-export default function CreateAuctionPage() {
+function CreateAuctionContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get('tournamentId') as Id<"tournaments"> | null;
@@ -212,5 +212,26 @@ export default function CreateAuctionPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
+      <Navbar />
+      <main className="max-w-2xl mx-auto px-6 py-8">
+        <div className="flex items-center justify-center py-20">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default function CreateAuctionPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <CreateAuctionContent />
+    </Suspense>
   );
 }

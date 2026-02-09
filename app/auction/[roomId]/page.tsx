@@ -104,7 +104,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       }
 
     } catch (error) {
-      toast.error(error.message || "Failed to finalize");
+      toast.error((error as Error)?.message || "Failed to finalize");
     }
   }, [showResult, finalizePlayer, auctionRoomId, auctionData, play]);
 
@@ -197,7 +197,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         toast.success("Next player loaded!");
       }
     } catch (error) {
-      toast.error(error.message || "Failed to load next player");
+      toast.error((error as Error).message || "Failed to load next player");
     }
   }, [startNext, auctionRoomId, play]);
 
@@ -208,7 +208,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       await revertBid({ auctionRoomId });
       toast.success("Last bid reverted successfully");
     } catch (error) {
-      toast.error(error.message || "Failed to revert bid");
+      toast.error((error as Error).message || "Failed to revert bid");
     }
   }, [revertBid, auctionRoomId]);
   
@@ -298,7 +298,6 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   {auctionRoom.status === 'waiting' && 'Waiting to start'}
                   {auctionRoom.status === 'live' && 'Live Auction'}
                   {auctionRoom.status === 'paused' && 'Auction Paused'}
-                  {auctionRoom.status === 'completed' && 'Auction Completed'}
                 </p>
               </div>
             </div>
@@ -604,16 +603,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 <div className="text-center py-20 text-slate-400">
                   <Trophy className="w-20 h-20 mx-auto mb-4 opacity-50" />
                   <p className="text-xl mb-4">
-                    {auctionRoom.status === 'completed' 
-                      ? 'Auction Completed!' 
-                      : 'Click "Next Player" to start auction'
-                    }
+                    Click &quot;Next Player&quot; to start auction
                   </p>
-                  {auctionRoom.status === 'completed' && (
-                    <p className="text-sm">
-                      All {auctionData.total} players have been auctioned
-                    </p>
-                  )}
                 </div>
               )}
             </AnimatePresence>
@@ -757,7 +748,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       ) : (
                         <div 
                           className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                          style={{ backgroundColor: team.primaryColor || '#6366f1' }}
+                          style={{ backgroundColor: team.colorPrimary || '#6366f1' }}
                         >
                           {team.name.charAt(0)}
                         </div>

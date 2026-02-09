@@ -24,9 +24,42 @@ export const create = mutation({
     captainHand: v.optional(v.union(v.literal("Right"), v.literal("Left"))),
   },
   handler: async (ctx, args) => {
+    // Validation
+    if (!args.name || args.name.trim().length < 2) {
+      throw new Error("Team name must be at least 2 characters");
+    }
+    if (args.name.trim().length > 30) {
+      throw new Error("Team name must be less than 30 characters");
+    }
+    if (!args.ownerName || args.ownerName.trim().length < 2) {
+      throw new Error("Owner name must be at least 2 characters");
+    }
+    if (
+      args.captainAge !== undefined &&
+      (args.captainAge < 15 || args.captainAge > 65)
+    ) {
+      throw new Error("Captain age must be between 15 and 65");
+    }
+
     // Get tournament to get base purse
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
+
+    // Check for duplicate team name in tournament
+    const existingTeams = await ctx.db
+      .query("teams")
+      .withIndex("by_tournament", (q) =>
+        q.eq("tournamentId", args.tournamentId),
+      )
+      .collect();
+
+    if (
+      existingTeams.some(
+        (t) => t.name.toLowerCase() === args.name.toLowerCase(),
+      )
+    ) {
+      throw new Error(`Team "${args.name}" already exists in this tournament`);
+    }
 
     const teamId = await ctx.db.insert("teams", {
       tournamentId: args.tournamentId,

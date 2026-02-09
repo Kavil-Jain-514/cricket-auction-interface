@@ -26,6 +26,38 @@ export const create = mutation({
     // ... other fields
   },
   handler: async (ctx, args) => {
+    // Validation
+    if (!args.name || args.name.trim().length < 2) {
+      throw new Error("Player name must be at least 2 characters");
+    }
+    if (args.name.trim().length > 50) {
+      throw new Error("Player name must be less than 50 characters");
+    }
+    if (args.age < 15 || args.age > 65) {
+      throw new Error("Player age must be between 15 and 65");
+    }
+    if (args.basePrice < 50000) {
+      throw new Error("Base price must be at least ₹50,000");
+    }
+    if (args.basePrice > 50000000) {
+      throw new Error("Base price cannot exceed ₹5 Crore");
+    }
+    if (
+      args.jerseyNumber !== undefined &&
+      (args.jerseyNumber < 1 || args.jerseyNumber > 99)
+    ) {
+      throw new Error("Jersey number must be between 1 and 99");
+    }
+    if (args.phoneNumber && !/^[0-9]{10}$/.test(args.phoneNumber)) {
+      throw new Error("Phone number must be 10 digits");
+    }
+
+    // Verify tournament exists
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) {
+      throw new Error("Tournament not found");
+    }
+
     const playerId = await ctx.db.insert("players", {
       tournamentId: args.tournamentId,
       name: args.name,

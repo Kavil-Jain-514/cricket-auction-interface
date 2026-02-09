@@ -79,7 +79,7 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
       onSuccess();
       onClose();
     } catch (error) {
-      toast.error(error?.message || 'Failed to update team');
+      toast.error((error as Error)?.message || 'Failed to update team');
       console.error(error);
     } finally {
       setLoading(false);

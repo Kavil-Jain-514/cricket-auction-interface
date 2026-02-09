@@ -32,22 +32,78 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     phoneNumber: '',
     age: 24,
     role: 'All-Rounder' as 'Batter' | 'Bowler' | 'All-Rounder',
-    battingBowlingHand: 'Right' as 'Right' | 'Left',
+    battingBowlingHand: 'Right-handed' as 'Right-handed' | 'Left-handed',
     jerseyNumber: undefined as number | undefined,
     basePrice: 100000,
     availability: 'all' as 'all' | '5' | '6' | '7' | '8',
     photoUrl: '',
   });
 
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    // Name validation
+    if (!formData.name.trim()) {
+      newErrors.name = 'Player name is required';
+    } else if (formData.name.trim().length < 2) {
+      newErrors.name = 'Name must be at least 2 characters';
+    } else if (formData.name.trim().length > 50) {
+      newErrors.name = 'Name must be less than 50 characters';
+    }
+
+    // Age validation
+    if (!formData.age || formData.age < 15) {
+      newErrors.age = 'Age must be at least 15';
+    } else if (formData.age > 65) {
+      newErrors.age = 'Age must be less than 65';
+    }
+
+    // Phone validation (optional but if provided, validate format)
+    if (formData.phoneNumber && !/^[0-9]{10}$/.test(formData.phoneNumber)) {
+      newErrors.phoneNumber = 'Phone number must be 10 digits';
+    }
+
+    // Base price validation
+    if (!formData.basePrice || formData.basePrice < 50000) {
+      newErrors.basePrice = 'Base price must be at least ₹50,000';
+    } else if (formData.basePrice > 50000000) {
+      newErrors.basePrice = 'Base price cannot exceed ₹5 Crore';
+    }
+
+    // Jersey number validation (optional)
+    if (formData.jerseyNumber !== undefined) {
+      if (formData.jerseyNumber < 1 || formData.jerseyNumber > 99) {
+        newErrors.jerseyNumber = 'Jersey number must be between 1 and 99';
+      }
+    }
+
+    setErrors(newErrors);
+    
+    // Show first error as toast
+    const firstError = Object.values(newErrors)[0];
+    if (firstError) {
+      toast.error(firstError);
+    }
+
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
+
     setLoading(true);
 
     try {
       // Map availability selection to schema
-      let availability;
+      let availability: { type: 'available' | 'unavailable'; dates?: string[] };
       if (formData.availability === 'all') {
-        availability = { type: 'available', dates: undefined };
+        availability = { type: 'available' as const, dates: undefined };
       } else {
         const dateMap: Record<string, string> = {
           '5': '2026-03-05',
@@ -55,7 +111,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
           '7': '2026-03-07',
           '8': '2026-03-08',
         };
-        availability = { type: 'unavailable', dates: [dateMap[formData.availability]] };
+        availability = { type: 'unavailable' as const, dates: [dateMap[formData.availability]] };
       }
       await createPlayer({
         tournamentId,
@@ -73,7 +129,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
       toast.success('Player added successfully!');
       onClose();
     } catch (error) {
-      toast.error('Failed to add player');
+      toast.error((error as Error)?.message || 'Failed to add player');
       console.error(error);
     } finally {
       setLoading(false);
@@ -99,10 +155,14 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 id="name"
                 required
                 value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, name: e.target.value });
+                  if (errors.name) setErrors({ ...errors, name: '' });
+                }}
                 placeholder="e.g., Arjun Sharma"
-                className="mt-2"
+                className={`mt-2 ${errors.name ? 'border-red-500' : ''}`}
               />
+              {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
             </div>
 
             <div>
@@ -110,10 +170,14 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
               <Input
                 id="phoneNumber"
                 value={formData.phoneNumber}
-                onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, phoneNumber: e.target.value });
+                  if (errors.phoneNumber) setErrors({ ...errors, phoneNumber: '' });
+                }}
                 placeholder="e.g., 9876543210"
-                className="mt-2"
+                className={`mt-2 ${errors.phoneNumber ? 'border-red-500' : ''}`}
               />
+              {errors.phoneNumber && <p className="text-red-400 text-xs mt-1">{errors.phoneNumber}</p>}
             </div>
           </div>
 
@@ -126,11 +190,15 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 type="number"
                 required
                 min="15"
-                max="50"
+                max="65"
                 value={formData.age}
-                onChange={(e) => setFormData({ ...formData, age: parseInt(e.target.value) })}
-                className="mt-2"
+                onChange={(e) => {
+                  setFormData({ ...formData, age: parseInt(e.target.value) || 0 });
+                  if (errors.age) setErrors({ ...errors, age: '' });
+                }}
+                className={`mt-2 ${errors.age ? 'border-red-500' : ''}`}
               />
+              {errors.age && <p className="text-red-400 text-xs mt-1">{errors.age}</p>}
             </div>
 
             <div>
@@ -154,14 +222,14 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
               <Label htmlFor="battingHand">Batting/Bowling Hand *</Label>
               <Select
                 value={formData.battingBowlingHand}
-                onValueChange={(value) => setFormData({ ...formData, battingBowlingHand: value as 'Right' | 'Left' })}
+                onValueChange={(value) => setFormData({ ...formData, battingBowlingHand: value as 'Right-handed' | 'Left-handed' })}
               >
                 <SelectTrigger className="mt-2">
                   <SelectValue placeholder="Select hand" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Right">Right-handed</SelectItem>
-                  <SelectItem value="Left">Left-handed</SelectItem>
+                  <SelectItem value="Right-handed">Right-handed</SelectItem>
+                  <SelectItem value="Left-handed">Left-handed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -174,13 +242,17 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 min="1"
                 max="99"
                 value={formData.jerseyNumber || ''}
-                onChange={(e) => setFormData({ 
-                  ...formData, 
-                  jerseyNumber: e.target.value ? parseInt(e.target.value) : undefined 
-                })}
+                onChange={(e) => {
+                  setFormData({ 
+                    ...formData, 
+                    jerseyNumber: e.target.value ? parseInt(e.target.value) : undefined 
+                  });
+                  if (errors.jerseyNumber) setErrors({ ...errors, jerseyNumber: '' });
+                }}
                 placeholder="e.g., 7"
-                className="mt-2"
+                className={`mt-2 ${errors.jerseyNumber ? 'border-red-500' : ''}`}
               />
+              {errors.jerseyNumber && <p className="text-red-400 text-xs mt-1">{errors.jerseyNumber}</p>}
             </div>
           </div>
 
@@ -196,12 +268,19 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                   min="50000"
                   step="25000"
                   value={formData.basePrice}
-                  onChange={(e) => setFormData({ ...formData, basePrice: parseInt(e.target.value) })}
-                  className="mt-2"
+                  onChange={(e) => {
+                    setFormData({ ...formData, basePrice: parseInt(e.target.value) || 0 });
+                    if (errors.basePrice) setErrors({ ...errors, basePrice: '' });
+                  }}
+                  className={`mt-2 ${errors.basePrice ? 'border-red-500' : ''}`}
                 />
-                <p className="text-xs text-slate-400 mt-1">
-                  Current: ₹{(formData.basePrice / 100000).toFixed(2)}L
-                </p>
+                {errors.basePrice ? (
+                  <p className="text-red-400 text-xs mt-1">{errors.basePrice}</p>
+                ) : (
+                  <p className="text-xs text-slate-400 mt-1">
+                    Current: ₹{(formData.basePrice / 100000).toFixed(2)}L
+                  </p>
+                )}
               </div>
 
               {/* Availability in left column */}

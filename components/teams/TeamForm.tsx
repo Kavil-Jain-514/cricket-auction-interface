@@ -41,6 +41,7 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
   const createTeam = useMutation(api.teams.create);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [formData, setFormData] = useState({
     name: '',
@@ -57,8 +58,65 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
     captainHand: '' as '' | 'Right' | 'Left',
   });
 
+  const validateStep1 = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    // Team name validation
+    if (!formData.name.trim()) {
+      newErrors.name = 'Team name is required';
+    } else if (formData.name.trim().length < 2) {
+      newErrors.name = 'Team name must be at least 2 characters';
+    } else if (formData.name.trim().length > 30) {
+      newErrors.name = 'Team name must be less than 30 characters';
+    }
+
+    // Owner name validation
+    if (!formData.ownerName.trim()) {
+      newErrors.ownerName = 'Owner name is required';
+    } else if (formData.ownerName.trim().length < 2) {
+      newErrors.ownerName = 'Owner name must be at least 2 characters';
+    }
+
+    setErrors(newErrors);
+
+    // Show first error as toast
+    const firstError = Object.values(newErrors)[0];
+    if (firstError) {
+      toast.error(firstError);
+      return false;
+    }
+
+    return true;
+  };
+
+  const validateStep2 = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    // Captain age validation (only if captain name is provided)
+    if (formData.captainName && formData.captainAge !== undefined) {
+      if (formData.captainAge < 15 || formData.captainAge > 65) {
+        newErrors.captainAge = 'Captain age must be between 15 and 65';
+      }
+    }
+
+    setErrors(newErrors);
+
+    const firstError = Object.values(newErrors)[0];
+    if (firstError) {
+      toast.error(firstError);
+      return false;
+    }
+
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!validateStep2()) {
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -80,23 +138,11 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
       toast.success('Team created successfully!');
       onClose();
     } catch (error) {
-      toast.error('Failed to create team');
+      toast.error((error as Error)?.message || 'Failed to create team');
       console.error(error);
     } finally {
       setLoading(false);
     }
-  };
-
-  const validateStep1 = () => {
-    if (!formData.name.trim()) {
-      toast.error('Team name is required');
-      return false;
-    }
-    if (!formData.ownerName.trim()) {
-      toast.error('Owner name is required');
-      return false;
-    }
-    return true;
   };
 
   const handleNext = () => {
@@ -178,10 +224,14 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                       id="name"
                       required
                       value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      onChange={(e) => {
+                        setFormData({ ...formData, name: e.target.value });
+                        if (errors.name) setErrors({ ...errors, name: '' });
+                      }}
                       placeholder="e.g., Mumbai Masters"
-                      className="mt-2"
+                      className={`mt-2 ${errors.name ? 'border-red-500' : ''}`}
                     />
+                    {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
                   </div>
 
                   <div>
@@ -190,10 +240,14 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                       id="ownerName"
                       required
                       value={formData.ownerName}
-                      onChange={(e) => setFormData({ ...formData, ownerName: e.target.value })}
+                      onChange={(e) => {
+                        setFormData({ ...formData, ownerName: e.target.value });
+                        if (errors.ownerName) setErrors({ ...errors, ownerName: '' });
+                      }}
                       placeholder="e.g., John Doe"
-                      className="mt-2"
+                      className={`mt-2 ${errors.ownerName ? 'border-red-500' : ''}`}
                     />
+                    {errors.ownerName && <p className="text-red-400 text-xs mt-1">{errors.ownerName}</p>}
                   </div>
                 </div>
 

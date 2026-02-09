@@ -70,7 +70,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
       await deleteTeam({ id: team._id });
       toast.success('Team deleted successfully');
     } catch (error) {
-      toast.error(error?.message || 'Failed to delete team');
+      toast.error((error as Error)?.message || 'Failed to delete team');
     } finally {
       setDeleting(false);
     }

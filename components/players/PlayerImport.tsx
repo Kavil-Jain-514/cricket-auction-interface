@@ -4,13 +4,14 @@
 import { useState, useCallback } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { Upload, FileSpreadsheet, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 
 interface PlayerImportProps {
-  tournamentId: string;
+  tournamentId: Id<"tournaments">;
   onComplete: () => void;
 }
 
@@ -104,7 +105,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       jsonData.forEach((row, idx) => {
         try {
           // Parse availability
-          const availabilityText = row['Availability'] || 'available';
+          const availabilityText = String(row['Availability'] || 'available');
           let availability: ParsedPlayer['availability'];
           
           if (availabilityText.toLowerCase().includes('unavailable')) {
@@ -118,14 +119,14 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
           }
 
           const player: ParsedPlayer = {
-            name: row['Player Name']?.trim(),
-            phoneNumber: row['Phone Number']?.toString(),
-            age: parseInt(row['Age']) || 0,
-            role: row['Player Role']?.trim() || 'All- Rounder',
-            battingBowlingHand: row['Batting/Bowling Hand']?.includes('Left-handed') ? 'Left-handed' : 'Right-handed',
-            jerseyNumber: row['Jersey Number'] ? parseInt(row['Jersey Number']) : undefined,
+            name: String(row['Player Name'] || '').trim(),
+            phoneNumber: row['Phone Number'] ? String(row['Phone Number']) : undefined,
+            age: parseInt(String(row['Age'])) || 0,
+            role: String(row['Player Role'] || 'All-Rounder').trim(),
+            battingBowlingHand: String(row['Batting/Bowling Hand'] || '').includes('Left-handed') ? 'Left-handed' : 'Right-handed',
+            jerseyNumber: row['Jersey Number'] ? parseInt(String(row['Jersey Number'])) : undefined,
             availability,
-            basePrice: parseInt(row['Base Price']) || 100000,
+            basePrice: parseInt(String(row['Base Price'])) || 100000,
             photoUrl: parseGoogleDriveUrl(row['Profile Photo'] as string | undefined),
           };
 
@@ -137,18 +138,30 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             validationErrors.push(`Row ${idx + 2}: Missing player name`);
             return;
           }
+          if (player.name.length < 2) {
+            validationErrors.push(`Row ${idx + 2}: Player name must be at least 2 characters`);
+            return;
+          }
           if (player.age < 15 || player.age > 65) {
-            validationErrors.push(`Row ${idx + 2}: Invalid age for ${player.name}`);
+            validationErrors.push(`Row ${idx + 2}: Age must be between 15-65 for "${player.name}"`);
             return;
           }
           if (!['Batter', 'Bowler', 'All-Rounder'].includes(player.role)) {
-            validationErrors.push(`Row ${idx + 2}: Invalid role for ${player.name}`);
+            validationErrors.push(`Row ${idx + 2}: Invalid role "${player.role}" for "${player.name}". Use: Batter, Bowler, or All-Rounder`);
+            return;
+          }
+          if (player.basePrice < 50000) {
+            validationErrors.push(`Row ${idx + 2}: Base price must be at least ₹50,000 for "${player.name}"`);
+            return;
+          }
+          if (player.jerseyNumber !== undefined && (player.jerseyNumber < 1 || player.jerseyNumber > 99)) {
+            validationErrors.push(`Row ${idx + 2}: Jersey number must be 1-99 for "${player.name}"`);
             return;
           }
 
           players.push(player);
         } catch (error) {
-          validationErrors.push(`Row ${idx + 2}: ${error.message}`);
+          validationErrors.push(`Row ${idx + 2}: ${(error as Error).message}`);
         }
       });
 
@@ -166,14 +179,17 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
 
     } catch (error) {
       toast.error('Failed to parse Excel file');
-      setErrors([error.message]);
+      setErrors([(error as Error).message]);
     } finally {
       setParsing(false);
     }
   };
 
   const handleImport = async () => {
-    if (parsed.length === 0) return;
+    if (parsed.length === 0) {
+      toast.error('No valid players to import');
+      return;
+    }
 
     try {
       await importPlayers({
@@ -190,7 +206,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       toast.success(`Imported ${parsed.length} players successfully!`);
       onComplete();
     } catch (error) {
-      toast.error('Failed to import players', { description: error.message });
+      toast.error('Failed to import players', { description: (error as Error).message });
     }
   };
 

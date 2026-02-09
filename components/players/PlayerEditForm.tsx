@@ -36,14 +36,22 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
     e.preventDefault();
     setLoading(true);
 
+    // Normalize role to handle legacy data
+    const normalizedRole = formData.role === 'All Rounder' ? 'All-Rounder' : formData.role;
+    
+    // Normalize hand to handle legacy data
+    let normalizedHand = formData.battingBowlingHand;
+    if (normalizedHand === 'Right') normalizedHand = 'Right-handed';
+    if (normalizedHand === 'Left') normalizedHand = 'Left-handed';
+
     try {
       await updatePlayer({
         id: player._id,
         name: formData.name,
         phoneNumber: formData.phoneNumber || undefined,
         age: formData.age,
-        role: formData.role,
-        battingBowlingHand: formData.battingBowlingHand,
+        role: normalizedRole as 'Batter' | 'Bowler' | 'All-Rounder',
+        battingBowlingHand: normalizedHand as 'Right-handed' | 'Left-handed',
         jerseyNumber: formData.jerseyNumber,
         basePrice: formData.basePrice,
         availability: formData.availability,
@@ -54,7 +62,7 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
       onSuccess();
       onClose();
     } catch (error) {
-      toast.error(error?.message || 'Failed to update player');
+      toast.error((error as Error)?.message || 'Failed to update player');
       console.error(error);
     } finally {
       setLoading(false);

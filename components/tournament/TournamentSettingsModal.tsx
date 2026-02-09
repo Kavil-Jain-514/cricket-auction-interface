@@ -65,7 +65,6 @@ export function TournamentSettingsModal({
       });
 
       toast.success('Tournament updated successfully!');
-      onSuccess();
       onClose();
     } catch (error) {
       toast.error('Failed to update settings', { 

@@ -83,7 +83,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
       toast.success('Tournament deleted successfully');
       router.push('/dashboard');
     } catch (error) {
-      toast.error(error.message || 'Failed to delete tournament');
+      toast.error((error as Error)?.message || 'Failed to delete tournament');
       setDeleting(false);
     }
   };
@@ -341,10 +341,6 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             settings: tournament.settings,
           }}
           onClose={() => setShowSettings(false)}
-          onSuccess={() => {
-            setShowSettings(false);
-            toast.success('Tournament updated successfully');
-          }}
         />
       )}
     </div>

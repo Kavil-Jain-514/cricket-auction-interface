@@ -15,7 +15,7 @@ interface TeamDetailsModalProps {
   onClose: () => void;
 }
 
-const roleColors = {
+const roleColors: Record<string, string> = {
   'Batter': 'bg-blue-600',
   'Bowler': 'bg-red-600',
   'All-Rounder': 'bg-purple-600',
