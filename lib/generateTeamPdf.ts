@@ -6,6 +6,7 @@ interface Player {
   soldPrice?: number;
   age: number;
   battingBowlingHand: string;
+  phoneNumber?: string;
 }
 
 interface TeamData {
@@ -156,13 +157,14 @@ export function generateTeamPdf(team: TeamData): void {
   doc.setFillColor(230, 230, 230);
   doc.rect(margin, y, pageWidth - margin * 2, 8, "F");
 
-  doc.setFontSize(9);
+  doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
-  doc.text("#", margin + 3, y + 6);
-  doc.text("Player Name", margin + 12, y + 6);
-  doc.text("Role", margin + 80, y + 6);
-  doc.text("Age", margin + 115, y + 6);
-  doc.text("Hand", margin + 130, y + 6);
+  doc.text("#", margin + 2, y + 6);
+  doc.text("Player Name", margin + 10, y + 6);
+  doc.text("Phone", margin + 55, y + 6);
+  doc.text("Role", margin + 90, y + 6);
+  doc.text("Age", margin + 120, y + 6);
+  doc.text("Hand", margin + 135, y + 6);
   doc.text("Price", margin + 155, y + 6);
 
   y += 10;
@@ -186,13 +188,14 @@ export function generateTeamPdf(team: TeamData): void {
       doc.setFillColor(230, 230, 230);
       doc.rect(margin, y, pageWidth - margin * 2, 8, "F");
 
-      doc.setFontSize(9);
+      doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
-      doc.text("#", margin + 3, y + 6);
-      doc.text("Player Name", margin + 12, y + 6);
-      doc.text("Role", margin + 80, y + 6);
-      doc.text("Age", margin + 115, y + 6);
-      doc.text("Hand", margin + 130, y + 6);
+      doc.text("#", margin + 2, y + 6);
+      doc.text("Player Name", margin + 10, y + 6);
+      doc.text("Phone", margin + 55, y + 6);
+      doc.text("Role", margin + 90, y + 6);
+      doc.text("Age", margin + 120, y + 6);
+      doc.text("Hand", margin + 135, y + 6);
       doc.text("Price", margin + 155, y + 6);
 
       y += 10;
@@ -205,15 +208,17 @@ export function generateTeamPdf(team: TeamData): void {
       doc.rect(margin, y - 4, pageWidth - margin * 2, 8, "F");
     }
 
+    doc.setFontSize(8);
     doc.setTextColor(30, 30, 30);
-    doc.text(`${index + 1}`, margin + 3, y + 2);
-    doc.text(player.name.substring(0, 30), margin + 12, y + 2);
-    doc.text(player.role, margin + 80, y + 2);
-    doc.text(`${player.age}`, margin + 115, y + 2);
+    doc.text(`${index + 1}`, margin + 2, y + 2);
+    doc.text(player.name.substring(0, 20), margin + 10, y + 2);
+    doc.text(player.phoneNumber || "-", margin + 55, y + 2);
+    doc.text(player.role.substring(0, 12), margin + 90, y + 2);
+    doc.text(`${player.age}`, margin + 120, y + 2);
 
     // Simplify hand display
     const hand = player.battingBowlingHand.includes("Right") ? "R" : "L";
-    doc.text(hand, margin + 130, y + 2);
+    doc.text(hand, margin + 135, y + 2);
 
     doc.setTextColor(34, 139, 34); // Green for price
     doc.text(formatCurrency(player.soldPrice || 0), margin + 155, y + 2);

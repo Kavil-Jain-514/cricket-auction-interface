@@ -54,6 +54,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
         soldPrice: p.soldPrice,
         age: p.age,
         battingBowlingHand: p.battingBowlingHand,
+        phoneNumber: p.phoneNumber,
       })),
       tournamentName: tournament?.name,
     });
