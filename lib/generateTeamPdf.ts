@@ -23,17 +23,18 @@ interface TeamData {
   captainHand?: string;
   players: Player[];
   tournamentName?: string;
+  logoUrl?: string;
 }
 
 function formatCurrency(amount: number): string {
   if (amount >= 10000000) {
-    return `₹${(amount / 10000000).toFixed(2)} Cr`;
+    return `Rs.${(amount / 10000000).toFixed(2)} Cr`;
   } else if (amount >= 100000) {
-    return `₹${(amount / 100000).toFixed(2)} L`;
+    return `Rs.${(amount / 100000).toFixed(2)} L`;
   } else if (amount >= 1000) {
-    return `₹${(amount / 1000).toFixed(1)}K`;
+    return `Rs.${(amount / 1000).toFixed(1)}K`;
   }
-  return `₹${amount}`;
+  return `Rs.${amount}`;
 }
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -47,7 +48,23 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
     : { r: 59, g: 130, b: 246 }; // default blue
 }
 
-export function generateTeamPdf(team: TeamData): void {
+// Helper function to load image as base64
+async function loadImageAsBase64(url: string): Promise<string | null> {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function generateTeamPdf(team: TeamData): Promise<void> {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 20;
@@ -60,24 +77,38 @@ export function generateTeamPdf(team: TeamData): void {
   doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
   doc.rect(0, 0, pageWidth, 45, "F");
 
+  // Team Logo (if available)
+  let textStartX = margin;
+  if (team.logoUrl) {
+    try {
+      const logoBase64 = await loadImageAsBase64(team.logoUrl);
+      if (logoBase64) {
+        doc.addImage(logoBase64, "PNG", margin, 5, 35, 35);
+        textStartX = margin + 42; // Shift text to the right of logo
+      }
+    } catch {
+      // Logo failed to load, continue without it
+    }
+  }
+
   // Team Name
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(24);
   doc.setFont("helvetica", "bold");
-  doc.text(team.name, margin, y + 10);
+  doc.text(team.name, textStartX, y + 10);
 
   // Tournament Name (if available)
   if (team.tournamentName) {
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    doc.text(team.tournamentName, margin, y + 20);
+    doc.text(team.tournamentName, textStartX, y + 20);
   }
 
   // Owner & Sponsor
   doc.setFontSize(12);
   doc.setFont("helvetica", "normal");
-  const ownerText = `Owner: ${team.ownerName}${team.sponsorName ? ` | Sponsor: ${team.sponsorName}` : ""}`;
-  doc.text(ownerText, margin, y + 30);
+  const ownerText = `Owner: ${team.ownerName || "N/A"}${team.sponsorName ? ` | Sponsor: ${team.sponsorName}` : ""}`;
+  doc.text(ownerText, textStartX, y + 30);
 
   y = 55;
 

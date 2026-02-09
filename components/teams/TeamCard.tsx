@@ -35,30 +35,36 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
   // Check if can edit/delete (not during active auction)
   const canModify = tournament && tournament.status !== "active" && tournament.status !== "completed";
 
-  const handleDownloadPdf = () => {
-    generateTeamPdf({
-      name: team.name,
-      ownerName: team.ownerName,
-      sponsorName: team.sponsorName,
-      colorPrimary: team.colorPrimary,
-      colorSecondary: team.colorSecondary,
-      purseRemaining: team.purseRemaining,
-      purseSpent: team.purseSpent,
-      captainName: team.captainName,
-      captainAge: team.captainAge,
-      captainRole: team.captainRole,
-      captainHand: team.captainHand,
-      players: teamPlayers.map(p => ({
-        name: p.name,
-        role: p.role,
-        soldPrice: p.soldPrice,
-        age: p.age,
-        battingBowlingHand: p.battingBowlingHand,
-        phoneNumber: p.phoneNumber,
-      })),
-      tournamentName: tournament?.name,
-    });
-    toast.success('PDF downloaded successfully');
+  const handleDownloadPdf = async () => {
+    toast.info('Generating PDF...');
+    try {
+      await generateTeamPdf({
+        name: team.name,
+        ownerName: team.ownerName,
+        sponsorName: team.sponsorName,
+        colorPrimary: team.colorPrimary,
+        colorSecondary: team.colorSecondary,
+        purseRemaining: team.purseRemaining,
+        purseSpent: team.purseSpent,
+        captainName: team.captainName,
+        captainAge: team.captainAge,
+        captainRole: team.captainRole,
+        captainHand: team.captainHand,
+        players: teamPlayers.map(p => ({
+          name: p.name,
+          role: p.role,
+          soldPrice: p.soldPrice,
+          age: p.age,
+          battingBowlingHand: p.battingBowlingHand,
+          phoneNumber: p.phoneNumber,
+        })),
+        tournamentName: tournament?.name,
+        logoUrl: team.logoUrl,
+      });
+      toast.success('PDF downloaded successfully');
+    } catch (error) {
+      toast.error((error as Error)?.message || 'Failed to generate PDF');
+    }
   };
 
   const handleDelete = async () => {
