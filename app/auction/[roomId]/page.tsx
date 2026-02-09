@@ -427,7 +427,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           Teams
         </h3>
 
-        <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3">
           {teams?.map((team) => {
             const isCurrentBidder = team._id === currentBidTeam?._id;
             const teamPlayerCount = soldPlayers?.filter(p => p.teamId === team._id).length || 0;
