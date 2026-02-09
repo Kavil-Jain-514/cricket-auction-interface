@@ -33,6 +33,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     age: 24,
     role: 'All-Rounder' as 'Batter' | 'Bowler' | 'All-Rounder',
     battingBowlingHand: 'Right-handed' as 'Right-handed' | 'Left-handed',
+    tshirtSize: 'L' as 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
     jerseyNumber: undefined as number | undefined,
     basePrice: 100000,
     availability: 'all' as 'all' | '5' | '6' | '7' | '8',
@@ -120,6 +121,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
         age: formData.age,
         role: formData.role,
         battingBowlingHand: formData.battingBowlingHand,
+        tshirtSize: formData.tshirtSize,
         jerseyNumber: formData.jerseyNumber,
         availability,
         basePrice: formData.basePrice,
@@ -181,8 +183,8 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
             </div>
           </div>
 
-          {/* Row 2: Age, Role, Hand, Jersey */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* Row 2: Age, Role, Hand, T-Shirt Size, Jersey */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div>
               <Label htmlFor="age">Age *</Label>
               <Input
@@ -230,6 +232,27 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 <SelectContent>
                   <SelectItem value="Right-handed">Right-handed</SelectItem>
                   <SelectItem value="Left-handed">Left-handed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="tshirtSize">T-Shirt Size</Label>
+              <Select
+                value={formData.tshirtSize}
+                onValueChange={(value) => setFormData({ ...formData, tshirtSize: value as 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL' })}
+              >
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Select size" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="S">S</SelectItem>
+                  <SelectItem value="M">M</SelectItem>
+                  <SelectItem value="L">L</SelectItem>
+                  <SelectItem value="XL">XL</SelectItem>
+                  <SelectItem value="XXL">XXL</SelectItem>
+                  <SelectItem value="3XL">3XL</SelectItem>
+                  <SelectItem value="4XL">4XL</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -81,6 +81,17 @@ export default defineSchema({
       v.literal("Right"),
       v.literal("Left"),
     ),
+    tshirtSize: v.optional(
+      v.union(
+        v.literal("S"),
+        v.literal("M"),
+        v.literal("L"),
+        v.literal("XL"),
+        v.literal("XXL"),
+        v.literal("3XL"),
+        v.literal("4XL"),
+      ),
+    ),
     jerseyNumber: v.optional(v.number()),
     availability: v.object({
       type: v.union(v.literal("available"), v.literal("unavailable")),

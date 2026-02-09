@@ -21,6 +21,7 @@ interface ParsedPlayer {
   age: number;
   role: string;
   battingBowlingHand: string;
+  tshirtSize?: string;
   jerseyNumber?: number;
   availability: {
     type: 'available' | 'unavailable';
@@ -72,6 +73,47 @@ function parseGoogleDriveUrl(url: string | undefined): string | undefined {
   return undefined;
 }
 
+// Parse T-Shirt size from various formats
+function parseTshirtSize(size: string): 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL' | undefined {
+  const normalized = size.toUpperCase().trim();
+  const validSizes: ('S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL')[] = ['S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'];
+  
+  if (validSizes.includes(normalized as typeof validSizes[number])) {
+    return normalized as typeof validSizes[number];
+  }
+  
+  // Handle variations like "2XL" -> "XXL", "XXXL" -> "3XL"
+  if (normalized === '2XL') return 'XXL';
+  if (normalized === 'XXXL') return '3XL';
+  if (normalized === 'XXXXL') return '4XL';
+  
+  return undefined;
+}
+
+// Helper to get column value with flexible matching (case-insensitive and partial match)
+function getColumnValue(row: Record<string, unknown>, ...possibleNames: string[]): unknown {
+  const keys = Object.keys(row);
+  
+  for (const name of possibleNames) {
+    // Try exact match first
+    if (row[name] !== undefined) return row[name];
+    
+    // Try case-insensitive exact match
+    const lowerName = name.toLowerCase();
+    for (const key of keys) {
+      if (key.toLowerCase() === lowerName) return row[key];
+    }
+    
+    // Try partial match (column contains the search term)
+    for (const key of keys) {
+      if (key.toLowerCase().includes(lowerName) || lowerName.includes(key.toLowerCase())) {
+        return row[key];
+      }
+    }
+  }
+  return undefined;
+}
+
 export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
   const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
@@ -99,13 +141,18 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
 
+      // Debug: Log all column names from Excel
+      if (jsonData.length > 0) {
+        console.log('Excel columns found:', Object.keys(jsonData[0]));
+      }
+
       const players: ParsedPlayer[] = [];
       const validationErrors: string[] = [];
 
       jsonData.forEach((row, idx) => {
         try {
           // Parse availability
-          const availabilityText = String(row['Availability'] || 'available');
+          const availabilityText = String(getColumnValue(row, 'Availability', 'availability') || 'available');
           let availability: ParsedPlayer['availability'];
           
           if (availabilityText.toLowerCase().includes('unavailable')) {
@@ -119,19 +166,23 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
           }
 
           const player: ParsedPlayer = {
-            name: String(row['Player Name'] || '').trim(),
-            phoneNumber: row['Phone Number'] ? String(row['Phone Number']) : undefined,
-            age: parseInt(String(row['Age'])) || 0,
-            role: String(row['Player Role'] || 'All-Rounder').trim(),
-            battingBowlingHand: String(row['Batting/Bowling Hand'] || '').includes('Left-handed') ? 'Left-handed' : 'Right-handed',
-            jerseyNumber: row['Jersey Number'] ? parseInt(String(row['Jersey Number'])) : undefined,
+            name: String(getColumnValue(row, 'Player Name', 'Name', 'player name') || '').trim(),
+            phoneNumber: getColumnValue(row, 'Phone Number', 'Phone', 'phone number', 'Mobile') ? String(getColumnValue(row, 'Phone Number', 'Phone', 'phone number', 'Mobile')) : undefined,
+            age: parseInt(String(getColumnValue(row, 'Age', 'age'))) || 0,
+            role: String(getColumnValue(row, 'Player Role', 'Role', 'player role') || 'All-Rounder').trim(),
+            battingBowlingHand: String(getColumnValue(row, 'Batting/Bowling Hand', 'Hand', 'Batting Hand', 'batting/bowling hand') || '').includes('Left') ? 'Left-handed' : 'Right-handed',
+            tshirtSize: parseTshirtSize(String(getColumnValue(row, 'T-Shirt Size', 'T Shirt Size', 'TShirt Size', 'Tshirt', 'T-Shirt', 'T shirt', 'tshirt size', 'Shirt Size', 'shirt') || '')),
+            jerseyNumber: getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey') ? parseInt(String(getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey'))) : undefined,
             availability,
-            basePrice: parseInt(String(row['Base Price'])) || 100000,
-            photoUrl: parseGoogleDriveUrl(row['Profile Photo'] as string | undefined),
+            basePrice: parseInt(String(getColumnValue(row, 'Base Price', 'base price', 'Price'))) || 100000,
+            photoUrl: parseGoogleDriveUrl(getColumnValue(row, 'Profile Photo', 'Photo', 'profile photo', 'Image') as string | undefined),
           };
 
-          // Debug: Log photo URL parsing
-          console.log(`Player ${player.name}: Raw URL = "${row['Profile Photo']}" -> Parsed = "${player.photoUrl}"`);
+          // Debug: Log raw row data for first player
+          if (idx === 0) {
+            console.log('First row raw data:', JSON.stringify(row, null, 2));
+          }
+          console.log(`Player ${player.name}: Jersey = ${player.jerseyNumber}, T-Shirt = ${player.tshirtSize}`);
 
           // Validation
           if (!player.name) {
@@ -154,7 +205,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             validationErrors.push(`Row ${idx + 2}: Base price must be at least ₹50,000 for "${player.name}"`);
             return;
           }
-          if (player.jerseyNumber !== undefined && (player.jerseyNumber < 1 || player.jerseyNumber > 99)) {
+          if (player.jerseyNumber !== undefined && (player.jerseyNumber < 1)) {
             validationErrors.push(`Row ${idx + 2}: Jersey number must be 1-99 for "${player.name}"`);
             return;
           }
@@ -285,6 +336,8 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                     <th className="px-4 py-3 text-left text-sm font-semibold">Role</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Age</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Hand</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Jersey</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">T-Shirt</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Base Price</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Availability</th>
                   </tr>
@@ -332,6 +385,8 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                       </td>
                       <td className="px-4 py-3 text-sm">{player.age}</td>
                       <td className="px-4 py-3 text-sm">{player.battingBowlingHand}</td>
+                      <td className="px-4 py-3 text-sm">{player.jerseyNumber || '-'}</td>
+                      <td className="px-4 py-3 text-sm">{player.tshirtSize || '-'}</td>
                       <td className="px-4 py-3 text-sm font-semibold">
                         ₹{(player.basePrice / 100000).toFixed(1)}L
                       </td>

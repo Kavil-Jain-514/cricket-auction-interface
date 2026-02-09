@@ -23,6 +23,17 @@ export const create = mutation({
     basePrice: v.number(),
     jerseyNumber: v.optional(v.number()),
     phoneNumber: v.optional(v.string()),
+    tshirtSize: v.optional(
+      v.union(
+        v.literal("S"),
+        v.literal("M"),
+        v.literal("L"),
+        v.literal("XL"),
+        v.literal("XXL"),
+        v.literal("3XL"),
+        v.literal("4XL"),
+      ),
+    ),
     // ... other fields
   },
   handler: async (ctx, args) => {
@@ -69,6 +80,7 @@ export const create = mutation({
       battingBowlingHand: args.battingBowlingHand,
       basePrice: args.basePrice,
       jerseyNumber: args.jerseyNumber,
+      tshirtSize: args.tshirtSize,
       auctionStatus: "pending",
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -99,6 +111,7 @@ export const bulkImport = mutation({
         battingBowlingHand: player.battingBowlingHand,
         basePrice: player.basePrice,
         jerseyNumber: player.jerseyNumber,
+        tshirtSize: player.tshirtSize,
         auctionStatus: "pending",
         createdAt: now,
         updatedAt: now,
@@ -151,6 +164,17 @@ export const update = mutation({
     ),
     basePrice: v.optional(v.number()),
     jerseyNumber: v.optional(v.number()),
+    tshirtSize: v.optional(
+      v.union(
+        v.literal("S"),
+        v.literal("M"),
+        v.literal("L"),
+        v.literal("XL"),
+        v.literal("XXL"),
+        v.literal("3XL"),
+        v.literal("4XL"),
+      ),
+    ),
     availability: v.optional(
       v.object({
         type: v.union(v.literal("available"), v.literal("unavailable")),

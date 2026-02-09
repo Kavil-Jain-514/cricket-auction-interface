@@ -26,6 +26,7 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
     age: player.age,
     role: player.role,
     battingBowlingHand: player.battingBowlingHand,
+    tshirtSize: player.tshirtSize || 'L',
     jerseyNumber: player.jerseyNumber,
     basePrice: player.basePrice,
     availability: player.availability,
@@ -52,6 +53,7 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
         age: formData.age,
         role: normalizedRole as 'Batter' | 'Bowler' | 'All-Rounder',
         battingBowlingHand: normalizedHand as 'Right-handed' | 'Left-handed',
+        tshirtSize: formData.tshirtSize as 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
         jerseyNumber: formData.jerseyNumber,
         basePrice: formData.basePrice,
         availability: formData.availability,
@@ -146,6 +148,23 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
               </select>
             </div>
 
+            <div>
+              <Label htmlFor="tshirtSize">T-Shirt Size</Label>
+              <select
+                id="tshirtSize"
+                value={formData.tshirtSize}
+                onChange={(e) => setFormData({ ...formData, tshirtSize: e.target.value as 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL' })}
+                className="mt-2 w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+              >
+                <option value="S">S</option>
+                <option value="M">M</option>
+                <option value="L">L</option>
+                <option value="XL">XL</option>
+                <option value="XXL">XXL</option>
+                <option value="3XL">3XL</option>
+                <option value="4XL">4XL</option>
+              </select>
+            </div>
 
             <div>
               <Label htmlFor="jerseyNumber">Jersey Number</Label>
