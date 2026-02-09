@@ -88,27 +88,28 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
    <> 
     <motion.div
       whileHover={{ scale: 1.02 }}
-      className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-blue-500 transition"
+      whileTap={{ scale: 0.98 }}
+      className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6 hover:border-blue-500 transition relative"
     >
       {canModify && (
-          <div className="absolute top-4 right-4 flex gap-2">
+          <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex gap-1.5 sm:gap-2">
             <button
               onClick={handleDownloadPdf}
-              className="p-2 bg-green-600 hover:bg-green-700 rounded-lg transition"
+              className="p-2 sm:p-2.5 bg-green-600 hover:bg-green-700 rounded-lg transition touch-target"
               title="Download PDF"
             >
               <Download className="w-4 h-4" />
             </button>
             <button
               onClick={() => setShowDetails(true)}
-              className="p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+              className="p-2 sm:p-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg transition touch-target"
               title="View Details"
             >
               <Eye className="w-4 h-4" />
             </button>
             <button
               onClick={() => setShowEdit(true)}
-              className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition"
+              className="p-2 sm:p-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition touch-target"
               title="Edit Team"
             >
               <Edit className="w-4 h-4" />
@@ -116,7 +117,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="p-2 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50"
+              className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 touch-target"
               title="Delete Team"
             >
               <Trash2 className="w-4 h-4" />
@@ -125,17 +126,17 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
         )}
       
       {!canModify && (
-          <div className="absolute top-4 right-4 flex gap-2">
+          <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex gap-1.5 sm:gap-2">
             <button
               onClick={handleDownloadPdf}
-              className="p-2 bg-green-600 hover:bg-green-700 rounded-lg transition"
+              className="p-2 sm:p-2.5 bg-green-600 hover:bg-green-700 rounded-lg transition touch-target"
               title="Download PDF"
             >
               <Download className="w-4 h-4" />
             </button>
             <button
               onClick={() => setShowDetails(true)}
-              className="p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+              className="p-2 sm:p-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg transition touch-target"
               title="View Details"
             >
               <Eye className="w-4 h-4" />
@@ -143,8 +144,8 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
           </div>
         )}
       {/* Team Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3 flex-1">
+      <div className="flex items-start justify-between mb-3 sm:mb-4">
+        <div className="flex items-center gap-2.5 sm:gap-3 flex-1 pr-24 sm:pr-32">
           {/* Team Logo */}
           <TeamLogo
             name={team.name}
@@ -152,29 +153,29 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
             primaryColor={team.colorPrimary}
             size="md"
           />
-          <div>
-            <h3 className="text-xl font-bold">{team.name}</h3>
-            <p className="text-sm text-slate-400">Owner: {team.ownerName}</p>
+          <div className="min-w-0">
+            <h3 className="text-lg sm:text-xl font-bold truncate">{team.name}</h3>
+            <p className="text-xs sm:text-sm text-slate-400 truncate">Owner: {team.ownerName}</p>
             {team.sponsorName && (
-              <p className="text-xs text-slate-500">Sponsor: {team.sponsorName}</p>
+              <p className="text-xs text-slate-500 truncate">Sponsor: {team.sponsorName}</p>
             )}
           </div>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="space-y-4 mb-4">
+      <div className="space-y-3 sm:space-y-4 mb-3 sm:mb-4">
         {/* Purse */}
         <div>
-          <div className="flex justify-between text-sm mb-2">
+          <div className="flex justify-between text-xs sm:text-sm mb-2">
             <span className="text-slate-400">Purse Remaining</span>
             <span className="font-semibold text-green-400">
               {formatCurrency(team.purseRemaining)}
             </span>
           </div>
-          <div className="w-full bg-slate-700 rounded-full h-2">
+          <div className="w-full bg-slate-700 rounded-full h-2 sm:h-2.5">
             <motion.div
-              className="h-2 rounded-full"
+              className="h-2 sm:h-2.5 rounded-full"
               style={{ backgroundColor: team.colorPrimary }}
               initial={{ width: 0 }}
               animate={{ width: `${pursePercentage}%` }}
@@ -188,29 +189,29 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
         </div>
 
         {/* Players Count */}
-        <div className="flex items-center justify-between py-3 px-4 bg-slate-900/50 rounded-lg">
+        <div className="flex items-center justify-between py-2.5 sm:py-3 px-3 sm:px-4 bg-slate-900/50 rounded-lg">
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4 text-blue-400" />
-            <span className="text-sm text-slate-400">Players</span>
+            <span className="text-xs sm:text-sm text-slate-400">Players</span>
           </div>
-          <span className="font-semibold">{teamPlayers.length}</span>
+          <span className="font-semibold text-sm sm:text-base">{teamPlayers.length}</span>
         </div>
 
         {/* Top Players */}
         {teamPlayers.length > 0 && (
           <div>
             <div className="text-xs text-slate-400 mb-2">Top Purchases</div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               {teamPlayers
                 .sort((a, b) => (b.soldPrice || 0) - (a.soldPrice || 0))
                 .slice(0, 3)
                 .map((player) => (
                   <div 
                     key={player._id}
-                    className="flex justify-between text-xs py-1"
+                    className="flex justify-between text-xs sm:text-sm py-1"
                   >
-                    <span className="text-slate-300 truncate">{player.name}</span>
-                    <span className="text-yellow-400 font-semibold">
+                    <span className="text-slate-300 truncate mr-2">{player.name}</span>
+                    <span className="text-yellow-400 font-semibold whitespace-nowrap">
                       {formatCurrency(player.soldPrice || 0)}
                     </span>
                   </div>
@@ -221,7 +222,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
       </div>
 
       {/* Footer */}
-      <div className="pt-4 border-t border-slate-700 flex items-center justify-between text-xs text-slate-400">
+      <div className="pt-3 sm:pt-4 border-t border-slate-700 flex items-center justify-between text-xs text-slate-400">
         <span>Updated {new Date(team.updatedAt).toLocaleDateString()}</span>
       </div>
     </motion.div>

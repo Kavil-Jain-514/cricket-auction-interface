@@ -139,18 +139,18 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full p-6 my-8">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold">Add New Player</h2>
-          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg transition">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto ipad-scroll">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full p-4 sm:p-6 my-4 sm:my-8">
+        <div className="flex items-center justify-between mb-4 sm:mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold">Add New Player</h2>
+          <button onClick={onClose} className="p-2.5 hover:bg-slate-800 rounded-lg transition touch-target">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
           {/* Row 1: Name and Phone */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
               <Label htmlFor="name">Player Name *</Label>
               <Input
@@ -162,7 +162,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                   if (errors.name) setErrors({ ...errors, name: '' });
                 }}
                 placeholder="e.g., Arjun Sharma"
-                className={`mt-2 ${errors.name ? 'border-red-500' : ''}`}
+                className={`mt-2 h-11 sm:h-12 text-base ${errors.name ? 'border-red-500' : ''}`}
               />
               {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
             </div>
@@ -177,14 +177,14 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                   if (errors.phoneNumber) setErrors({ ...errors, phoneNumber: '' });
                 }}
                 placeholder="e.g., 9876543210"
-                className={`mt-2 ${errors.phoneNumber ? 'border-red-500' : ''}`}
+                className={`mt-2 h-11 sm:h-12 text-base ${errors.phoneNumber ? 'border-red-500' : ''}`}
               />
               {errors.phoneNumber && <p className="text-red-400 text-xs mt-1">{errors.phoneNumber}</p>}
             </div>
           </div>
 
           {/* Row 2: Age, Role, Hand, T-Shirt Size, Jersey */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
             <div>
               <Label htmlFor="age">Age *</Label>
               <Input
@@ -198,7 +198,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                   setFormData({ ...formData, age: parseInt(e.target.value) || 0 });
                   if (errors.age) setErrors({ ...errors, age: '' });
                 }}
-                className={`mt-2 ${errors.age ? 'border-red-500' : ''}`}
+                className={`mt-2 h-11 sm:h-12 text-base ${errors.age ? 'border-red-500' : ''}`}
               />
               {errors.age && <p className="text-red-400 text-xs mt-1">{errors.age}</p>}
             </div>
@@ -209,29 +209,29 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 value={formData.role}
                 onValueChange={(value) => setFormData({ ...formData, role: value as 'Batter' | 'Bowler' | 'All-Rounder' })}
               >
-                <SelectTrigger className="mt-2">
+                <SelectTrigger className="mt-2 h-11 sm:h-12 text-base">
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Batter">Batter</SelectItem>
-                  <SelectItem value="Bowler">Bowler</SelectItem>
-                  <SelectItem value="All-Rounder">All-Rounder</SelectItem>
+                  <SelectItem value="Batter" className="py-3">Batter</SelectItem>
+                  <SelectItem value="Bowler" className="py-3">Bowler</SelectItem>
+                  <SelectItem value="All-Rounder" className="py-3">All-Rounder</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div>
-              <Label htmlFor="battingHand">Batting/Bowling Hand *</Label>
+            <div className="col-span-2 sm:col-span-1">
+              <Label htmlFor="battingHand">Batting/Bowling *</Label>
               <Select
                 value={formData.battingBowlingHand}
                 onValueChange={(value) => setFormData({ ...formData, battingBowlingHand: value as 'Right-handed' | 'Left-handed' })}
               >
-                <SelectTrigger className="mt-2">
+                <SelectTrigger className="mt-2 h-11 sm:h-12 text-base">
                   <SelectValue placeholder="Select hand" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Right-handed">Right-handed</SelectItem>
-                  <SelectItem value="Left-handed">Left-handed</SelectItem>
+                  <SelectItem value="Right-handed" className="py-3">Right-handed</SelectItem>
+                  <SelectItem value="Left-handed" className="py-3">Left-handed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -242,23 +242,23 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 value={formData.tshirtSize}
                 onValueChange={(value) => setFormData({ ...formData, tshirtSize: value as 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL' })}
               >
-                <SelectTrigger className="mt-2">
-                  <SelectValue placeholder="Select size" />
+                <SelectTrigger className="mt-2 h-11 sm:h-12 text-base">
+                  <SelectValue placeholder="Size" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="S">S</SelectItem>
-                  <SelectItem value="M">M</SelectItem>
-                  <SelectItem value="L">L</SelectItem>
-                  <SelectItem value="XL">XL</SelectItem>
-                  <SelectItem value="XXL">XXL</SelectItem>
-                  <SelectItem value="3XL">3XL</SelectItem>
-                  <SelectItem value="4XL">4XL</SelectItem>
+                  <SelectItem value="S" className="py-3">S</SelectItem>
+                  <SelectItem value="M" className="py-3">M</SelectItem>
+                  <SelectItem value="L" className="py-3">L</SelectItem>
+                  <SelectItem value="XL" className="py-3">XL</SelectItem>
+                  <SelectItem value="XXL" className="py-3">XXL</SelectItem>
+                  <SelectItem value="3XL" className="py-3">3XL</SelectItem>
+                  <SelectItem value="4XL" className="py-3">4XL</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div>
-              <Label htmlFor="jerseyNumber">Jersey Number</Label>
+              <Label htmlFor="jerseyNumber">Jersey #</Label>
               <Input
                 id="jerseyNumber"
                 type="number"
@@ -273,14 +273,14 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                   if (errors.jerseyNumber) setErrors({ ...errors, jerseyNumber: '' });
                 }}
                 placeholder="e.g., 7"
-                className={`mt-2 ${errors.jerseyNumber ? 'border-red-500' : ''}`}
+                className={`mt-2 h-11 sm:h-12 text-base ${errors.jerseyNumber ? 'border-red-500' : ''}`}
               />
               {errors.jerseyNumber && <p className="text-red-400 text-xs mt-1">{errors.jerseyNumber}</p>}
             </div>
           </div>
 
           {/* Row 3: Base Price and Photo side by side */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
             <div className="space-y-4">
               <div>
                 <Label htmlFor="basePrice">Base Price (₹) *</Label>
@@ -295,7 +295,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                     setFormData({ ...formData, basePrice: parseInt(e.target.value) || 0 });
                     if (errors.basePrice) setErrors({ ...errors, basePrice: '' });
                   }}
-                  className={`mt-2 ${errors.basePrice ? 'border-red-500' : ''}`}
+                  className={`mt-2 h-11 sm:h-12 text-base ${errors.basePrice ? 'border-red-500' : ''}`}
                 />
                 {errors.basePrice ? (
                   <p className="text-red-400 text-xs mt-1">{errors.basePrice}</p>
@@ -309,59 +309,59 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
               {/* Availability in left column */}
               <div>
                 <Label>Availability *</Label>
-                <div className="grid grid-cols-1 gap-1.5 mt-2 text-sm">
-                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer">
+                <div className="grid grid-cols-1 gap-1 sm:gap-1.5 mt-2 text-sm">
+                  <label className="flex items-center gap-2.5 p-2.5 sm:p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer touch-target">
                     <input
                       type="radio"
                       name="availability"
                       value="all"
                       checked={formData.availability === 'all'}
                       onChange={() => setFormData({ ...formData, availability: 'all' })}
-                      className="accent-blue-500"
+                      className="accent-blue-500 w-4 h-4"
                     />
                     <span>Available all days</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer">
+                  <label className="flex items-center gap-2.5 p-2.5 sm:p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer touch-target">
                     <input
                       type="radio"
                       name="availability"
                       value="5"
                       checked={formData.availability === '5'}
                       onChange={() => setFormData({ ...formData, availability: '5' })}
-                      className="accent-blue-500"
+                      className="accent-blue-500 w-4 h-4"
                     />
                     <span>Not available on 5th March 2026</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer">
+                  <label className="flex items-center gap-2.5 p-2.5 sm:p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer touch-target">
                     <input
                       type="radio"
                       name="availability"
                       value="6"
                       checked={formData.availability === '6'}
                       onChange={() => setFormData({ ...formData, availability: '6' })}
-                      className="accent-blue-500"
+                      className="accent-blue-500 w-4 h-4"
                     />
                     <span>Not available on 6th March 2026</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer">
+                  <label className="flex items-center gap-2.5 p-2.5 sm:p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer touch-target">
                     <input
                       type="radio"
                       name="availability"
                       value="7"
                       checked={formData.availability === '7'}
                       onChange={() => setFormData({ ...formData, availability: '7' })}
-                      className="accent-blue-500"
+                      className="accent-blue-500 w-4 h-4"
                     />
                     <span>Not available on 7th March 2026</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer">
+                  <label className="flex items-center gap-2.5 p-2.5 sm:p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer touch-target">
                     <input
                       type="radio"
                       name="availability"
                       value="8"
                       checked={formData.availability === '8'}
                       onChange={() => setFormData({ ...formData, availability: '8' })}
-                      className="accent-blue-500"
+                      className="accent-blue-500 w-4 h-4"
                     />
                     <span>Not available on 8th March 2026</span>
                   </label>
@@ -382,11 +382,11 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
             </div>
           </div>
 
-          <div className="pt-4 flex gap-3">
-            <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+          <div className="pt-4 flex flex-col-reverse sm:flex-row gap-3">
+            <Button type="button" variant="outline" onClick={onClose} className="flex-1 h-12 text-base">
               Cancel
             </Button>
-            <Button type="submit" disabled={loading} className="flex-1">
+            <Button type="submit" disabled={loading} className="flex-1 h-12 text-base">
               {loading ? 'Adding...' : 'Add Player'}
             </Button>
           </div>

@@ -49,37 +49,37 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
       <Navbar />
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 safe-bottom">
         {/* Header */}
-        <div className="mb-8">
-          <Link href={`/tournament/${tournamentId}`} className="flex items-center gap-2 text-slate-400 hover:text-white transition mb-4">
+        <div className="mb-6 sm:mb-8">
+          <Link href={`/tournament/${tournamentId}`} className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition mb-4 py-2 touch-target">
             <ArrowLeft className="w-5 h-5" />
-            Back to Tournament
+            <span>Back to Tournament</span>
           </Link>
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold mb-2">Player Management</h1>
-              <p className="text-slate-400">{tournament?.name}</p>
+              <h1 className="text-2xl sm:text-3xl font-bold mb-1 sm:mb-2">Player Management</h1>
+              <p className="text-slate-400 text-sm sm:text-base">{tournament?.name}</p>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-2 sm:gap-3">
               {stats.total > 0 && (
                 <Button 
                   variant="outline" 
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                  className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300 h-11 px-3 sm:px-4 text-sm"
                 >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete All
+                  <Trash2 className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Delete All</span>
                 </Button>
               )}
-              <Button variant="outline" onClick={() => setShowImport(true)}>
-                <Upload className="w-4 h-4 mr-2" />
-                Import Excel
+              <Button variant="outline" onClick={() => setShowImport(true)} className="h-11 px-3 sm:px-4 text-sm">
+                <Upload className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Import Excel</span>
               </Button>
-              <Button onClick={() => setShowAddForm(true)}>
-                <Plus className="w-4 h-4 mr-2" />
+              <Button onClick={() => setShowAddForm(true)} className="h-11 px-4 text-sm">
+                <Plus className="w-4 h-4 mr-1 sm:mr-2" />
                 Add Player
               </Button>
             </div>
@@ -107,13 +107,13 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         </div> */}
 
       {/* Stats - Status Based */}
-        <div className="flex flex-wrap items-center gap-3 mb-6">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-6 overflow-x-auto pb-2 ipad-scroll">
           {/* Status Filters */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-400 mr-1">Status:</span>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <span className="text-xs sm:text-sm text-slate-400 mr-1">Status:</span>
             <button
               onClick={() => setFilterStatus('all')}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
                 filterStatus === 'all' 
                   ? 'bg-blue-600 text-white' 
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -123,7 +123,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             </button>
             <button
               onClick={() => setFilterStatus('pending')}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
                 filterStatus === 'pending' 
                   ? 'bg-slate-600 text-white' 
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -133,7 +133,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             </button>
             <button
               onClick={() => setFilterStatus('in_auction')}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
                 filterStatus === 'in_auction' 
                   ? 'bg-yellow-600 text-white' 
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -143,7 +143,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             </button>
             <button
               onClick={() => setFilterStatus('sold')}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
                 filterStatus === 'sold' 
                   ? 'bg-green-600 text-white' 
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -153,7 +153,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             </button>
             <button
               onClick={() => setFilterStatus('unsold')}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
                 filterStatus === 'unsold' 
                   ? 'bg-red-600 text-white' 
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -163,14 +163,14 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             </button>
           </div>
 
-          <div className="h-6 w-px bg-slate-700" />
+          <div className="h-6 w-px bg-slate-700 hidden sm:block" />
 
           {/* Role Filters */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-400 mr-1">Role:</span>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <span className="text-xs sm:text-sm text-slate-400 mr-1">Role:</span>
             <button
               onClick={() => setFilterRole(filterRole === 'all' ? 'all' : 'all')}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
                 filterRole === 'all' 
                   ? 'bg-blue-600 text-white' 
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -182,7 +182,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             </button>
             <button
               onClick={() => setFilterRole(filterRole === 'Batter' ? 'all' : 'Batter')}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
                 filterRole === 'Batter' 
                   ? 'bg-blue-600 text-white' 
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -192,7 +192,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             </button>
             <button
               onClick={() => setFilterRole(filterRole === 'Bowler' ? 'all' : 'Bowler')}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
                 filterRole === 'Bowler' 
                   ? 'bg-red-600 text-white' 
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -202,7 +202,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             </button>
             <button
               onClick={() => setFilterRole(filterRole === 'All-Rounder' ? 'all' : 'All-Rounder')}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
                 filterRole === 'All-Rounder' 
                   ? 'bg-purple-600 text-white' 
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -215,13 +215,13 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           {/* Clear Filters */}
           {(filterStatus !== 'all' || filterRole !== 'all') && (
             <>
-              <div className="h-6 w-px bg-slate-700" />
+              <div className="h-6 w-px bg-slate-700 hidden sm:block" />
               <button
                 onClick={() => {
                   setFilterStatus('all');
                   setFilterRole('all');
                 }}
-                className="px-3 py-1.5 rounded-full text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 transition"
+                className="px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 transition touch-target"
               >
                 Clear Filters
               </button>
@@ -231,26 +231,26 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
         {/* Players Grid */}
         {!players ? (
-          <div className="flex items-center justify-center py-20">
+          <div className="flex items-center justify-center py-16 sm:py-20">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
           </div>
         ) : players.length === 0 ? (
-          <div className="text-center py-20">
-            <Users className="w-20 h-20 mx-auto mb-4 text-slate-700" />
-            <h3 className="text-xl font-semibold mb-2">No players yet</h3>
-            <p className="text-slate-400 mb-6">
+          <div className="text-center py-12 sm:py-16 lg:py-20">
+            <Users className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 text-slate-700" />
+            <h3 className="text-lg sm:text-xl font-semibold mb-2">No players yet</h3>
+            <p className="text-slate-400 mb-6 text-sm sm:text-base px-4">
               {filterRole === 'all' 
                 ? 'Add players or import from Excel to get started'
                 : `No ${filterRole}s found. Try a different filter.`
               }
             </p>
             {filterRole === 'all' && (
-              <div className="flex gap-3 justify-center">
-                <Button onClick={() => setShowImport(true)} variant="outline">
+              <div className="flex flex-col sm:flex-row gap-3 justify-center px-4">
+                <Button onClick={() => setShowImport(true)} variant="outline" className="h-11 sm:h-12 text-base">
                   <Upload className="w-5 h-5 mr-2" />
                   Import from Excel
                 </Button>
-                <Button onClick={() => setShowAddForm(true)}>
+                <Button onClick={() => setShowAddForm(true)} className="h-11 sm:h-12 text-base">
                   <Plus className="w-5 h-5 mr-2" />
                   Add First Player
                 </Button>
@@ -258,7 +258,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-5">
             {players.map((player) => (
               <PlayerCard key={player._id} player={player} />
             ))}
@@ -267,8 +267,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
         {/* Import Modal */}
         {showImport && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-            <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full p-6 my-8">
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto ipad-scroll">
+            <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full p-4 sm:p-6 my-4 sm:my-8">
               <PlayerImport
                 tournamentId={tournamentId}
                 onComplete={() => setShowImport(false)}

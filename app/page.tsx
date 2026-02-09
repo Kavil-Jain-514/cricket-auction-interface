@@ -43,7 +43,7 @@ export default function HomePage() {
         </p>
 
         <div className="flex gap-4 justify-center">
-          <Link href="/signup">
+          <Link href="/sign-up">
             <Button size="lg" className="text-lg px-8">
               Start Free Trial
               <ArrowRight className="ml-2 w-5 h-5" />
@@ -111,7 +111,7 @@ export default function HomePage() {
           <p className="text-lg mb-8 opacity-90">
             Join thousands of cricket enthusiasts running professional auctions
           </p>
-          <Link href="/signup">
+          <Link href="/sign-up">
             <Button size="lg" variant="secondary" className="text-lg px-8">
               Create Your First Tournament
               <ArrowRight className="ml-2 w-5 h-5" />

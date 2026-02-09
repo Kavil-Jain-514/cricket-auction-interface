@@ -106,52 +106,50 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
       <Navbar />
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 safe-bottom">
         {/* Header */}
-        <div className="mb-8">
-          <Link href="/dashboard" className="flex items-center gap-2 text-slate-400 hover:text-white transition mb-4">
+        <div className="mb-6 sm:mb-8">
+          <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition mb-4 py-2 touch-target">
             <ArrowLeft className="w-5 h-5" />
-            Back to Dashboard
+            <span>Back to Dashboard</span>
           </Link>
 
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-4 mb-2">
-                {/* Tournament Logo */}
-                {tournament.logoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img 
-                    src={tournament.logoUrl} 
-                    alt={`${tournament.name} logo`}
-                    className="w-16 h-16 rounded-xl object-cover border border-slate-600"
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-xl bg-yellow-500/20 flex items-center justify-center">
-                    <Trophy className="w-10 h-10 text-yellow-500" />
-                  </div>
-                )}
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h1 className="text-4xl font-bold">{tournament.name}</h1>
-                    <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                      tournament.status === 'active' ? 'bg-green-600' :
-                      tournament.status === 'setup' ? 'bg-blue-600' :
-                      tournament.status === 'completed' ? 'bg-purple-600' :
-                      'bg-slate-600'
-                    }`}>
-                      {tournament.status}
-                    </span>
-                  </div>
-                  {tournament.description && (
-                    <p className="text-slate-400 mt-1">{tournament.description}</p>
-                  )}
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 lg:gap-6">
+            <div className="flex items-start gap-3 sm:gap-4">
+              {/* Tournament Logo */}
+              {tournament.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img 
+                  src={tournament.logoUrl} 
+                  alt={`${tournament.name} logo`}
+                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover border border-slate-600 shrink-0"
+                />
+              ) : (
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-yellow-500/20 flex items-center justify-center shrink-0">
+                  <Trophy className="w-8 h-8 sm:w-10 sm:h-10 text-yellow-500" />
                 </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                  <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold">{tournament.name}</h1>
+                  <span className={`px-3 py-1 rounded-full text-xs sm:text-sm font-semibold ${
+                    tournament.status === 'active' ? 'bg-green-600' :
+                    tournament.status === 'setup' ? 'bg-blue-600' :
+                    tournament.status === 'completed' ? 'bg-purple-600' :
+                    'bg-slate-600'
+                  }`}>
+                    {tournament.status}
+                  </span>
+                </div>
+                {tournament.description && (
+                  <p className="text-slate-400 mt-1 text-sm sm:text-base">{tournament.description}</p>
+                )}
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-2 sm:gap-3">
               {canModify?.canEdit && (
-              <Button variant="outline" size="sm" onClick={() => setShowSettings(true)}>
+              <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} className="h-11 px-4 text-sm">
                 <Settings className="w-4 h-4 mr-2" />
                 Settings
               </Button>
@@ -163,7 +161,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                   size="sm"
                   onClick={handleDelete}
                   disabled={deleting}
-                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white h-11 px-4 text-sm"
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
                   {deleting ? 'Deleting...' : 'Delete'}
@@ -173,6 +171,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               <Button 
                 onClick={handleStartAuction}
                 disabled={tournament.status === 'active' || tournament.status === 'completed'}
+                className="h-11 px-4 sm:px-5 text-sm"
               >
                 <Play className="w-4 h-4 mr-2" />
                 Start Auction
@@ -180,7 +179,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               {canResumeAuction() && (
                 <Button 
                   onClick={handleResumeAuction}
-                  className="bg-green-600 hover:bg-green-700"
+                  className="bg-green-600 hover:bg-green-700 h-11 px-4 sm:px-5 text-sm"
                 >
                   <Play className="w-4 h-4 mr-2" />
                   Resume Auction
@@ -209,53 +208,63 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
 
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <Users className="w-5 h-5 text-blue-500" />
-              <span className="text-slate-400 text-sm">Teams</span>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 lg:gap-6 mb-6 sm:mb-8">
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6">
+            <div className="flex items-center gap-2 sm:gap-3 mb-2">
+              <div className="p-1.5 sm:p-2 bg-blue-500/20 rounded-lg">
+                <Users className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500" />
+              </div>
+              <span className="text-slate-400 text-xs sm:text-sm">Teams</span>
             </div>
-            <div className="text-3xl font-bold">{teams?.length || 0}</div>
+            <div className="text-xl sm:text-2xl lg:text-3xl font-bold">{teams?.length || 0}</div>
           </div>
 
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <UserPlus className="w-5 h-5 text-green-500" />
-              <span className="text-slate-400 text-sm">Total Players</span>
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6">
+            <div className="flex items-center gap-2 sm:gap-3 mb-2">
+              <div className="p-1.5 sm:p-2 bg-green-500/20 rounded-lg">
+                <UserPlus className="w-4 h-4 sm:w-5 sm:h-5 text-green-500" />
+              </div>
+              <span className="text-slate-400 text-xs sm:text-sm">Total Players</span>
             </div>
-            <div className="text-3xl font-bold">{players?.length || 0}</div>
+            <div className="text-xl sm:text-2xl lg:text-3xl font-bold">{players?.length || 0}</div>
           </div>
 
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <Trophy className="w-5 h-5 text-yellow-500" />
-              <span className="text-slate-400 text-sm">Pending</span>
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6">
+            <div className="flex items-center gap-2 sm:gap-3 mb-2">
+              <div className="p-1.5 sm:p-2 bg-yellow-500/20 rounded-lg">
+                <Trophy className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-500" />
+              </div>
+              <span className="text-slate-400 text-xs sm:text-sm">Pending</span>
             </div>
-            <div className="text-3xl font-bold">{pendingPlayers}</div>
+            <div className="text-xl sm:text-2xl lg:text-3xl font-bold">{pendingPlayers}</div>
           </div>
 
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <Trophy className="w-5 h-5 text-purple-500" />
-              <span className="text-slate-400 text-sm">Sold</span>
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6">
+            <div className="flex items-center gap-2 sm:gap-3 mb-2">
+              <div className="p-1.5 sm:p-2 bg-purple-500/20 rounded-lg">
+                <Trophy className="w-4 h-4 sm:w-5 sm:h-5 text-purple-500" />
+              </div>
+              <span className="text-slate-400 text-xs sm:text-sm">Sold</span>
             </div>
-            <div className="text-3xl font-bold">{soldPlayers}</div>
+            <div className="text-xl sm:text-2xl lg:text-3xl font-bold">{soldPlayers}</div>
           </div>
         </div>
 
         {/* Quick Actions */}
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 lg:gap-6">
           <Link href={`/tournament/${tournamentId}/teams`}>
-            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 hover:border-blue-500 transition cursor-pointer group">
-              <div className="flex items-center justify-between mb-4">
-                <Users className="w-12 h-12 text-blue-500 group-hover:scale-110 transition" />
-                <span className="text-3xl font-bold text-blue-400">{teams?.length || 0}</span>
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5 sm:p-6 lg:p-8 hover:border-blue-500 active:scale-[0.98] transition cursor-pointer group">
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <div className="p-2.5 sm:p-3 bg-blue-500/20 rounded-xl">
+                  <Users className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 text-blue-500 group-hover:scale-110 transition" />
+                </div>
+                <span className="text-2xl sm:text-3xl font-bold text-blue-400">{teams?.length || 0}</span>
               </div>
-              <h3 className="text-2xl font-bold mb-2">Manage Teams</h3>
-              <p className="text-slate-400 mb-4">
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">Manage Teams</h3>
+              <p className="text-slate-400 mb-3 sm:mb-4 text-sm sm:text-base">
                 Add, edit, and organize your tournament teams
               </p>
-              <div className="flex items-center gap-2 text-blue-400">
+              <div className="flex items-center gap-2 text-blue-400 text-sm sm:text-base font-medium">
                 <span>Manage Teams</span>
                 <ArrowLeft className="w-4 h-4 rotate-180" />
               </div>
@@ -263,16 +272,18 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
           </Link>
 
           <Link href={`/tournament/${tournamentId}/players`}>
-            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 hover:border-green-500 transition cursor-pointer group">
-              <div className="flex items-center justify-between mb-4">
-                <UserPlus className="w-12 h-12 text-green-500 group-hover:scale-110 transition" />
-                <span className="text-3xl font-bold text-green-400">{players?.length || 0}</span>
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5 sm:p-6 lg:p-8 hover:border-green-500 active:scale-[0.98] transition cursor-pointer group">
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <div className="p-2.5 sm:p-3 bg-green-500/20 rounded-xl">
+                  <UserPlus className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 text-green-500 group-hover:scale-110 transition" />
+                </div>
+                <span className="text-2xl sm:text-3xl font-bold text-green-400">{players?.length || 0}</span>
               </div>
-              <h3 className="text-2xl font-bold mb-2">Manage Players</h3>
-              <p className="text-slate-400 mb-4">
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">Manage Players</h3>
+              <p className="text-slate-400 mb-3 sm:mb-4 text-sm sm:text-base">
                 Add players, import from Excel, set base prices
               </p>
-              <div className="flex items-center gap-2 text-green-400">
+              <div className="flex items-center gap-2 text-green-400 text-sm sm:text-base font-medium">
                 <span>Manage Players</span>
                 <ArrowLeft className="w-4 h-4 rotate-180" />
               </div>
@@ -299,30 +310,30 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
         </div>
 
         {/* Tournament Settings Summary */}
-        <div className="mt-8 bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-          <h2 className="text-xl font-bold mb-4">Tournament Settings</h2>
-          <div className="grid md:grid-cols-2 gap-4">
+        <div className="mt-6 sm:mt-8 bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6">
+          <h2 className="text-lg sm:text-xl font-bold mb-4">Tournament Settings</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
             <div>
-              <span className="text-slate-400 text-sm">Base Purse per Team</span>
-              <div className="text-xl font-bold text-green-400">
+              <span className="text-slate-400 text-xs sm:text-sm">Base Purse per Team</span>
+              <div className="text-lg sm:text-xl font-bold text-green-400">
                 {formatCurrency(tournament.settings.basePurse)}
               </div>
             </div>
             <div>
-              <span className="text-slate-400 text-sm">Minimum Bid Increment</span>
-              <div className="text-xl font-bold">
+              <span className="text-slate-400 text-xs sm:text-sm">Minimum Bid Increment</span>
+              <div className="text-lg sm:text-xl font-bold">
                 {formatCurrency(tournament.settings.minBidIncrement)}
               </div>
             </div>
             <div>
-              <span className="text-slate-400 text-sm">Bid Timer</span>
-              <div className="text-xl font-bold">
+              <span className="text-slate-400 text-xs sm:text-sm">Bid Timer</span>
+              <div className="text-lg sm:text-xl font-bold">
                 {tournament.settings.bidTimerSeconds}s
               </div>
             </div>
             <div>
-              <span className="text-slate-400 text-sm">Max Players per Team</span>
-              <div className="text-xl font-bold">
+              <span className="text-slate-400 text-xs sm:text-sm">Max Players per Team</span>
+              <div className="text-lg sm:text-xl font-bold">
                 {tournament.settings.maxPlayersPerTeam}
               </div>
             </div>

@@ -56,45 +56,46 @@ export function PlayerCard({ player }: PlayerCardProps) {
     <>
     <motion.div
       whileHover={{ scale: 1.02 }}
-      className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 hover:border-blue-500 transition"
+      whileTap={{ scale: 0.98 }}
+      className="bg-slate-800/50 border border-slate-700 rounded-xl p-3 sm:p-4 hover:border-blue-500 transition relative"
     >
       {/* Action Buttons */}
         {canModify && (
-          <div className="absolute top-2 right-2 flex gap-1">
+          <div className="absolute top-2 right-2 sm:top-3 sm:right-3 flex gap-1.5">
             <button
               onClick={() => setShowEdit(true)}
-              className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition"
+              className="p-2 sm:p-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition touch-target"
               title="Edit Player"
             >
-              <Edit className="w-3.5 h-3.5" />
+              <Edit className="w-4 h-4" />
             </button>
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="p-1.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50"
+              className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 touch-target"
               title="Delete Player"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-4 h-4" />
             </button>
           </div>
         )}
 
       {/* Player Avatar */}
-      <div className="flex items-start gap-3 mb-3">
+      <div className="flex items-start gap-2.5 sm:gap-3 mb-3">
         <PlayerAvatar 
           name={player.name} 
           photoUrl={player.photoUrl} 
           size="lg"
         />
         
-        <div className="flex-1 min-w-0">
-          <h3 className="font-bold text-lg truncate">{player.name}</h3>
-          <p className="text-sm text-slate-400">{player.age} years</p>
-          <div className="flex gap-2 mt-1">
-            <span className={`px-2 py-0.5 ${roleColors[player.role]} rounded text-xs font-semibold`}>
+        <div className="flex-1 min-w-0 pr-16 sm:pr-20">
+          <h3 className="font-bold text-base sm:text-lg truncate">{player.name}</h3>
+          <p className="text-xs sm:text-sm text-slate-400">{player.age} years</p>
+          <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-1.5">
+            <span className={`px-2 py-0.5 sm:py-1 ${roleColors[player.role]} rounded text-xs font-semibold`}>
               {player.role}
             </span>
-            <span className={`px-2 py-0.5 ${statusColors[player.auctionStatus]} rounded text-xs font-semibold`}>
+            <span className={`px-2 py-0.5 sm:py-1 ${statusColors[player.auctionStatus]} rounded text-xs font-semibold`}>
               {player.auctionStatus}
             </span>
           </div>
@@ -102,7 +103,7 @@ export function PlayerCard({ player }: PlayerCardProps) {
       </div>
 
       {/* Player Details */}
-      <div className="space-y-2 text-sm">
+      <div className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm">
         <div className="flex justify-between">
           <span className="text-slate-400">Batting/Bowling</span>
           <span className="font-semibold">{player.battingBowlingHand}</span>

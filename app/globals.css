@@ -123,3 +123,101 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* iPad-Friendly Utilities */
+@layer utilities {
+  /* Touch-friendly minimum tap targets (44px Apple HIG recommendation) */
+  .touch-target {
+    @apply min-h-11 min-w-11;
+  }
+  
+  /* Larger touch targets for primary actions */
+  .touch-target-lg {
+    @apply min-h-13 min-w-13;
+  }
+  
+  /* iPad-optimized padding for interactive elements */
+  .ipad-padding {
+    @apply p-3 sm:p-4 lg:p-5;
+  }
+  
+  /* Better spacing for cards on tablets */
+  .ipad-card {
+    @apply p-4 sm:p-5 lg:p-6;
+  }
+  
+  /* Touch-friendly form inputs */
+  .ipad-input {
+    @apply h-12 text-base;
+  }
+  
+  /* Responsive text that's readable on iPad */
+  .text-responsive-sm {
+    @apply text-sm sm:text-base;
+  }
+  
+  .text-responsive-base {
+    @apply text-base sm:text-lg;
+  }
+  
+  .text-responsive-lg {
+    @apply text-lg sm:text-xl lg:text-2xl;
+  }
+  
+  .text-responsive-xl {
+    @apply text-xl sm:text-2xl lg:text-3xl;
+  }
+  
+  .text-responsive-2xl {
+    @apply text-2xl sm:text-3xl lg:text-4xl;
+  }
+  
+  /* iPad grid layouts */
+  .grid-ipad-2 {
+    @apply grid grid-cols-1 sm:grid-cols-2;
+  }
+  
+  .grid-ipad-3 {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3;
+  }
+  
+  .grid-ipad-4 {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4;
+  }
+  
+  /* Touch-friendly spacing */
+  .gap-ipad {
+    @apply gap-4 sm:gap-5 lg:gap-6;
+  }
+  
+  /* Better scrolling for iPad */
+  .ipad-scroll {
+    @apply overflow-y-auto overscroll-contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Hide elements on iPad portrait but show on landscape */
+  @media (min-width: 768px) and (max-width: 1024px) and (orientation: portrait) {
+    .ipad-landscape-only {
+      @apply hidden;
+    }
+  }
+  
+  /* iPad-specific button styles */
+  .btn-ipad {
+    @apply h-12 px-5 text-base font-medium rounded-xl;
+  }
+  
+  .btn-ipad-lg {
+    @apply h-14 px-6 text-lg font-semibold rounded-xl;
+  }
+  
+  /* Safe area padding for iPads with home indicator */
+  .safe-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+  
+  .safe-top {
+    padding-top: max(1rem, env(safe-area-inset-top));
+  }
+}

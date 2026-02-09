@@ -262,9 +262,9 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* File Upload */}
-      <div className="border-2 border-dashed border-slate-700 rounded-xl p-8 text-center hover:border-blue-500 transition">
+      <div className="border-2 border-dashed border-slate-700 rounded-xl p-6 sm:p-8 text-center hover:border-blue-500 transition">
         <input
           type="file"
           accept=".xlsx,.xls"
@@ -272,12 +272,12 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
           className="hidden"
           id="excel-upload"
         />
-        <label htmlFor="excel-upload" className="cursor-pointer">
-          <Upload className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-          <div className="text-lg font-semibold mb-2">
+        <label htmlFor="excel-upload" className="cursor-pointer min-h-24 sm:min-h-32 flex flex-col items-center justify-center">
+          <Upload className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-3 sm:mb-4 text-slate-400" />
+          <div className="text-base sm:text-lg font-semibold mb-2">
             {file ? file.name : 'Upload Excel File'}
           </div>
-          <div className="text-sm text-slate-400">
+          <div className="text-xs sm:text-sm text-slate-400">
             Click to browse or drag and drop
           </div>
         </label>
@@ -313,22 +313,22 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       {/* Preview */}
       {parsed.length > 0 && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <CheckCircle className="w-5 h-5 text-green-500" />
-              <span className="font-semibold">
+              <span className="font-semibold text-sm sm:text-base">
                 {parsed.length} Players Ready to Import
               </span>
             </div>
-            <Button onClick={handleImport} size="lg">
+            <Button onClick={handleImport} size="lg" className="w-full sm:w-auto min-h-11 touch-target">
               <FileSpreadsheet className="w-5 h-5 mr-2" />
               Import All Players
             </Button>
           </div>
 
           <div className="bg-slate-800 rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <table className="w-full min-w-160">
                 <thead className="bg-slate-900">
                   <tr>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Photo</th>
@@ -418,14 +418,14 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
 
       {/* Template Download */}
       <div className="bg-blue-500/10 border border-blue-500 rounded-lg p-4">
-        <div className="flex items-start gap-3">
-          <FileSpreadsheet className="w-5 h-5 text-blue-500 mt-0.5" />
+        <div className="flex flex-col sm:flex-row items-start gap-3">
+          <FileSpreadsheet className="w-5 h-5 text-blue-500 mt-0.5 shrink-0" />
           <div className="flex-1">
-            <div className="font-semibold mb-1">Need a template?</div>
-            <div className="text-sm text-slate-400 mb-3">
+            <div className="font-semibold mb-1 text-sm sm:text-base">Need a template?</div>
+            <div className="text-xs sm:text-sm text-slate-400 mb-3">
               Download our Excel template with all required columns and sample data.
             </div>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" className="min-h-10 touch-target w-full sm:w-auto">
               Download Template
             </Button>
           </div>

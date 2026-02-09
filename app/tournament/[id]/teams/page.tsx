@@ -24,21 +24,21 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
       <Navbar />
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Header */}
-        <div className="mb-8">
-          <Link href={`/tournament/${tournamentId}`} className="flex items-center gap-2 text-slate-400 hover:text-white transition mb-4">
+        <div className="mb-6 sm:mb-8">
+          <Link href={`/tournament/${tournamentId}`} className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition mb-4 min-h-11 touch-target">
             <ArrowLeft className="w-5 h-5" />
-            Back to Tournament
+            <span>Back to Tournament</span>
           </Link>
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold mb-2">Team Management</h1>
-              <p className="text-slate-400">{tournament?.name}</p>
+              <h1 className="text-2xl sm:text-3xl font-bold mb-1 sm:mb-2">Team Management</h1>
+              <p className="text-slate-400 text-sm sm:text-base">{tournament?.name}</p>
             </div>
 
-            <Button onClick={() => setShowAddForm(true)}>
+            <Button onClick={() => setShowAddForm(true)} className="min-h-11 touch-target w-full sm:w-auto">
               <Plus className="w-4 h-4 mr-2" />
               Add Team
             </Button>
@@ -47,27 +47,33 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
 
         {/* Teams Grid */}
         {!teams ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
+          <div className="flex items-center justify-center py-16 sm:py-20">
+            <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-blue-500" />
           </div>
         ) : teams.length === 0 ? (
-          <div className="text-center py-20">
-            <Users className="w-20 h-20 mx-auto mb-4 text-slate-700" />
-            <h3 className="text-xl font-semibold mb-2">No teams yet</h3>
-            <p className="text-slate-400 mb-6">
+          <div className="text-center py-16 sm:py-20 px-4">
+            <Users className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 text-slate-700" />
+            <h3 className="text-lg sm:text-xl font-semibold mb-2">No teams yet</h3>
+            <p className="text-slate-400 mb-6 text-sm sm:text-base">
               Add your first team to get started
             </p>
-            <Button onClick={() => setShowAddForm(true)}>
+            <Button onClick={() => setShowAddForm(true)} className="min-h-11 touch-target">
               <Plus className="w-5 h-5 mr-2" />
               Add First Team
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {teams.map((team) => (
-              <TeamCard key={team._id} team={team} tournamentId={tournamentId} />
-            ))}
-          </div>
+          <>
+            <p className="text-sm text-slate-400 mb-4">
+              <span className="hidden sm:inline">{teams.length} team{teams.length !== 1 ? 's' : ''}</span>
+              <span className="sm:hidden">{teams.length} team{teams.length !== 1 ? 's' : ''}</span>
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              {teams.map((team) => (
+                <TeamCard key={team._id} team={team} tournamentId={tournamentId} />
+              ))}
+            </div>
+          </>
         )}
 
         {/* Add Team Form Modal */}

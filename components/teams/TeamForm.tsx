@@ -156,45 +156,47 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-3xl w-full p-6 my-8">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start sm:items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-3xl w-full p-4 sm:p-6 my-4 sm:my-8 max-h-[95vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold">Add New Team</h2>
-          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg transition">
+        <div className="flex items-center justify-between mb-4 sm:mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold">Add New Team</h2>
+          <button onClick={onClose} className="p-2.5 sm:p-2 hover:bg-slate-800 rounded-lg transition touch-target min-h-11 min-w-11 flex items-center justify-center">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Step Indicator */}
-        <div className="flex items-center justify-center gap-4 mb-8">
-          <div className="flex items-center gap-2">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${
+        <div className="flex items-center justify-center gap-2 sm:gap-4 mb-6 sm:mb-8">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold transition-all text-sm sm:text-base ${
               step === 1 
                 ? 'bg-blue-600 text-white' 
                 : 'bg-green-600 text-white'
             }`}>
-              {step > 1 ? <Check className="w-5 h-5" /> : '1'}
+              {step > 1 ? <Check className="w-4 h-4 sm:w-5 sm:h-5" /> : '1'}
             </div>
-            <span className={`font-medium ${step === 1 ? 'text-white' : 'text-slate-400'}`}>
-              Team Details
+            <span className={`font-medium text-sm sm:text-base ${step === 1 ? 'text-white' : 'text-slate-400'}`}>
+              <span className="hidden xs:inline">Team Details</span>
+              <span className="xs:hidden">Team</span>
             </span>
           </div>
           
-          <div className="w-16 h-0.5 bg-slate-700">
+          <div className="w-8 sm:w-16 h-0.5 bg-slate-700">
             <div className={`h-full bg-blue-600 transition-all ${step === 2 ? 'w-full' : 'w-0'}`} />
           </div>
           
-          <div className="flex items-center gap-2">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold transition-all text-sm sm:text-base ${
               step === 2 
                 ? 'bg-blue-600 text-white' 
                 : 'bg-slate-700 text-slate-400'
             }`}>
               2
             </div>
-            <span className={`font-medium ${step === 2 ? 'text-white' : 'text-slate-400'}`}>
-              Captain Details
+            <span className={`font-medium text-sm sm:text-base ${step === 2 ? 'text-white' : 'text-slate-400'}`}>
+              <span className="hidden xs:inline">Captain Details</span>
+              <span className="xs:hidden">Captain</span>
             </span>
           </div>
         </div>
@@ -264,7 +266,7 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                 </div>
 
                 {/* Row 3: Logo and Colors side by side */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                   <div>
                     <Label>Team Logo</Label>
                     <div className="mt-2">
@@ -279,7 +281,7 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
 
                   <div>
                     <Label>Team Color</Label>
-                    <div className="grid grid-cols-3 gap-2 mt-2">
+                    <div className="grid grid-cols-4 sm:grid-cols-3 gap-2 mt-2">
                       {PRESET_COLORS.map((color) => (
                         <button
                           key={color.name}
@@ -289,7 +291,7 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                             colorPrimary: color.primary,
                             colorSecondary: color.secondary,
                           })}
-                          className={`p-3 rounded-lg border-2 transition ${
+                          className={`p-2.5 sm:p-3 rounded-lg border-2 transition min-h-11 touch-target ${
                             formData.colorPrimary === color.primary
                               ? 'border-white'
                               : 'border-transparent hover:border-slate-600'
@@ -308,11 +310,11 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                 </div>
 
                 {/* Step 1 Actions */}
-                <div className="pt-6 flex gap-3">
-                  <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+                <div className="pt-4 sm:pt-6 flex flex-col-reverse sm:flex-row gap-3">
+                  <Button type="button" variant="outline" onClick={onClose} className="flex-1 min-h-11 touch-target">
                     Cancel
                   </Button>
-                  <Button type="button" onClick={handleNext} className="flex-1">
+                  <Button type="button" onClick={handleNext} className="flex-1 min-h-11 touch-target">
                     Next: Captain Details
                     <ChevronRight className="w-4 h-4 ml-2" />
                   </Button>
@@ -338,15 +340,15 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                 </p>
 
                 {/* Captain Row 1: Name and Age */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="md:col-span-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="sm:col-span-2">
                     <Label htmlFor="captainName">Captain Name</Label>
                     <Input
                       id="captainName"
                       value={formData.captainName}
                       onChange={(e) => setFormData({ ...formData, captainName: e.target.value })}
                       placeholder="e.g., Virat Kohli"
-                      className="mt-2"
+                      className="mt-2 min-h-11"
                     />
                   </div>
                   <div>
@@ -362,20 +364,20 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                         captainAge: e.target.value ? parseInt(e.target.value) : undefined 
                       })}
                       placeholder="e.g., 35"
-                      className="mt-2"
+                      className="mt-2 min-h-11"
                     />
                   </div>
                 </div>
 
                 {/* Captain Row 2: Role and Hand */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label>Role</Label>
                     <Select
                       value={formData.captainRole}
                       onValueChange={(value) => setFormData({ ...formData, captainRole: value as 'Batter' | 'Bowler' | 'All-Rounder' })}
                     >
-                      <SelectTrigger className="mt-2">
+                      <SelectTrigger className="mt-2 min-h-11">
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
                       <SelectContent>
@@ -392,7 +394,7 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                       value={formData.captainHand}
                       onValueChange={(value) => setFormData({ ...formData, captainHand: value as 'Right' | 'Left' })}
                     >
-                      <SelectTrigger className="mt-2">
+                      <SelectTrigger className="mt-2 min-h-11">
                         <SelectValue placeholder="Select hand" />
                       </SelectTrigger>
                       <SelectContent>
@@ -418,12 +420,12 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                 </div>
 
                 {/* Step 2 Actions */}
-                <div className="pt-6 flex gap-3">
-                  <Button type="button" variant="outline" onClick={handleBack} className="flex-1">
+                <div className="pt-4 sm:pt-6 flex flex-col-reverse sm:flex-row gap-3">
+                  <Button type="button" variant="outline" onClick={handleBack} className="flex-1 min-h-11 touch-target">
                     <ChevronLeft className="w-4 h-4 mr-2" />
                     Back
                   </Button>
-                  <Button type="submit" disabled={loading} className="flex-1">
+                  <Button type="submit" disabled={loading} className="flex-1 min-h-11 touch-target">
                     {loading ? 'Creating...' : 'Create Team'}
                     <Check className="w-4 h-4 ml-2" />
                   </Button>

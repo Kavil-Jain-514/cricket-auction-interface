@@ -261,14 +261,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
       {/* Header Controls */}
-      <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+      <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-50 safe-top">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 sm:gap-4 shrink-0">
               {/* Tournament Logo */}
               {auctionData.tournament?.logoUrl ? (
                 <div className="relative">
-                  <div className="w-14 h-14 rounded-xl overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
+                  <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img 
                       src={auctionData.tournament.logoUrl} 
@@ -276,25 +276,25 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
-                    <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
+                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse" />
                   </div>
                 </div>
               ) : (
                 <div className="relative">
-                  <div className="w-14 h-14 rounded-xl bg-linear-to-br from-yellow-500 to-orange-600 flex items-center justify-center border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
-                    <Trophy className="w-8 h-8 text-white" />
+                  <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-linear-to-br from-yellow-500 to-orange-600 flex items-center justify-center border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
+                    <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
                   </div>
-                  <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
-                    <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
+                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse" />
                   </div>
                 </div>
               )}
-              <div>
-                <h1 className="text-2xl font-bold">
+              <div className="hidden sm:block">
+                <h1 className="text-lg sm:text-xl lg:text-2xl font-bold truncate max-w-50 lg:max-w-none">
                   {auctionData.tournament?.name}
                 </h1>
-                <p className="text-sm text-slate-400">
+                <p className="text-xs sm:text-sm text-slate-400">
                   {auctionRoom.status === 'waiting' && 'Waiting to start'}
                   {auctionRoom.status === 'live' && 'Live Auction'}
                   {auctionRoom.status === 'paused' && 'Auction Paused'}
@@ -302,7 +302,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               </div>
             </div>
 
-             <div className="flex gap-2">
+             <div className="flex flex-wrap justify-end gap-1.5 sm:gap-2">
               {/* Revert Last Bid */}
               <Button
                 onClick={handleRevertBid}
@@ -310,9 +310,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 variant="outline"
                 size="lg"
                 title="Revert last bid"
+                className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
               > 
-                <RotateCcw className="w-4 h-4" />
-                Revert Last Bid
+                <RotateCcw className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Revert</span>
               </Button>
 
               {/* Start/Pause/Resume buttons based on status */}
@@ -328,10 +329,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   }}
                   variant="default"
                   size="lg"
-                  className="bg-green-600 hover:bg-green-700"
+                  className="bg-green-600 hover:bg-green-700 h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
                 >
-                  <Play className="w-5 h-5 mr-2" />
-                  Start Auction
+                  <Play className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                  <span className="hidden sm:inline">Start</span>
                 </Button>
               )}
 
@@ -347,9 +348,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   }}
                   variant="outline"
                   size="lg"
+                  className="h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
                 >
-                  <Pause className="w-5 h-5 mr-2" />
-                  Pause
+                  <Pause className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                  <span className="hidden sm:inline">Pause</span>
                 </Button>
               )}
 
@@ -365,9 +367,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   }}
                   variant="default"
                   size="lg"
-                  className="bg-green-600 hover:bg-green-700">
-                  <Play className="w-5 h-5 mr-2" />
-                  Resume
+                  className="bg-green-600 hover:bg-green-700 h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target">
+                  <Play className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                  <span className="hidden sm:inline">Resume</span>
                 </Button>
               )}
 
@@ -384,11 +386,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 }}
                 variant="outline"
                 size="lg"
-                className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300 h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
                 title="Restart auction from the beginning"
               >
-                <RefreshCcw className="w-5 h-5 mr-2" />
-                Restart
+                <RefreshCcw className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                <span className="hidden sm:inline">Restart</span>
               </Button>
 
 
@@ -397,33 +399,35 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 disabled={!currentPlayer || auctionRoom.status !== 'live'}
                 variant="outline"
                 size="lg"
+                className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
               >
-                <Gavel className="w-5 h-5 mr-2" />
-                Finalize
+                <Gavel className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                <span className="hidden sm:inline">Finalize</span>
               </Button>
               <Button
                 onClick={handleNextPlayer}
                 disabled={auctionRoom.currentPlayerId !== undefined || auctionRoom.status !== 'live'}
                 size="lg"
+                className="h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
               >
-                <SkipForward className="w-5 h-5 mr-2" />
-                Next Player
+                <SkipForward className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                <span className="hidden sm:inline">Next</span>
               </Button>
             </div>
           </div>
         </div>
       </header>
                 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-12 gap-6">
-          {/* Teams Panel */}
-          <aside className="col-span-3">
-        <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-          <Users className="w-5 h-5" />
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 pb-20 safe-bottom">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 lg:gap-6">
+          {/* Teams Panel - Full width on mobile/tablet, side panel on desktop */}
+          <aside className="lg:col-span-3 order-2 lg:order-1">
+        <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
+          <Users className="w-4 h-4 sm:w-5 sm:h-5" />
           Teams
         </h3>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-2 sm:gap-3">
           {teams?.map((team) => {
             const isCurrentBidder = team._id === currentBidTeam?._id;
             const teamPlayerCount = soldPlayers?.filter(p => p.teamId === team._id).length || 0;
@@ -439,12 +443,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             whileHover={{ scale: canBid && currentPlayer ? 1.03 : 1 }}
             whileTap={{ scale: canBid && currentPlayer ? 0.97 : 1 }}
             className={`
-              relative rounded-xl p-3 border-2 transition-all cursor-pointer
+              relative rounded-xl p-2.5 sm:p-3 border-2 transition-all cursor-pointer touch-target
               ${isCurrentBidder 
             ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' 
             : 'border-slate-700 bg-slate-800/50'
               }
-              ${canBid && currentPlayer ? 'hover:border-blue-500' : 'opacity-50 cursor-not-allowed'}
+              ${canBid && currentPlayer ? 'hover:border-blue-500 active:bg-blue-500/10' : 'opacity-50 cursor-not-allowed'}
             `}
             onClick={() => 
               canBid && currentPlayer && 
@@ -453,7 +457,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           >
             {bidding === team._id && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl z-10">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white" />
+            <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-white" />
               </div>
             )}
 
@@ -467,7 +471,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               />
 
               <div className="flex-1 min-w-0">
-                <span className="font-semibold text-sm truncate block">
+                <span className="font-semibold text-xs sm:text-sm truncate block">
                   {team.name}
                 </span>
                 {currentPlayer && (
@@ -484,7 +488,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               </div>
 
               {isCurrentBidder && (
-                <Gavel className="w-4 h-4 text-yellow-500 animate-pulse shrink-0" />
+                <Gavel className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 animate-pulse shrink-0" />
               )}
             </div>
           </motion.div>
@@ -494,37 +498,37 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           </aside>
 
           {/* Center Stage */}
-          <div className="col-span-6">
+          <div className="lg:col-span-6 order-1 lg:order-2">
             {/* Timer */}
-            <div className="flex justify-center mb-8">
+            <div className="flex justify-center mb-4 sm:mb-6 lg:mb-8">
               <div className="relative">
-                <svg className="w-32 h-32 transform -rotate-90">
+                <svg className="w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32 transform -rotate-90">
                   <circle
-                    cx="64"
-                    cy="64"
-                    r="58"
+                    cx="50%"
+                    cy="50%"
+                    r="45%"
                     stroke="currentColor"
                     strokeWidth="8"
                     fill="none"
                     className="text-slate-800"
                   />
                   <motion.circle
-                    cx="64"
-                    cy="64"
-                    r="58"
+                    cx="50%"
+                    cy="50%"
+                    r="45%"
                     stroke="currentColor"
                     strokeWidth="8"
                     fill="none"
                     className={displayTimeLeft <= 10 ? "text-red-500" : "text-blue-500"}
-                    strokeDasharray="364"
-                    strokeDashoffset={364 - ((displayTimeLeft / (auctionData.tournament?.settings.bidTimerSeconds || 30)) * 364)}
+                    strokeDasharray="283"
+                    strokeDashoffset={283 - ((displayTimeLeft / (auctionData.tournament?.settings.bidTimerSeconds || 30)) * 283)}
                     transition={{ duration: 0.1, ease: "linear" }}
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="text-center">
                     <motion.div 
-                      className={`text-5xl font-bold ${
+                      className={`text-3xl sm:text-4xl lg:text-5xl font-bold ${
                         displayTimeLeft <= 10 ? 'text-red-500' : 'text-blue-500'
                       }`}
                       animate={{ scale: displayTimeLeft <= 5 && displayTimeLeft > 0 ? [1, 1.1, 1] : 1 }}
@@ -532,7 +536,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     >
                       {displayTimeLeft}
                     </motion.div>
-                    <div className="text-xs text-slate-400 mt-1">seconds</div>
+                    <div className="text-xs text-slate-400 mt-0.5 sm:mt-1">seconds</div>
                   </div>
                 </div>
               </div>
@@ -546,29 +550,29 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className="bg-linear-to-br from-slate-800 to-slate-900 rounded-2xl p-8 border border-slate-700 shadow-2xl"
+                  className="bg-linear-to-br from-slate-800 to-slate-900 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-700 shadow-2xl"
                 >
-                  <div className="flex gap-6 mb-6">
+                  <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 mb-4 sm:mb-6">
                     <PlayerAvatar 
                       name={currentPlayer.name} 
                       photoUrl={currentPlayer.photoUrl} 
                       size="2xl"
-                      className="rounded-2xl"
+                      className="rounded-xl sm:rounded-2xl mx-auto sm:mx-0"
                     />
                     
-                    <div className="flex-1">
-                      <h2 className="text-4xl font-bold mb-3">
+                    <div className="flex-1 text-center sm:text-left">
+                      <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2 sm:mb-3">
                         {currentPlayer.name}
                       </h2>
                       
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        <span className="px-4 py-2 bg-purple-600 rounded-full text-sm font-semibold">
+                      <div className="flex flex-wrap justify-center sm:justify-start gap-2 mb-3 sm:mb-4">
+                        <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-purple-600 rounded-full text-xs sm:text-sm font-semibold">
                           {currentPlayer.role}
                         </span>
-                        <span className="px-4 py-2 bg-slate-700 rounded-full text-sm">
+                        <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
                           {currentPlayer.age} years
                         </span>
-                        <span className="px-4 py-2 bg-slate-700 rounded-full text-sm">
+                        <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
                           {currentPlayer.battingBowlingHand}
                         </span>
                       </div>
@@ -577,15 +581,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
                   {/* Current Bid Display */}
                   <motion.div 
-                    className="bg-linear-to-r from-yellow-600 to-orange-600 rounded-xl p-6 text-center"
+                    className="bg-linear-to-r from-yellow-600 to-orange-600 rounded-xl p-4 sm:p-5 lg:p-6 text-center"
                     animate={{ scale: [1, 1.02, 1] }}
                     transition={{ repeat: Infinity, duration: 2 }}
                   >
-                    <div className="text-sm font-semibold mb-2 opacity-90">
+                    <div className="text-xs sm:text-sm font-semibold mb-1 sm:mb-2 opacity-90">
                       {isFirstBid ? "STARTING PRICE" : "CURRENT BID"}
                     </div>
                     <motion.div 
-                      className="text-6xl font-bold mb-2"
+                      className="text-3xl sm:text-4xl lg:text-6xl font-bold mb-1 sm:mb-2"
                       key={currentBid}
                       initial={{ scale: 1.2 }}
                       animate={{ scale: 1 }}
@@ -593,16 +597,16 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       {formatCurrency(currentBid)}
                     </motion.div>
                     {currentBidTeam && !isFirstBid && (
-                      <div className="text-sm opacity-90">
+                      <div className="text-xs sm:text-sm opacity-90">
                         by {currentBidTeam.name}
                       </div>
                     )}
                   </motion.div>
                 </motion.div>
               ) : (
-                <div className="text-center py-20 text-slate-400">
-                  <Trophy className="w-20 h-20 mx-auto mb-4 opacity-50" />
-                  <p className="text-xl mb-4">
+                <div className="text-center py-12 sm:py-16 lg:py-20 text-slate-400">
+                  <Trophy className="w-14 h-14 sm:w-16 sm:h-16 lg:w-20 lg:h-20 mx-auto mb-3 sm:mb-4 opacity-50" />
+                  <p className="text-base sm:text-lg lg:text-xl mb-4">
                     Click &quot;Next Player&quot; to start auction
                   </p>
                 </div>
@@ -611,15 +615,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           </div>
 
           {/* Live Feed */}
-          <aside className="col-span-3">
-            <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-              <TrendingUp className="w-5 h-5" />
+          <aside className="lg:col-span-3 order-3">
+            <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
+              <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
               Live Bids
             </h3>
 
             <div className="space-y-2">
               {(!recentBids || recentBids.length === 0) ? (
-                <div className="text-center py-8 text-slate-500">
+                <div className="text-center py-6 sm:py-8 text-slate-500">
                   <p className="text-sm">No bids yet</p>
                   <p className="text-xs mt-1">
                     {isFirstBid ? "First bid starts at base price" : "Waiting for bids..."}
@@ -634,17 +638,17 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: -20 }}
                       transition={{ delay: idx * 0.05 }}
-                      className="bg-slate-800/70 backdrop-blur rounded-lg p-3 border border-slate-700"
+                      className="bg-slate-800/70 backdrop-blur rounded-lg p-2.5 sm:p-3 border border-slate-700"
                     >
                       <div className="flex justify-between items-center mb-1">
-                        <span className="text-sm font-semibold truncate">
+                        <span className="text-xs sm:text-sm font-semibold truncate">
                           {teams?.find(t => t._id === bid.teamId)?.name}
                         </span>
                         <span className="text-xs text-slate-400">
                           {new Date(bid.timestamp).toLocaleTimeString()}
                         </span>
                       </div>
-                      <div className="text-lg font-bold text-yellow-400">
+                      <div className="text-base sm:text-lg font-bold text-yellow-400">
                         {formatCurrency(bid.amount)}
                       </div>
                     </motion.div>
@@ -656,22 +660,22 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
             {/* Quick Stats */}
             {currentPlayer && (
-              <div className="mt-8 bg-slate-800/50 rounded-lg p-4 border border-slate-700">
-                <h4 className="font-semibold mb-3 text-sm">Player Info</h4>
-                <div className="space-y-3">
-                  <div className="flex justify-between text-sm">
+              <div className="mt-6 sm:mt-8 bg-slate-800/50 rounded-lg p-3 sm:p-4 border border-slate-700">
+                <h4 className="font-semibold mb-2 sm:mb-3 text-sm">Player Info</h4>
+                <div className="space-y-2 sm:space-y-3">
+                  <div className="flex justify-between text-xs sm:text-sm">
                     <span className="text-slate-400">Base Price</span>
                     <span className="font-semibold">
                       {formatCurrency(currentPlayer.basePrice)}
                     </span>
                   </div>
-                  <div className="flex justify-between text-sm">
+                  <div className="flex justify-between text-xs sm:text-sm">
                     <span className="text-slate-400">Next Bid</span>
                     <span className="font-semibold text-green-400">
                       {formatCurrency(isFirstBid ? currentPlayer.basePrice : minNextBid)}
                     </span>
                   </div>
-                  <div className="flex justify-between text-sm">
+                  <div className="flex justify-between text-xs sm:text-sm">
                     <span className="text-slate-400">Total Bids</span>
                     <span className="font-semibold">{recentBids?.length || 0}</span>
                   </div>

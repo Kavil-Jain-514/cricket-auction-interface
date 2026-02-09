@@ -117,29 +117,29 @@ export default function CreateTournamentPage() {
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
       <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <Link href="/dashboard" className="flex items-center gap-2 text-slate-400 hover:text-white transition">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
+          <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition min-h-11 touch-target">
             <ArrowLeft className="w-5 h-5" />
-            Back to Dashboard
+            <span>Back to Dashboard</span>
           </Link>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-12">
-        <div className="mb-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+        <div className="mb-6 sm:mb-8">
           <div className="flex items-center gap-3 mb-2">
-            <Trophy className="w-8 h-8 text-yellow-500" />
-            <h1 className="text-3xl font-bold">Create New Tournament</h1>
+            <Trophy className="w-7 h-7 sm:w-8 sm:h-8 text-yellow-500" />
+            <h1 className="text-2xl sm:text-3xl font-bold">Create New Tournament</h1>
           </div>
-          <p className="text-slate-400">
+          <p className="text-slate-400 text-sm sm:text-base">
             Set up your cricket auction tournament with custom rules and settings
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-8">
+        <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
           {/* Basic Information */}
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-            <h2 className="text-xl font-bold mb-6">Basic Information</h2>
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-6">
+            <h2 className="text-lg sm:text-xl font-bold mb-4 sm:mb-6">Basic Information</h2>
             
             <div className="space-y-4">
               <div>
@@ -153,7 +153,7 @@ export default function CreateTournamentPage() {
                     if (errors.name) setErrors({ ...errors, name: '' });
                   }}
                   placeholder="e.g., IPL 2025 Mega Auction"
-                  className={`mt-2 ${errors.name ? 'border-red-500' : ''}`}
+                  className={`mt-2 min-h-11 ${errors.name ? 'border-red-500' : ''}`}
                 />
                 {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
               </div>
@@ -184,10 +184,10 @@ export default function CreateTournamentPage() {
           </div>
 
           {/* Auction Settings */}
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-            <h2 className="text-xl font-bold mb-6">Auction Settings</h2>
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-6">
+            <h2 className="text-lg sm:text-xl font-bold mb-4 sm:mb-6">Auction Settings</h2>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div>
                 <Label htmlFor="basePurse">Base Purse per Team (₹) *</Label>
                 <Input
@@ -199,7 +199,7 @@ export default function CreateTournamentPage() {
                     setFormData({ ...formData, basePurse: parseInt(e.target.value) || 0 });
                     if (errors.basePurse) setErrors({ ...errors, basePurse: '' });
                   }}
-                  className={`mt-2 ${errors.basePurse ? 'border-red-500' : ''}`}
+                  className={`mt-2 min-h-11 ${errors.basePurse ? 'border-red-500' : ''}`}
                 />
                 {errors.basePurse ? (
                   <p className="text-red-400 text-xs mt-1">{errors.basePurse}</p>
@@ -221,7 +221,7 @@ export default function CreateTournamentPage() {
                     setFormData({ ...formData, minBidIncrement: parseInt(e.target.value) || 0 });
                     if (errors.minBidIncrement) setErrors({ ...errors, minBidIncrement: '' });
                   }}
-                  className={`mt-2 ${errors.minBidIncrement ? 'border-red-500' : ''}`}
+                  className={`mt-2 min-h-11 ${errors.minBidIncrement ? 'border-red-500' : ''}`}
                 />
                 {errors.minBidIncrement ? (
                   <p className="text-red-400 text-xs mt-1">{errors.minBidIncrement}</p>
@@ -245,7 +245,7 @@ export default function CreateTournamentPage() {
                     setFormData({ ...formData, bidTimerSeconds: parseInt(e.target.value) || 0 });
                     if (errors.bidTimerSeconds) setErrors({ ...errors, bidTimerSeconds: '' });
                   }}
-                  className={`mt-2 ${errors.bidTimerSeconds ? 'border-red-500' : ''}`}
+                  className={`mt-2 min-h-11 ${errors.bidTimerSeconds ? 'border-red-500' : ''}`}
                 />
                 {errors.bidTimerSeconds ? (
                   <p className="text-red-400 text-xs mt-1">{errors.bidTimerSeconds}</p>
@@ -269,7 +269,7 @@ export default function CreateTournamentPage() {
                     setFormData({ ...formData, maxPlayersPerTeam: parseInt(e.target.value) || 0 });
                     if (errors.maxPlayersPerTeam) setErrors({ ...errors, maxPlayersPerTeam: '' });
                   }}
-                  className={`mt-2 ${errors.maxPlayersPerTeam ? 'border-red-500' : ''}`}
+                  className={`mt-2 min-h-11 ${errors.maxPlayersPerTeam ? 'border-red-500' : ''}`}
                 />
                 {errors.maxPlayersPerTeam && <p className="text-red-400 text-xs mt-1">{errors.maxPlayersPerTeam}</p>}
               </div>
@@ -277,13 +277,13 @@ export default function CreateTournamentPage() {
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-4">
-            <Link href="/dashboard">
-              <Button type="button" variant="outline">
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4">
+            <Link href="/dashboard" className="w-full sm:w-auto">
+              <Button type="button" variant="outline" className="w-full min-h-11 touch-target">
                 Cancel
               </Button>
             </Link>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading} className="w-full sm:w-auto min-h-11 touch-target">
               {loading ? 'Creating...' : 'Create Tournament'}
             </Button>
           </div>
