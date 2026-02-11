@@ -228,6 +228,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       <AuctionCompleteScreen
         tournamentName={auctionData.tournament?.name || 'Tournament'}
         tournamentId={auctionData.tournament?._id || ''}
+        tournamentLogoUrl={auctionData.tournament?.logoUrl}
         soldPlayers={soldPlayers?.map(p => ({
           _id: p._id,
           name: p.name,

@@ -8,7 +8,7 @@ import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { TeamLogo } from '@/components/ui/team-logo';
-import { PlayerAvatarCircle } from '@/components/ui/player-avatar';
+import { PlayerAvatar } from '@/components/ui/player-avatar';
 
 interface SoldPlayer {
   _id: string;
@@ -31,6 +31,7 @@ interface Team {
 interface AuctionCompleteScreenProps {
   tournamentName: string;
   tournamentId: string;
+  tournamentLogoUrl?: string;
   soldPlayers: SoldPlayer[];
   teams: Team[];
   stats: {
@@ -43,6 +44,7 @@ interface AuctionCompleteScreenProps {
 export function AuctionCompleteScreen({
   tournamentName,
   tournamentId,
+  tournamentLogoUrl,
   soldPlayers,
   teams,
   stats,
@@ -113,14 +115,28 @@ export function AuctionCompleteScreen({
           AUCTION COMPLETE!
         </motion.h1>
 
-        <motion.p
+        <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className="text-2xl text-slate-300"
+          className="flex items-center justify-center gap-4"
         >
-          {tournamentName}
-        </motion.p>
+          {tournamentLogoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img 
+              src={tournamentLogoUrl} 
+              alt={tournamentName}
+              className="w-12 h-12 md:w-16 md:h-16 rounded-xl object-cover border-2 border-yellow-500/50"
+            />
+          ) : (
+            <div className="w-12 h-12 md:w-16 md:h-16 rounded-xl bg-yellow-500/20 flex items-center justify-center">
+              <Trophy className="w-6 h-6 md:w-8 md:h-8 text-yellow-500" />
+            </div>
+          )}
+          <p className="text-2xl md:text-3xl text-slate-300 font-semibold">
+            {tournamentName}
+          </p>
+        </motion.div>
 
         {/* Quick Stats */}
         <motion.div
@@ -185,7 +201,7 @@ export function AuctionCompleteScreen({
                         {index + 1}
                       </div>
 
-                      <PlayerAvatarCircle 
+                      <PlayerAvatar 
                         name={player.name}
                         photoUrl={player.photoUrl}
                         size="sm"
@@ -229,7 +245,7 @@ export function AuctionCompleteScreen({
                 <h2 className="text-2xl font-bold">Team Spending</h2>
               </div>
 
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[...teams]
                   .sort((a, b) => b.purseSpent - a.purseSpent)
                   .map((team, index) => {
