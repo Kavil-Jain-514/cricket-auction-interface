@@ -5,7 +5,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2 } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
@@ -25,8 +25,10 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const updateTournament = useMutation(api.tournaments.update);
   const canModify = useQuery(api.tournaments.canModify, { id: tournamentId });
   const deleteTournament = useMutation(api.tournaments.deleteTournament);
+  const restartAuction = useMutation(api.auctions.restartAuction);
 
   const [deleting, setDeleting] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const auctionRooms = useQuery(api.auctions.getAuctionRooms, { tournamentId });
 
   const canResumeAuction = () => 
@@ -85,6 +87,28 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
     } catch (error) {
       toast.error((error as Error)?.message || 'Failed to delete tournament');
       setDeleting(false);
+    }
+  };
+
+  const handleRestartAuction = async () => {
+    if (!auctionRooms || auctionRooms.length === 0) {
+      toast.error('No auction room found to restart');
+      return;
+    }
+
+    if (!confirm('Are you sure you want to restart the auction? This will reset all player sales, team purses, and auction history. This action cannot be undone.')) {
+      return;
+    }
+
+    setRestarting(true);
+    try {
+      const activeRoom = auctionRooms[0];
+      await restartAuction({ auctionRoomId: activeRoom._id });
+      toast.success('Auction restarted successfully! All players and teams have been reset.');
+    } catch (error) {
+      toast.error((error as Error)?.message || 'Failed to restart auction');
+    } finally {
+      setRestarting(false);
     }
   };
 
@@ -183,6 +207,19 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 >
                   <Play className="w-4 h-4 mr-2" />
                   Resume Auction
+                </Button>
+              )}
+
+              {/* Restart Auction Button - show when auction exists (active or completed) */}
+              {auctionRooms && auctionRooms.length > 0 && (tournament.status === 'active' || tournament.status === 'completed') && (
+                <Button 
+                  onClick={handleRestartAuction}
+                  disabled={restarting}
+                  variant="outline"
+                  className="border-orange-600 text-orange-500 hover:bg-orange-600 hover:text-white h-11 px-4 sm:px-5 text-sm"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  {restarting ? 'Restarting...' : 'Restart Auction'}
                 </Button>
               )}
             </div>

@@ -774,6 +774,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           </motion.div>
         </div>
       </div>
+
+      {/* Watermark */}
+      <div className="fixed bottom-12 left-1/2 -translate-x-1/2 text-center text-[10px] sm:text-xs text-slate-500 pointer-events-none select-none z-50 whitespace-nowrap">
+        Developed by Kavil Dani • +91-7406486484 • kjain.freelance@gmail.com
+      </div>
     </div>
   );
 }
