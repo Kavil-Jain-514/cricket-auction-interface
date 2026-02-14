@@ -191,6 +191,7 @@ export default defineSchema({
       v.literal("auction_paused"),
       v.literal("auction_resumed"),
       v.literal("player_started"),
+      v.literal("player_restarted"),
     ),
     data: v.any(), // Flexible data structure for different event types
     timestamp: v.number(),

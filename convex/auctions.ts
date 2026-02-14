@@ -479,6 +479,54 @@ export const revertLastBid = mutation({
   },
 });
 
+// Restart auction for current player only - clears all bids and resets timer
+export const restartCurrentPlayer = mutation({
+  args: {
+    auctionRoomId: v.id("auctionRooms"),
+  },
+  handler: async (ctx, args) => {
+    const auctionRoom = await ctx.db.get(args.auctionRoomId);
+    if (!auctionRoom) throw new Error("Auction room not found");
+
+    if (!auctionRoom.currentPlayerId) {
+      throw new Error("No player currently in auction");
+    }
+
+    const tournament = await ctx.db.get(auctionRoom.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+
+    // Delete all bids for the current player
+    const allBids = await ctx.db
+      .query("liveBids")
+      .withIndex("by_player", (q) =>
+        q.eq("playerId", auctionRoom.currentPlayerId!),
+      )
+      .collect();
+
+    const now = Date.now();
+    const bidTimerSeconds = tournament.settings.bidTimerSeconds || 30;
+
+    // Delete all bids and reset the timer
+    await Promise.all([
+      ...allBids.map((bid) => ctx.db.delete(bid._id)),
+      ctx.db.patch(args.auctionRoomId, {
+        currentBidAmount: undefined,
+        currentBidTeamId: undefined,
+        bidTimerEndsAt: now + bidTimerSeconds * 1000,
+        updatedAt: now,
+      }),
+      ctx.db.insert("auctionEvents", {
+        auctionRoomId: args.auctionRoomId,
+        type: "player_restarted",
+        data: { playerId: auctionRoom.currentPlayerId },
+        timestamp: now,
+      }),
+    ]);
+
+    return { success: true };
+  },
+});
+
 // Get live auction state
 export const getLiveAuction = query({
   args: { auctionRoomId: v.id("auctionRooms") },
@@ -507,15 +555,23 @@ export const getLiveAuction = query({
       amount: number;
       timestamp: number;
     }> = [];
+    let totalBidsCount = 0;
 
     if (auctionRoom.currentPlayerId) {
-      const bids = await ctx.db
+      // Get all bids to count them
+      const allBids = await ctx.db
         .query("liveBids")
         .withIndex("by_player", (q) =>
           q.eq("playerId", auctionRoom.currentPlayerId!),
         )
-        .order("desc")
-        .take(10);
+        .collect();
+
+      totalBidsCount = allBids.length;
+
+      // Get recent bids (sorted by desc, take 10 for display)
+      const bids = allBids
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 10);
 
       if (bids.length > 0) {
         currentBid = bids[0];
@@ -567,6 +623,7 @@ export const getLiveAuction = query({
       currentBidTeam,
       teams,
       recentBids,
+      totalBidsCount,
       tournament,
       soldPlayers,
       stats: {

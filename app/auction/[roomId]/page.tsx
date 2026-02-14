@@ -9,9 +9,10 @@ import { Id } from '@/convex/_generated/dataModel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   SkipForward, Trophy, 
-  TrendingUp, Users, Gavel , RotateCcw, Play, Pause, RefreshCcw
+  TrendingUp, Users, Gavel , RotateCcw, RotateCw, Play, Pause, RefreshCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
 import {useSound} from '@/hooks/useSound';
@@ -37,6 +38,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const finalizePlayer = useMutation(api.auctions.finalizePlayerSale);
   const startNext = useMutation(api.auctions.startNextPlayer);
   const revertBid = useMutation(api.auctions.revertLastBid);
+  const restartCurrentPlayer = useMutation(api.auctions.restartCurrentPlayer);
   const startAuction = useMutation(api.auctions.startAuction);
   const pauseAuction = useMutation(api.auctions.pauseAuction);
   const resumeAuction = useMutation(api.auctions.resumeAuction);
@@ -45,6 +47,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const [timeLeft, setTimeLeft] = useState(30);
   const [bidding, setBidding] = useState<Id<"teams"> | null>(null);
   const [showResult, setShowResult] = useState(false);
+  const [customBidAmounts, setCustomBidAmounts] = useState<Record<string, number>>({});
   const [result, setResult] = useState<{
     playerName: string;
     playerPhotoUrl?: string;
@@ -155,6 +158,26 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const displayTimeLeft = auctionData?.auctionRoom?.status === 'paused' && auctionData?.auctionRoom?.pausedTimeRemaining
     ? auctionData.auctionRoom.pausedTimeRemaining
     : timeLeft;
+
+  // Track the current player ID and bid amount 
+  const currentPlayerId = auctionData?.auctionRoom?.currentPlayerId;
+  const currentBidAmount = auctionData?.auctionRoom?.currentBidAmount;
+  
+  // Create a unique key that changes when player or bid changes
+  // This will be used to namespace our custom bid amounts
+  const bidContextKey = `${currentPlayerId || 'none'}-${currentBidAmount || 0}`;
+  
+  // Get custom amount for a team, or return the minimum bid as default
+  const getCustomBidAmount = useCallback((teamId: string, minBid: number): number => {
+    const key = `${bidContextKey}-${teamId}`;
+    return customBidAmounts[key] ?? minBid;
+  }, [bidContextKey, customBidAmounts]);
+  
+  // Set custom amount for a team with the context key
+  const setCustomBidAmount = useCallback((teamId: string, amount: number) => {
+    const key = `${bidContextKey}-${teamId}`;
+    setCustomBidAmounts(prev => ({ ...prev, [key]: amount }));
+  }, [bidContextKey]);
 
   const handleBid = useCallback(async (teamId: Id<"teams">, amount: number) => {
     // Use a short debounce instead of blocking - allows rapid clicks but prevents spam
@@ -317,6 +340,27 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 <span className="hidden sm:inline">Revert</span>
               </Button>
 
+              {/* Restart Current Player */}
+              <Button
+                onClick={async () => {
+                  if (!confirm("Restart bidding for this player? All bids will be cleared and timer will reset.")) return;
+                  try {
+                    await restartCurrentPlayer({ auctionRoomId });
+                    toast.success('Player bidding restarted!');
+                  } catch (error) {
+                    toast.error((error as Error).message || 'Failed to restart player');
+                  }
+                }}
+                disabled={!currentPlayer || auctionRoom.status !== 'live'}
+                variant="outline"
+                size="lg"
+                title="Restart bidding for current player"
+                className="border-orange-500/50 text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
+              >
+                <RotateCw className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Re-bid</span>
+              </Button>
+
               {/* Start/Pause/Resume buttons based on status */}
               {auctionRoom.status === 'waiting' && (
                 <Button
@@ -419,83 +463,120 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         </div>
       </header>
                 
-      <main className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 pb-20 safe-bottom">
+      <main className="max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 pb-20 safe-bottom">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 lg:gap-6">
           {/* Teams Panel - Full width on mobile/tablet, side panel on desktop */}
-          <aside className="lg:col-span-3 order-2 lg:order-1">
-        <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
-          <Users className="w-4 h-4 sm:w-5 sm:h-5" />
-          Teams
-        </h3>
-
-        <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3">
-          {teams?.map((team) => {
-            const isCurrentBidder = team._id === currentBidTeam?._id;
-            const teamPlayerCount = soldPlayers?.filter(p => p.teamId === team._id).length || 0;
-            const maxPlayersPerTeam = auctionData.tournament?.settings.maxPlayersPerTeam || 15;
-            const hasReachedMaxPlayers = teamPlayerCount >= maxPlayersPerTeam;
-            const hasSufficientPurse = team.purseRemaining >= (isFirstBid ? currentPlayer?.basePrice || 0 : minNextBid);
-            const canBid = hasSufficientPurse && !hasReachedMaxPlayers;
-            const bidAmount = isFirstBid ? (currentPlayer?.basePrice || 0) : minNextBid;
-            
-            return (
-          <motion.div
-            key={team._id}
-            whileHover={{ scale: canBid && currentPlayer ? 1.03 : 1 }}
-            whileTap={{ scale: canBid && currentPlayer ? 0.97 : 1 }}
-            className={`
-              relative rounded-xl p-2.5 sm:p-3 border-2 transition-all cursor-pointer touch-target
-              ${isCurrentBidder 
-            ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' 
-            : 'border-slate-700 bg-slate-800/50'
-              }
-              ${canBid && currentPlayer ? 'hover:border-blue-500 active:bg-blue-500/10' : 'opacity-50 cursor-not-allowed'}
-            `}
-            onClick={() => 
-              canBid && currentPlayer && 
-              handleBid(team._id, bidAmount)
-            }
-          >
-            {bidding === team._id && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl z-10">
-            <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-white" />
-              </div>
-            )}
-
-            <div className="flex items-center gap-2">
-              {/* Team Logo */}
-              <TeamLogo
-                name={team.name}
-                logoUrl={team.logoUrl}
-                primaryColor={team.colorPrimary}
-                size="sm"
-              />
-
-              <div className="flex-1 min-w-0">
-                <span className="font-semibold text-xs sm:text-sm truncate block">
-                  {team.name}
-                </span>
-                {currentPlayer && (
-                  <span className={`text-xs ${
-                    hasReachedMaxPlayers ? 'text-red-400' : 
-                    !hasSufficientPurse ? 'text-red-400' : 
-                    'text-blue-400'
-                  }`}>
-                    {hasReachedMaxPlayers ? 'Full' : 
-                     !hasSufficientPurse ? 'Low purse' : 
-                     formatCurrency(bidAmount)}
-                  </span>
+          <aside className="lg:col-span-4 order-2 lg:order-2">
+            <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
+              <Users className="w-4 h-4 sm:w-5 sm:h-5" />
+                Teams
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3">
+              {teams?.map((team) => {
+                const isCurrentBidder = team._id === currentBidTeam?._id;
+                const teamPlayerCount = soldPlayers?.filter(p => p.teamId === team._id).length || 0;
+                const maxPlayersPerTeam = auctionData.tournament?.settings.maxPlayersPerTeam || 15;
+                const hasReachedMaxPlayers = teamPlayerCount >= maxPlayersPerTeam;
+                const minBidForTeam = isFirstBid ? (currentPlayer?.basePrice || 0) : minNextBid;
+                const customAmount = getCustomBidAmount(team._id, minBidForTeam);
+                const hasSufficientPurse = team.purseRemaining >= customAmount;
+                const isValidBid = customAmount >= minBidForTeam && customAmount <= team.purseRemaining;
+                const canBid = hasSufficientPurse && !hasReachedMaxPlayers && isValidBid && currentPlayer;
+                
+                return (
+              <motion.div
+                key={team._id}
+                className={`
+                  relative rounded-xl p-2.5 sm:p-3 border-2 transition-all
+                  ${isCurrentBidder 
+                ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' 
+                : 'border-slate-700 bg-slate-800/50'
+                  }
+                  ${hasReachedMaxPlayers ? 'opacity-50' : ''}
+                `}
+              >
+                {bidding === team._id && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl z-10">
+                <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-white" />
+                  </div>
                 )}
-              </div>
 
-              {isCurrentBidder && (
-                <Gavel className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 animate-pulse shrink-0" />
-              )}
+                <div className="flex items-center gap-2 mb-2">
+                  {/* Team Logo */}
+                  <TeamLogo
+                    name={team.name}
+                    logoUrl={team.logoUrl}
+                    primaryColor={team.colorPrimary}
+                    size="sm"
+                  />
+
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold text-xs sm:text-sm truncate block">
+                      {team.name}
+                    </span>
+                    {/* <span className={`text-xs ${
+                      hasReachedMaxPlayers ? 'text-red-400' : 'text-slate-400'
+                    }`}>
+                      {hasReachedMaxPlayers ? 'Squad Full' : formatCurrency(team.purseRemaining)}
+                    </span> */}
+                  </div>
+
+                  {isCurrentBidder && (
+                    <Gavel className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 animate-pulse shrink-0" />
+                  )}
+                </div>
+
+                {/* Custom Bid Input */}
+                {currentPlayer && !hasReachedMaxPlayers && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 relative">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">₹</span>
+                      <Input
+                        type="number"
+                        min={minBidForTeam}
+                        max={team.purseRemaining}
+                        step={auctionData.tournament?.settings.minBidIncrement || 25000}
+                        value={customAmount}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value) || minBidForTeam;
+                          setCustomBidAmount(team._id, value);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="pl-6 pr-2 py-1 h-8 text-xs bg-slate-900 border-slate-600 text-white"
+                        disabled={!currentPlayer || hasReachedMaxPlayers}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (canBid) {
+                          handleBid(team._id, customAmount);
+                        }
+                      }}
+                      disabled={!canBid}
+                      className="h-8 px-3 text-xs whitespace-nowrap"
+                    >
+                      Bid
+                    </Button>
+                  </div>
+                )}
+
+                {/* Validation Messages */}
+                {currentPlayer && !hasReachedMaxPlayers && customAmount > 0 && (
+                  <div className="mt-1">
+                    {customAmount < minBidForTeam && (
+                      <p className="text-[10px] text-red-400">Min: {formatCurrency(minBidForTeam)}</p>
+                    )}
+                    {customAmount > team.purseRemaining && (
+                      <p className="text-[10px] text-red-400">Exceeds purse limit</p>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+                );
+              })}
             </div>
-          </motion.div>
-            );
-          })}
-        </div>
           </aside>
 
           {/* Center Stage */}
@@ -616,7 +697,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           </div>
 
           {/* Live Feed */}
-          <aside className="lg:col-span-3 order-3">
+          <aside className="lg:col-span-2 order-3">
             <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
               <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
               Live Bids
@@ -678,7 +759,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   </div>
                   <div className="flex justify-between text-xs sm:text-sm">
                     <span className="text-slate-400">Total Bids</span>
-                    <span className="font-semibold">{recentBids?.length || 0}</span>
+                    <span className="font-semibold">{auctionData?.totalBidsCount || 0}</span>
                   </div>
                 </div>
               </div>
@@ -777,7 +858,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       </div>
 
       {/* Watermark */}
-      <div className="fixed bottom-12 left-1/2 -translate-x-1/2 text-center text-[10px] sm:text-xs text-slate-500 pointer-events-none select-none z-50 whitespace-nowrap">
+      <div className="fixed bottom-14 left-1/2 -translate-x-1/2 text-center text-[10px] sm:text-xs text-slate-500 pointer-events-none select-none z-50 whitespace-nowrap">
         Developed by Kavil Dani • +91-7406486484 • kjain.freelance@gmail.com
       </div>
     </div>
