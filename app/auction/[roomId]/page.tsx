@@ -994,8 +994,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       </div>
 
       {/* Watermark */}
-      <div className="fixed bottom-14 left-1/2 -translate-x-1/2 text-center text-[10px] sm:text-xs text-slate-500 pointer-events-none select-none z-50 whitespace-nowrap">
-        Developed by Kavil Dani • +91-7406486484 • kjain.freelance@gmail.com
+      <div className="fixed bottom-14 left-1/2 -translate-x-1/2 text-center text-[20px] sm:text-xs text-slate-200 pointer-events-none select-none z-50 whitespace-nowrap">
+        Developed by Kavil Dani • +91-7406486484 • Instagram: kavil.jain
       </div>
     </div>
   );
