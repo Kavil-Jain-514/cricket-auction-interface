@@ -466,7 +466,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       <main className="max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 pb-20 safe-bottom">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 lg:gap-6">
           {/* Teams Panel - Full width on mobile/tablet, side panel on desktop */}
-          <aside className="lg:col-span-4 order-2 lg:order-2">
+          <aside className="lg:col-span-3 order-2 lg:order-2">
             <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
               <Users className="w-4 h-4 sm:w-5 sm:h-5" />
                 Teams
@@ -481,13 +481,19 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 const customAmount = getCustomBidAmount(team._id, minBidForTeam);
                 const hasSufficientPurse = team.purseRemaining >= customAmount;
                 const isValidBid = customAmount >= minBidForTeam && customAmount <= team.purseRemaining;
-                const canBid = hasSufficientPurse && !hasReachedMaxPlayers && isValidBid && currentPlayer;
+                const canBid = hasSufficientPurse && !hasReachedMaxPlayers && isValidBid && currentPlayer && auctionRoom.status === 'live';
                 
                 return (
               <motion.div
                 key={team._id}
+                onClick={() => {
+                  if (canBid) {
+                    handleBid(team._id, customAmount);
+                  }
+                }}
                 className={`
                   relative rounded-xl p-2.5 sm:p-3 border-2 transition-all
+                  ${canBid ? 'cursor-pointer hover:border-blue-500 hover:bg-slate-700/50 active:scale-[0.98]' : 'cursor-not-allowed'}
                   ${isCurrentBidder 
                 ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' 
                 : 'border-slate-700 bg-slate-800/50'
@@ -528,37 +534,24 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
                 {/* Custom Bid Input */}
                 {currentPlayer && !hasReachedMaxPlayers && (
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 relative">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">₹</span>
-                      <Input
-                        type="number"
-                        min={minBidForTeam}
-                        max={team.purseRemaining}
-                        step={auctionData.tournament?.settings.minBidIncrement || 25000}
-                        value={customAmount}
-                        onChange={(e) => {
-                          const value = parseInt(e.target.value) || minBidForTeam;
-                          setCustomBidAmount(team._id, value);
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="pl-6 pr-2 py-1 h-8 text-xs bg-slate-900 border-slate-600 text-white"
-                        disabled={!currentPlayer || hasReachedMaxPlayers}
-                      />
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (canBid) {
-                          handleBid(team._id, customAmount);
-                        }
+                  <div 
+                    className="relative"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">₹</span>
+                    <Input
+                      type="number"
+                      min={minBidForTeam}
+                      max={team.purseRemaining}
+                      step={auctionData.tournament?.settings.minBidIncrement || 25000}
+                      value={customAmount}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value) || minBidForTeam;
+                        setCustomBidAmount(team._id, value);
                       }}
-                      disabled={!canBid}
-                      className="h-8 px-3 text-xs whitespace-nowrap"
-                    >
-                      Bid
-                    </Button>
+                      className="pl-6 pr-2 py-1 h-8 text-xs bg-slate-900 border-slate-600 text-white w-full"
+                      disabled={!currentPlayer || hasReachedMaxPlayers}
+                    />
                   </div>
                 )}
 
@@ -583,27 +576,28 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           <div className="lg:col-span-6 order-1 lg:order-2">
             {/* Timer */}
             <div className="flex justify-center mb-4 sm:mb-6 lg:mb-8">
-              <div className="relative">
-                <svg className="w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32 transform -rotate-90">
+              <div className="relative w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
                   <circle
-                    cx="50%"
-                    cy="50%"
-                    r="45%"
+                    cx="50"
+                    cy="50"
+                    r="45"
                     stroke="currentColor"
                     strokeWidth="8"
                     fill="none"
                     className="text-slate-800"
                   />
                   <motion.circle
-                    cx="50%"
-                    cy="50%"
-                    r="45%"
+                    cx="50"
+                    cy="50"
+                    r="45"
                     stroke="currentColor"
                     strokeWidth="8"
                     fill="none"
                     className={displayTimeLeft <= 10 ? "text-red-500" : "text-blue-500"}
-                    strokeDasharray="283"
-                    strokeDashoffset={283 - ((displayTimeLeft / (auctionData.tournament?.settings.bidTimerSeconds || 30)) * 283)}
+                    strokeDasharray={2 * Math.PI * 45}
+                    strokeDashoffset={2 * Math.PI * 45 * (1 - displayTimeLeft / (auctionData.tournament?.settings.bidTimerSeconds || 30))}
+                    strokeLinecap="round"
                     transition={{ duration: 0.1, ease: "linear" }}
                   />
                 </svg>
@@ -697,7 +691,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           </div>
 
           {/* Live Feed */}
-          <aside className="lg:col-span-2 order-3">
+          <aside className="lg:col-span-3 order-3">
             <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
               <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
               Live Bids
