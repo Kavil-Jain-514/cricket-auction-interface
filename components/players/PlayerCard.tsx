@@ -13,6 +13,7 @@ import { PlayerAvatar } from '@/components/ui/player-avatar';
 
 interface PlayerCardProps {
   player: Doc<"players">;
+  onClick?: () => void;
 }
 
 const roleColors: Record<string, string> = {
@@ -30,14 +31,15 @@ const statusColors: Record<string, string> = {
   'unsold': 'bg-red-600',
 };
 
-export function PlayerCard({ player }: PlayerCardProps) {
+export function PlayerCard({ player, onClick }: PlayerCardProps) {
   const [showEdit, setShowEdit] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const deletePlayer = useMutation(api.players.deletePlayer);
 
   const canModify = player.auctionStatus === "pending" || player.auctionStatus === "unsold";
 
-  const handleDelete = async () => {
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!confirm(`Are you sure you want to delete ${player.name}? This action cannot be undone.`)) {
       return;
     }
@@ -52,18 +54,25 @@ export function PlayerCard({ player }: PlayerCardProps) {
       setDeleting(false);
     }
   };
+
+  const handleEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowEdit(true);
+  };
+
   return (
     <>
     <motion.div
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
-      className="bg-slate-800/50 border border-slate-700 rounded-xl p-3 sm:p-4 hover:border-blue-500 transition relative"
+      onClick={onClick}
+      className={`bg-slate-800/50 border border-slate-700 rounded-xl p-3 sm:p-4 hover:border-blue-500 transition relative ${onClick ? 'cursor-pointer' : ''}`}
     >
       {/* Action Buttons */}
         {canModify && (
           <div className="absolute top-2 right-2 sm:top-3 sm:right-3 flex gap-1.5">
             <button
-              onClick={() => setShowEdit(true)}
+              onClick={handleEdit}
               className="p-2 sm:p-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition touch-target"
               title="Edit Player"
             >
