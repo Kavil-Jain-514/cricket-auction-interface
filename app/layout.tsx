@@ -16,7 +16,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: 'Cricket Auction Manager - Professional Auction System',
+  title: 'OPL Cricket Auction by Kavil Dani',
   description: 'Manage cricket auctions with real-time bidding, team management, and live statistics',
   keywords: ['cricket', 'auction', 'IPL', 'tournament', 'bidding'],
 };
