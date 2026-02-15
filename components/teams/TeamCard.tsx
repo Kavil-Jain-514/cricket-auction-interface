@@ -7,7 +7,7 @@ import { Users, Download } from 'lucide-react';
 import { useState } from 'react';
 import { formatCurrency } from '@/lib/utils';
 import { motion } from 'framer-motion';
-import { Trash2, Eye, Edit } from 'lucide-react';
+import { Trash2, Edit } from 'lucide-react';
 import { TeamEditForm } from './TeamEditForm';
 import { TeamDetailsModal } from './TeamDetailsModal';
 import { useMutation } from 'convex/react';
@@ -18,9 +18,10 @@ import { generateTeamPdf } from '@/lib/generateTeamPdf';
 interface TeamCardProps {
   team: Doc<"teams">;
   tournamentId: Id<"tournaments">;
+  isAuctionActive?: boolean;
 }
 
-export function TeamCard({ team, tournamentId }: TeamCardProps) {
+export function TeamCard({ team, tournamentId, isAuctionActive = false }: TeamCardProps) {
   const [showEdit, setShowEdit] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -33,7 +34,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
   const pursePercentage = (team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100;
 
   // Check if can edit/delete (not during active auction)
-  const canModify = tournament && tournament.status !== "active" && tournament.status !== "completed";
+  const canModify = !isAuctionActive && tournament && tournament.status !== "completed";
 
   const handleDownloadPdf = async () => {
     toast.info('Generating PDF...');
@@ -89,57 +90,32 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
     <motion.div
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
-      className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6 hover:border-blue-500 transition relative"
+      onClick={() => setShowDetails(true)}
+      className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6 hover:border-blue-500 transition relative cursor-pointer"
     >
       {canModify && (
           <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex gap-1.5 sm:gap-2">
             <button
-              onClick={handleDownloadPdf}
+              onClick={(e) => { e.stopPropagation(); handleDownloadPdf(); }}
               className="p-2 sm:p-2.5 bg-green-600 hover:bg-green-700 rounded-lg transition touch-target"
               title="Download PDF"
             >
               <Download className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setShowDetails(true)}
-              className="p-2 sm:p-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg transition touch-target"
-              title="View Details"
-            >
-              <Eye className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setShowEdit(true)}
+              onClick={(e) => { e.stopPropagation(); setShowEdit(true); }}
               className="p-2 sm:p-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition touch-target"
               title="Edit Team"
             >
               <Edit className="w-4 h-4" />
             </button>
             <button
-              onClick={handleDelete}
+              onClick={(e) => { e.stopPropagation(); handleDelete(); }}
               disabled={deleting}
               className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 touch-target"
               title="Delete Team"
             >
               <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-      
-      {!canModify && (
-          <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex gap-1.5 sm:gap-2">
-            <button
-              onClick={handleDownloadPdf}
-              className="p-2 sm:p-2.5 bg-green-600 hover:bg-green-700 rounded-lg transition touch-target"
-              title="Download PDF"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setShowDetails(true)}
-              className="p-2 sm:p-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg transition touch-target"
-              title="View Details"
-            >
-              <Eye className="w-4 h-4" />
             </button>
           </div>
         )}

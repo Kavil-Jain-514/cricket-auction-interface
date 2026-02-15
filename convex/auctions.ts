@@ -654,6 +654,30 @@ export const getAuctionRooms = query({
   },
 });
 
+// Check if auction is active (live or paused) for a tournament
+export const isAuctionActive = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    const auctionRooms = await ctx.db
+      .query("auctionRooms")
+      .withIndex("by_tournament", (q) =>
+        q.eq("tournamentId", args.tournamentId),
+      )
+      .collect();
+
+    // Check if any auction room is live or paused
+    const activeRoom = auctionRooms.find(
+      (room) => room.status === "live" || room.status === "paused",
+    );
+
+    return {
+      isActive: !!activeRoom,
+      status: activeRoom?.status || null,
+      auctionRoomId: activeRoom?._id || null,
+    };
+  },
+});
+
 // Restart auction - reset all players, teams, and auction state
 export const restartAuction = mutation({
   args: {

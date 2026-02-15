@@ -14,6 +14,7 @@ import { PlayerAvatar } from '@/components/ui/player-avatar';
 interface PlayerCardProps {
   player: Doc<"players">;
   onClick?: () => void;
+  isAuctionActive?: boolean;
 }
 
 const roleColors: Record<string, string> = {
@@ -31,12 +32,13 @@ const statusColors: Record<string, string> = {
   'unsold': 'bg-red-600',
 };
 
-export function PlayerCard({ player, onClick }: PlayerCardProps) {
+export function PlayerCard({ player, onClick, isAuctionActive = false }: PlayerCardProps) {
   const [showEdit, setShowEdit] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const deletePlayer = useMutation(api.players.deletePlayer);
 
-  const canModify = player.auctionStatus === "pending" || player.auctionStatus === "unsold";
+  // Can modify if not during active auction AND player is pending/unsold
+  const canModify = !isAuctionActive && (player.auctionStatus === "pending" || player.auctionStatus === "unsold");
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
