@@ -260,21 +260,3 @@ export const deleteAllByTournament = mutation({
     };
   },
 });
-
-export const assignToTeam = mutation({
-  args: {
-    playerId: v.id("players"),
-    teamId: v.id("teams"),
-    soldPrice: v.number(),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.playerId, {
-      teamId: args.teamId,
-      soldPrice: args.soldPrice,
-      auctionStatus: "sold",
-      updatedAt: Date.now(),
-    });
-
-    return { success: true };
-  },
-});
