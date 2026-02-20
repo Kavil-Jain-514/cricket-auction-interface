@@ -56,6 +56,27 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const [showPlayerIntro, setShowPlayerIntro] = useState(false);
   const lastPlayerIdRef = useRef<string | null>(null);
   const introTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Viewer mode status flash notifications
+  const [statusFlash, setStatusFlash] = useState<{
+    type: 'paused' | 'resumed' | 'reverted' | 'rebid' | 'sold' | 'unsold' | 'new_bid' | null;
+    message: string;
+    teamName?: string;
+    teamColor?: string;
+    amount?: number;
+    playerName?: string;
+  } | null>(null);
+  const prevAuctionStatusRef = useRef<string | null>(null);
+  const prevBidCountRef = useRef<number>(0);
+  const prevCurrentPlayerIdRef = useRef<string | null>(null);
+  // Track player info for sold/unsold flash
+  const prevPlayerInfoRef = useRef<{
+    name: string;
+    teamName?: string;
+    teamColor?: string;
+    amount?: number;
+  } | null>(null);
+  
   const [result, setResult] = useState<{
     playerName: string;
     playerPhotoUrl?: string;
@@ -198,6 +219,132 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       }
     };
   }, [auctionData?.auctionRoom?.currentPlayerId, auctionData?.currentPlayer]);
+
+  // Viewer mode: Track status changes and show flash notifications
+  const showStatusFlash = useCallback((flash: typeof statusFlash) => {
+    setStatusFlash(flash);
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin) return; // Only for viewers
+    
+    const currentStatus = auctionData?.auctionRoom?.status;
+    const currentBidCount = auctionData?.recentBids?.length ?? 0;
+    const currentPlayerIdNow = auctionData?.auctionRoom?.currentPlayerId;
+    const currentPlayer = auctionData?.currentPlayer;
+    const currentBidTeam = auctionData?.currentBidTeam;
+    const currentBidAmountNow = auctionData?.auctionRoom?.currentBidAmount;
+    
+    let flashToShow: typeof statusFlash = null;
+    
+    // Check for player sold/unsold (player was being auctioned and now no player is selected)
+    if (!flashToShow && prevCurrentPlayerIdRef.current && !currentPlayerIdNow && prevPlayerInfoRef.current) {
+      if (prevPlayerInfoRef.current.teamName && prevPlayerInfoRef.current.amount) {
+        // Player was sold (had a bidding team)
+        flashToShow = {
+          type: 'sold',
+          message: 'SOLD!',
+          playerName: prevPlayerInfoRef.current.name,
+          teamName: prevPlayerInfoRef.current.teamName,
+          teamColor: prevPlayerInfoRef.current.teamColor,
+          amount: prevPlayerInfoRef.current.amount,
+        };
+      } else {
+        // Player went unsold
+        flashToShow = {
+          type: 'unsold',
+          message: 'UNSOLD',
+          playerName: prevPlayerInfoRef.current.name,
+        };
+      }
+    }
+    
+    // Check for auction paused/resumed
+    if (!flashToShow && prevAuctionStatusRef.current && currentStatus !== prevAuctionStatusRef.current) {
+      if (currentStatus === 'paused') {
+        flashToShow = {
+          type: 'paused',
+          message: 'Auction Paused',
+        };
+      } else if (currentStatus === 'live' && prevAuctionStatusRef.current === 'paused') {
+        flashToShow = {
+          type: 'resumed',
+          message: 'Auction Resumed',
+        };
+      }
+    }
+    
+    // Check for bid reverted (bid count decreased)
+    if (!flashToShow && prevBidCountRef.current > 0 && currentBidCount < prevBidCountRef.current) {
+      flashToShow = {
+        type: 'reverted',
+        message: 'Last Bid Reverted',
+      };
+    }
+    
+    // Check for new bid (bid count increased)
+    if (!flashToShow && currentBidCount > prevBidCountRef.current && prevBidCountRef.current > 0) {
+      const latestBid = auctionData?.recentBids?.[0];
+      const biddingTeam = auctionData?.teams?.find(t => t._id === latestBid?.teamId);
+      if (latestBid && biddingTeam) {
+        flashToShow = {
+          type: 'new_bid',
+          message: 'New Bid!',
+          teamName: biddingTeam.name,
+          teamColor: biddingTeam.colorPrimary,
+          amount: latestBid.amount,
+        };
+      }
+    }
+    
+    // Check for player reset/rebid (same player but bids cleared)
+    if (!flashToShow && currentPlayerIdNow && 
+        currentPlayerIdNow === prevCurrentPlayerIdRef.current && 
+        prevBidCountRef.current > 0 && 
+        currentBidCount === 0) {
+      flashToShow = {
+        type: 'rebid',
+        message: 'Bidding Restarted',
+      };
+    }
+    
+    // Update player info ref BEFORE updating player ID ref (to capture last state)
+    if (currentPlayerIdNow && currentPlayer) {
+      prevPlayerInfoRef.current = {
+        name: currentPlayer.name,
+        teamName: currentBidTeam?.name,
+        teamColor: currentBidTeam?.colorPrimary,
+        amount: currentBidAmountNow,
+      };
+    }
+    
+    // Update refs
+    prevAuctionStatusRef.current = currentStatus ?? null;
+    prevBidCountRef.current = currentBidCount;
+    prevCurrentPlayerIdRef.current = currentPlayerIdNow ?? null;
+    
+    // Show flash if any
+    if (flashToShow) {
+      // Use requestAnimationFrame to avoid sync setState in effect
+      requestAnimationFrame(() => {
+        showStatusFlash(flashToShow);
+      });
+    }
+    
+  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, auctionData?.currentPlayer, auctionData?.currentBidTeam, auctionData?.auctionRoom?.currentBidAmount, showStatusFlash]);
+
+  // Auto-hide status flash (longer duration for sold/unsold)
+  useEffect(() => {
+    if (statusFlash) {
+      const duration = (statusFlash.type === 'sold' || statusFlash.type === 'unsold') 
+        ? 5000  // 5 seconds for sold/unsold
+        : 3000; // 3 seconds for other notifications
+      const timer = setTimeout(() => {
+        setStatusFlash(null);
+      }, duration);
+      return () => clearTimeout(timer);
+    }
+  }, [statusFlash]);
 
   // Track the current player ID and bid amount 
   const currentPlayerId = auctionData?.auctionRoom?.currentPlayerId;
@@ -547,6 +694,91 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           </div>
         </div>
       </header>
+      
+      {/* Viewer Status Flash Notification */}
+      <AnimatePresence>
+        {!isAdmin && statusFlash && (
+          <motion.div
+            initial={{ opacity: 0, y: -50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -50, scale: 0.9 }}
+            transition={{ type: "spring", damping: 20, stiffness: 300 }}
+            className={`fixed left-1/2 -translate-x-1/2 z-50 ${
+              statusFlash.type === 'sold' || statusFlash.type === 'unsold' 
+                ? 'top-1/3' // Center sold/unsold more prominently
+                : 'top-20'
+            }`}
+          >
+            <div className={`
+              rounded-xl shadow-2xl border-2 backdrop-blur-lg
+              ${statusFlash.type === 'sold' || statusFlash.type === 'unsold' 
+                ? 'px-10 py-8' // Larger for sold/unsold
+                : 'px-6 py-4'
+              }
+              ${statusFlash.type === 'paused' ? 'bg-yellow-500/90 border-yellow-400 text-yellow-950' : ''}
+              ${statusFlash.type === 'resumed' ? 'bg-green-500/90 border-green-400 text-green-950' : ''}
+              ${statusFlash.type === 'reverted' ? 'bg-orange-500/90 border-orange-400 text-orange-950' : ''}
+              ${statusFlash.type === 'rebid' ? 'bg-blue-500/90 border-blue-400 text-blue-950' : ''}
+              ${statusFlash.type === 'new_bid' ? 'bg-purple-500/90 border-purple-400 text-purple-950' : ''}
+              ${statusFlash.type === 'sold' ? 'bg-gradient-to-br from-green-600 to-green-800 border-green-400 text-white' : ''}
+              ${statusFlash.type === 'unsold' ? 'bg-gradient-to-br from-red-600 to-red-800 border-red-400 text-white' : ''}
+            `}>
+              <motion.div
+                initial={{ scale: 0.8 }}
+                animate={{ scale: [1, 1.1, 1] }}
+                transition={{ duration: 0.3 }}
+                className="flex flex-col items-center gap-1"
+              >
+                {/* Icon based on type */}
+                {statusFlash.type === 'paused' && <Pause className="w-6 h-6 mb-1" />}
+                {statusFlash.type === 'resumed' && <Play className="w-6 h-6 mb-1" />}
+                {statusFlash.type === 'reverted' && <RotateCcw className="w-6 h-6 mb-1" />}
+                {statusFlash.type === 'rebid' && <RotateCw className="w-6 h-6 mb-1" />}
+                {statusFlash.type === 'new_bid' && <Gavel className="w-6 h-6 mb-1" />}
+                {statusFlash.type === 'sold' && <Trophy className="w-10 h-10 mb-2" />}
+                {statusFlash.type === 'unsold' && <Users className="w-10 h-10 mb-2" />}
+                
+                <span className={`font-bold ${
+                  statusFlash.type === 'sold' || statusFlash.type === 'unsold' 
+                    ? 'text-3xl' 
+                    : 'text-lg'
+                }`}>
+                  {statusFlash.message}
+                </span>
+                
+                {/* Show player name for sold/unsold */}
+                {(statusFlash.type === 'sold' || statusFlash.type === 'unsold') && statusFlash.playerName && (
+                  <div className="text-xl font-semibold mt-1 opacity-95">
+                    {statusFlash.playerName}
+                  </div>
+                )}
+                
+                {/* Show team name and amount for sold players */}
+                {statusFlash.type === 'sold' && statusFlash.teamName && statusFlash.amount && (
+                  <div className="flex flex-col items-center gap-1 mt-2">
+                    <div 
+                      className="text-lg font-medium px-3 py-1 rounded-lg"
+                      style={{ backgroundColor: statusFlash.teamColor ? `${statusFlash.teamColor}40` : 'rgba(255,255,255,0.2)' }}
+                    >
+                      → {statusFlash.teamName}
+                    </div>
+                    <div className="text-2xl font-bold">
+                      {formatCurrency(statusFlash.amount)}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Show team name and amount for new bids */}
+                {statusFlash.type === 'new_bid' && statusFlash.teamName && statusFlash.amount && (
+                  <div className="text-sm font-medium opacity-90">
+                    {statusFlash.teamName} • {formatCurrency(statusFlash.amount)}
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
                 
       <main className="max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 pb-20 safe-bottom">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 lg:gap-6">
@@ -803,9 +1035,21 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               ) : (
                 <div className="text-center py-12 sm:py-16 lg:py-20 text-slate-400">
                   <Trophy className="w-14 h-14 sm:w-16 sm:h-16 lg:w-20 lg:h-20 mx-auto mb-3 sm:mb-4 opacity-50" />
-                  <p className="text-base sm:text-lg lg:text-xl mb-4">
-                    Click &quot;Next Player&quot; to start auction
-                  </p>
+                  {isAdmin ? (
+                    <p className="text-base sm:text-lg lg:text-xl mb-4">
+                      Click &quot;Next Player&quot; to start auction
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-base sm:text-lg lg:text-xl">
+                        Waiting for next player...
+                      </p>
+                      <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
+                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                        <span>Live auction in progress</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </AnimatePresence>

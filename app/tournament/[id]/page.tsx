@@ -214,6 +214,17 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               </Button>
               )}
               
+              {/* View Auction Button - visible to ALL users when auction exists */}
+              {!isAdmin && auctionRooms && auctionRooms.length > 0 && (tournament.status === 'active') && (
+                <Button 
+                  onClick={handleResumeAuction}
+                  className="bg-blue-600 hover:bg-blue-700 h-11 px-4 sm:px-5 text-sm"
+                >
+                  <Eye className="w-4 h-4 mr-2" />
+                  View Live Auction
+                </Button>
+              )}
+              
               {isAdmin && canResumeAuction() && (
                 <Button 
                   onClick={handleResumeAuction}
