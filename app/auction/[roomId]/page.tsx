@@ -318,7 +318,43 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                      (recentBids.length === 0 && currentBid === currentPlayer?.basePrice);
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
+    <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden">
+      {/* Cricket Stadium Background Effects */}
+      <div className="fixed inset-0 pointer-events-none">
+        {/* Cricket field green gradient at bottom */}
+        <div className="absolute bottom-0 left-0 right-0 h-40 bg-linear-to-t from-green-900/15 to-transparent" />
+        
+        {/* Stadium floodlight effects */}
+        <div className="absolute top-0 left-[15%] w-80 h-80 bg-yellow-500/5 rounded-full blur-3xl" />
+        <div className="absolute top-0 right-[15%] w-80 h-80 bg-yellow-500/5 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 left-0 w-60 h-60 bg-blue-500/5 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 right-0 w-60 h-60 bg-blue-500/5 rounded-full blur-3xl" />
+        
+        {/* Cricket pitch markings - subtle center line */}
+        <div className="absolute left-1/2 bottom-0 w-px h-32 bg-linear-to-t from-green-700/20 to-transparent transform -translate-x-1/2" />
+        
+        {/* Floating cricket ball decorations */}
+        <svg className="absolute top-20 left-8 w-8 h-8 opacity-10 animate-bounce" style={{ animationDuration: '4s' }} viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="45" fill="#DC2626" />
+          <path d="M20 50 Q35 30, 50 50 Q65 70, 80 50" fill="none" stroke="white" strokeWidth="4" />
+          <path d="M20 50 Q35 70, 50 50 Q65 30, 80 50" fill="none" stroke="white" strokeWidth="4" />
+        </svg>
+        <svg className="absolute bottom-32 right-12 w-6 h-6 opacity-10 animate-bounce" style={{ animationDuration: '3.5s', animationDelay: '1s' }} viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="45" fill="#DC2626" />
+          <path d="M20 50 Q35 30, 50 50 Q65 70, 80 50" fill="none" stroke="white" strokeWidth="4" />
+          <path d="M20 50 Q35 70, 50 50 Q65 30, 80 50" fill="none" stroke="white" strokeWidth="4" />
+        </svg>
+        
+        {/* Cricket stumps decoration */}
+        <svg className="absolute bottom-8 left-10 w-8 h-16 opacity-10" viewBox="0 0 60 100">
+          <rect x="8" y="10" width="6" height="80" fill="#D4A574" rx="1" />
+          <rect x="27" y="10" width="6" height="80" fill="#D4A574" rx="1" />
+          <rect x="46" y="10" width="6" height="80" fill="#D4A574" rx="1" />
+          <rect x="5" y="8" width="20" height="4" fill="#8B4513" rx="1" />
+          <rect x="35" y="8" width="20" height="4" fill="#8B4513" rx="1" />
+        </svg>
+      </div>
+
       {/* Header Controls */}
       <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-50 safe-top">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-3 sm:py-4">
@@ -509,14 +545,29 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3">
               {teams?.map((team) => {
                 const isCurrentBidder = team._id === currentBidTeam?._id;
-                const teamPlayerCount = soldPlayers?.filter(p => p.teamId === team._id).length || 0;
+                const teamPlayerCount = team.playerCount ?? (soldPlayers?.filter(p => p.teamId === team._id).length || 0);
                 const maxPlayersPerTeam = auctionData.tournament?.settings.maxPlayersPerTeam || 15;
                 const hasReachedMaxPlayers = teamPlayerCount >= maxPlayersPerTeam;
                 const minBidForTeam = isFirstBid ? (currentPlayer?.basePrice || 0) : minNextBid;
                 const customAmount = getCustomBidAmount(team._id, minBidForTeam);
                 const hasSufficientPurse = team.purseRemaining >= customAmount;
-                const isValidBid = customAmount >= minBidForTeam && customAmount <= team.purseRemaining;
+                
+                // Check if bid exceeds max allowed for squad completion
+                const maxAllowedBid = team.maxAllowedBid ?? team.purseRemaining;
+                const exceedsMaxAllowed = customAmount > maxAllowedBid;
+                
+                const isValidBid = customAmount >= minBidForTeam && customAmount <= team.purseRemaining && !exceedsMaxAllowed;
                 const canBid = hasSufficientPurse && !hasReachedMaxPlayers && isValidBid && currentPlayer && auctionRoom.status === 'live';
+                
+                // Determine the error message
+                let bidError: string | null = null;
+                if (hasReachedMaxPlayers) {
+                  bidError = "Squad full";
+                } else if (exceedsMaxAllowed && team.playersNeeded && team.playersNeeded > 1) {
+                  bidError = `Max bid: ${formatCurrency(maxAllowedBid)} (need ${team.playersNeeded} more players)`;
+                } else if (!hasSufficientPurse) {
+                  bidError = "Insufficient purse";
+                }
                 
                 return (
               <motion.div
@@ -524,6 +575,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 onClick={() => {
                   if (canBid) {
                     handleBid(team._id, customAmount);
+                  } else if (bidError) {
+                    toast.error(bidError);
                   }
                 }}
                 className={`
@@ -533,7 +586,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' 
                 : 'border-slate-700 bg-slate-800/50'
                   }
-                  ${hasReachedMaxPlayers ? 'opacity-50' : ''}
+                  ${hasReachedMaxPlayers || exceedsMaxAllowed ? 'opacity-50' : ''}
                 `}
               >
                 {bidding === team._id && (
@@ -577,14 +630,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     <Input
                       type="number"
                       min={minBidForTeam}
-                      max={team.purseRemaining}
+                      max={maxAllowedBid}
                       step={auctionData.tournament?.settings.minBidIncrement || 25000}
                       value={customAmount}
                       onChange={(e) => {
                         const value = parseInt(e.target.value) || minBidForTeam;
                         setCustomBidAmount(team._id, value);
                       }}
-                      className="pl-6 pr-2 py-1 h-8 text-xs bg-slate-900 border-slate-600 text-white w-full"
+                      className={`pl-6 pr-2 py-1 h-8 text-xs bg-slate-900 border-slate-600 text-white w-full ${exceedsMaxAllowed ? 'border-red-500' : ''}`}
                       disabled={!currentPlayer || hasReachedMaxPlayers}
                     />
                   </div>
@@ -596,7 +649,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     {customAmount < minBidForTeam && (
                       <p className="text-[10px] text-red-400">Min: {formatCurrency(minBidForTeam)}</p>
                     )}
-                    {customAmount > team.purseRemaining && (
+                    {exceedsMaxAllowed && team.playersNeeded && team.playersNeeded > 1 && (
+                      <p className="text-[10px] text-red-400">Max: {formatCurrency(maxAllowedBid)} (need {team.playersNeeded} players)</p>
+                    )}
+                    {!exceedsMaxAllowed && customAmount > team.purseRemaining && (
                       <p className="text-[10px] text-red-400">Exceeds purse limit</p>
                     )}
                   </div>
@@ -609,10 +665,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
           {/* Center Stage */}
           <div className="lg:col-span-6 order-1 lg:order-2">
-            {/* Timer */}
+            {/* Timer - Cricket Ball Style */}
             <div className="flex justify-center mb-4 sm:mb-6 lg:mb-8">
               <div className="relative w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32">
-                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                {/* Glow effect */}
+                <div className={`absolute inset-0 rounded-full blur-xl transition-colors ${
+                  displayTimeLeft <= 10 ? 'bg-red-500/30' : 'bg-orange-500/20'
+                }`} />
+                <svg className="w-full h-full transform -rotate-90 relative z-10" viewBox="0 0 100 100">
+                  {/* Background circle - cricket ball red */}
                   <circle
                     cx="50"
                     cy="50"
@@ -620,8 +681,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     stroke="currentColor"
                     strokeWidth="8"
                     fill="none"
-                    className="text-slate-800"
+                    className="text-red-900/50"
                   />
+                  {/* Progress circle */}
                   <motion.circle
                     cx="50"
                     cy="50"
@@ -629,18 +691,18 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     stroke="currentColor"
                     strokeWidth="8"
                     fill="none"
-                    className={displayTimeLeft <= 10 ? "text-red-500" : "text-blue-500"}
+                    className={displayTimeLeft <= 10 ? "text-red-500" : "text-orange-500"}
                     strokeDasharray={2 * Math.PI * 45}
                     strokeDashoffset={2 * Math.PI * 45 * (1 - displayTimeLeft / (auctionData.tournament?.settings.bidTimerSeconds || 30))}
                     strokeLinecap="round"
                     transition={{ duration: 0.1, ease: "linear" }}
                   />
                 </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
+                <div className="absolute inset-0 flex items-center justify-center z-20">
                   <div className="text-center">
                     <motion.div 
                       className={`text-3xl sm:text-4xl lg:text-5xl font-bold ${
-                        displayTimeLeft <= 10 ? 'text-red-500' : 'text-blue-500'
+                        displayTimeLeft <= 10 ? 'text-red-500' : 'text-orange-400'
                       }`}
                       animate={{ scale: displayTimeLeft <= 5 && displayTimeLeft > 0 ? [1, 1.1, 1] : 1 }}
                       transition={{ repeat: displayTimeLeft <= 5 && displayTimeLeft > 0 ? Infinity : 0, duration: 1 }}
@@ -672,9 +734,16 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     />
                     
                     <div className="flex-1 text-center sm:text-left">
-                      <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2 sm:mb-3">
-                        {currentPlayer.name}
-                      </h2>
+                      <div className="flex items-center justify-center sm:justify-start gap-3 mb-2 sm:mb-3">
+                        {currentPlayer.playerNumber && (
+                          <span className="inline-flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-600 text-white text-lg sm:text-xl font-bold shadow-lg">
+                            #{currentPlayer.playerNumber}
+                          </span>
+                        )}
+                        <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold">
+                          {currentPlayer.name}
+                        </h2>
+                      </div>
                       
                       <div className="flex flex-wrap justify-center sm:justify-start gap-2 mb-3 sm:mb-4">
                         <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-purple-600 rounded-full text-xs sm:text-sm font-semibold">
@@ -884,6 +953,20 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <div className="absolute inset-0 rounded-2xl bg-purple-500/20 blur-xl -z-10 scale-110" />
                 </div>
               </motion.div>
+
+              {/* Player Number Badge */}
+              {currentPlayer.playerNumber && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.5 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.15, duration: 0.3 }}
+                  className="mb-4"
+                >
+                  <span className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-600 text-white text-2xl sm:text-3xl font-bold shadow-lg shadow-blue-500/30">
+                    #{currentPlayer.playerNumber}
+                  </span>
+                </motion.div>
+              )}
 
               {/* Player Name */}
               <motion.h1

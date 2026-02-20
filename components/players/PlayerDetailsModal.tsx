@@ -5,7 +5,6 @@ import { formatCurrency } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, 
-  Calendar, 
   User, 
   Shirt, 
   Phone, 
@@ -207,26 +206,6 @@ export function PlayerDetailsModal({
                         <span className="text-xs text-slate-400">Average</span>
                       </div>
                     )}
-                  </div>
-                </div>
-              )}
-
-              {/* Availability */}
-              {player.availability.type === 'unavailable' && player.availability.dates?.length && (
-                <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4">
-                  <h3 className="text-sm font-semibold text-orange-400 mb-2 flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    Unavailable Dates
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {player.availability.dates.map((date, idx) => (
-                      <span 
-                        key={idx}
-                        className="px-2 py-1 bg-orange-500/20 rounded text-xs text-orange-300"
-                      >
-                        {date}
-                      </span>
-                    ))}
                   </div>
                 </div>
               )}

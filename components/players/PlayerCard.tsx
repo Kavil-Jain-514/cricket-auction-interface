@@ -3,7 +3,7 @@
 import { Doc } from '@/convex/_generated/dataModel';
 import { formatCurrency } from '@/lib/utils';
 import { motion } from 'framer-motion';
-import { Calendar, Edit, Trash2 } from 'lucide-react';
+import { Edit, Trash2 } from 'lucide-react';
 import { PlayerEditForm } from './PlayerEditForm';
 import { useState } from 'react';
 import { useMutation } from 'convex/react';
@@ -133,19 +133,6 @@ export function PlayerCard({ player, onClick, isAuctionActive = false }: PlayerC
             <span className="font-semibold text-yellow-400">
               {formatCurrency(player.soldPrice)}
             </span>
-          </div>
-        )}
-
-        {/* Availability */}
-        {player.availability.type === 'unavailable' && player.availability.dates && (
-          <div className="flex items-start gap-2 pt-2 border-t border-slate-700">
-            <Calendar className="w-4 h-4 text-orange-400 mt-0.5" />
-            <div>
-              <div className="text-xs text-slate-400">Unavailable</div>
-              <div className="text-xs text-orange-400">
-                {player.availability.dates.length} dates
-              </div>
-            </div>
           </div>
         )}
       </div>

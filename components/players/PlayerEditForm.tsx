@@ -29,7 +29,6 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
     tshirtSize: player.tshirtSize || 'L',
     jerseyNumber: player.jerseyNumber,
     basePrice: player.basePrice,
-    availability: player.availability,
     photoUrl: player.photoUrl || '',
   });
 
@@ -56,7 +55,6 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
         tshirtSize: formData.tshirtSize as 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
         jerseyNumber: formData.jerseyNumber,
         basePrice: formData.basePrice,
-        availability: formData.availability,
         photoUrl: formData.photoUrl || undefined,
       });
 

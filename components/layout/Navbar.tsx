@@ -2,9 +2,47 @@
 
 import { UserButton, useUser } from "@clerk/nextjs";
 import Link from "next/link";
-import { Trophy, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+
+// Cricket Ball SVG Icon Component
+function CricketBallIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 100 100" className={className} fill="currentColor">
+      <circle cx="50" cy="50" r="45" fill="#DC2626" />
+      <path
+        d="M20 50 Q35 30, 50 50 Q65 70, 80 50"
+        fill="none"
+        stroke="white"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+      <path
+        d="M20 50 Q35 70, 50 50 Q65 30, 80 50"
+        fill="none"
+        stroke="white"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+      {/* Stitching lines */}
+      <g stroke="white" strokeWidth="1.5" strokeLinecap="round">
+        <line x1="25" y1="42" x2="28" y2="38" />
+        <line x1="32" y1="36" x2="35" y2="32" />
+        <line x1="40" y1="34" x2="43" y2="30" />
+        <line x1="57" y1="30" x2="60" y2="34" />
+        <line x1="65" y1="32" x2="68" y2="36" />
+        <line x1="72" y1="38" x2="75" y2="42" />
+        <line x1="25" y1="58" x2="28" y2="62" />
+        <line x1="32" y1="64" x2="35" y2="68" />
+        <line x1="40" y1="66" x2="43" y2="70" />
+        <line x1="57" y1="70" x2="60" y2="66" />
+        <line x1="65" y1="68" x2="68" y2="64" />
+        <line x1="72" y1="62" x2="75" y2="58" />
+      </g>
+    </svg>
+  );
+}
 
 export function Navbar() {
   const { isSignedIn } = useUser();
@@ -15,9 +53,17 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
         <div className="flex items-center justify-between">
           {/* Logo */}
-          <Link href={isSignedIn ? "/dashboard" : "/"} className="flex items-center gap-2 sm:gap-3 hover:opacity-80 transition touch-target">
-            <Trophy className="w-8 h-8 sm:w-9 sm:h-9 text-yellow-500" />
-            <span className="text-lg sm:text-xl font-bold">Cricket Auction</span>
+          <Link href={isSignedIn ? "/dashboard" : "/"} className="flex items-center gap-2 sm:gap-3 hover:opacity-80 transition touch-target group">
+            <div className="relative">
+              <CricketBallIcon className="w-9 h-9 sm:w-10 sm:h-10 group-hover:rotate-180 transition-transform duration-500" />
+              <div className="absolute inset-0 bg-red-500/30 blur-lg rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-xl sm:text-2xl font-bold bg-linear-to-r from-red-500 via-orange-400 to-yellow-500 bg-clip-text text-transparent">
+                Bid11Pro
+              </span>
+              <span className="text-[10px] text-slate-500 -mt-1 hidden sm:block">Cricket Auction Platform</span>
+            </div>
           </Link>
 
           {/* Desktop/Tablet Navigation */}

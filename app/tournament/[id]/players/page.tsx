@@ -272,14 +272,6 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         //   pdf.setTextColor(255, 255, 255);
         //   pdf.text(player.tshirtSize, x + cardWidth / 2 + 10, detailY);
         // }
-
-        // // Availability indicator
-        // if (player.availability.type === 'unavailable' && player.availability.dates?.length) {
-        //   detailY += 6;
-        //   pdf.setTextColor(251, 146, 60); // orange
-        //   pdf.setFontSize(6);
-        //   pdf.text(`⚠ Unavailable: ${player.availability.dates.length} dates`, x + 8, detailY);
-        // }
       };
 
       // Draw each page

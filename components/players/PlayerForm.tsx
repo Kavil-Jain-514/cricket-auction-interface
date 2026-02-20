@@ -36,7 +36,6 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     tshirtSize: 'L' as 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
     jerseyNumber: undefined as number | undefined,
     basePrice: 100000,
-    availability: 'all' as 'all' | '5' | '6' | '7' | '8',
     photoUrl: '',
   });
 
@@ -101,19 +100,6 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     setLoading(true);
 
     try {
-      // Map availability selection to schema
-      let availability: { type: 'available' | 'unavailable'; dates?: string[] };
-      if (formData.availability === 'all') {
-        availability = { type: 'available' as const, dates: undefined };
-      } else {
-        const dateMap: Record<string, string> = {
-          '5': '2026-03-05',
-          '6': '2026-03-06',
-          '7': '2026-03-07',
-          '8': '2026-03-08',
-        };
-        availability = { type: 'unavailable' as const, dates: [dateMap[formData.availability]] };
-      }
       await createPlayer({
         tournamentId,
         name: formData.name,
@@ -123,7 +109,6 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
         battingBowlingHand: formData.battingBowlingHand,
         tshirtSize: formData.tshirtSize,
         jerseyNumber: formData.jerseyNumber,
-        availability,
         basePrice: formData.basePrice,
         photoUrl: formData.photoUrl || undefined,
       });
@@ -304,68 +289,6 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                     Current: ₹{(formData.basePrice / 100000).toFixed(2)}L
                   </p>
                 )}
-              </div>
-
-              {/* Availability in left column */}
-              <div>
-                <Label>Availability *</Label>
-                <div className="grid grid-cols-1 gap-1 sm:gap-1.5 mt-2 text-sm">
-                  <label className="flex items-center gap-2.5 p-2.5 sm:p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer touch-target">
-                    <input
-                      type="radio"
-                      name="availability"
-                      value="all"
-                      checked={formData.availability === 'all'}
-                      onChange={() => setFormData({ ...formData, availability: 'all' })}
-                      className="accent-blue-500 w-4 h-4"
-                    />
-                    <span>Available all days</span>
-                  </label>
-                  <label className="flex items-center gap-2.5 p-2.5 sm:p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer touch-target">
-                    <input
-                      type="radio"
-                      name="availability"
-                      value="5"
-                      checked={formData.availability === '5'}
-                      onChange={() => setFormData({ ...formData, availability: '5' })}
-                      className="accent-blue-500 w-4 h-4"
-                    />
-                    <span>Not available on 5th March 2026</span>
-                  </label>
-                  <label className="flex items-center gap-2.5 p-2.5 sm:p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer touch-target">
-                    <input
-                      type="radio"
-                      name="availability"
-                      value="6"
-                      checked={formData.availability === '6'}
-                      onChange={() => setFormData({ ...formData, availability: '6' })}
-                      className="accent-blue-500 w-4 h-4"
-                    />
-                    <span>Not available on 6th March 2026</span>
-                  </label>
-                  <label className="flex items-center gap-2.5 p-2.5 sm:p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer touch-target">
-                    <input
-                      type="radio"
-                      name="availability"
-                      value="7"
-                      checked={formData.availability === '7'}
-                      onChange={() => setFormData({ ...formData, availability: '7' })}
-                      className="accent-blue-500 w-4 h-4"
-                    />
-                    <span>Not available on 7th March 2026</span>
-                  </label>
-                  <label className="flex items-center gap-2.5 p-2.5 sm:p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer touch-target">
-                    <input
-                      type="radio"
-                      name="availability"
-                      value="8"
-                      checked={formData.availability === '8'}
-                      onChange={() => setFormData({ ...formData, availability: '8' })}
-                      className="accent-blue-500 w-4 h-4"
-                    />
-                    <span>Not available on 8th March 2026</span>
-                  </label>
-                </div>
               </div>
             </div>
 

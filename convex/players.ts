@@ -16,10 +16,6 @@ export const create = mutation({
       v.literal("Right-handed"),
       v.literal("Left-handed"),
     ),
-    availability: v.object({
-      type: v.union(v.literal("available"), v.literal("unavailable")),
-      dates: v.optional(v.array(v.string())),
-    }),
     basePrice: v.number(),
     jerseyNumber: v.optional(v.number()),
     phoneNumber: v.optional(v.string()),
@@ -69,6 +65,19 @@ export const create = mutation({
       throw new Error("Tournament not found");
     }
 
+    // Get the next player number for this tournament
+    const existingPlayers = await ctx.db
+      .query("players")
+      .withIndex("by_tournament", (q) =>
+        q.eq("tournamentId", args.tournamentId),
+      )
+      .collect();
+
+    const maxPlayerNumber = existingPlayers.reduce((max, player) => {
+      return Math.max(max, player.playerNumber || 0);
+    }, 0);
+    const nextPlayerNumber = maxPlayerNumber + 1;
+
     const playerId = await ctx.db.insert("players", {
       tournamentId: args.tournamentId,
       name: args.name,
@@ -76,10 +85,10 @@ export const create = mutation({
       age: args.age,
       photoUrl: args.photoUrl,
       role: args.role,
-      availability: args.availability,
       battingBowlingHand: args.battingBowlingHand,
       basePrice: args.basePrice,
       jerseyNumber: args.jerseyNumber,
+      playerNumber: nextPlayerNumber,
       tshirtSize: args.tshirtSize,
       auctionStatus: "pending",
       createdAt: Date.now(),
@@ -98,8 +107,20 @@ export const bulkImport = mutation({
   handler: async (ctx, args) => {
     const now = Date.now();
 
-    // Batch insert all players in parallel for much better performance
-    const insertPromises = args.players.map((player) =>
+    // Get the current max player number for this tournament
+    const existingPlayers = await ctx.db
+      .query("players")
+      .withIndex("by_tournament", (q) =>
+        q.eq("tournamentId", args.tournamentId),
+      )
+      .collect();
+
+    const maxPlayerNumber = existingPlayers.reduce((max, player) => {
+      return Math.max(max, player.playerNumber || 0);
+    }, 0);
+
+    // Batch insert all players with incrementing player numbers
+    const insertPromises = args.players.map((player, index) =>
       ctx.db.insert("players", {
         tournamentId: args.tournamentId,
         name: player.name,
@@ -107,10 +128,10 @@ export const bulkImport = mutation({
         age: player.age,
         photoUrl: player.photoUrl,
         role: player.role,
-        availability: player.availability,
         battingBowlingHand: player.battingBowlingHand,
         basePrice: player.basePrice,
         jerseyNumber: player.jerseyNumber,
+        playerNumber: maxPlayerNumber + index + 1,
         tshirtSize: player.tshirtSize,
         auctionStatus: "pending",
         createdAt: now,
@@ -174,12 +195,6 @@ export const update = mutation({
         v.literal("3XL"),
         v.literal("4XL"),
       ),
-    ),
-    availability: v.optional(
-      v.object({
-        type: v.union(v.literal("available"), v.literal("unavailable")),
-        dates: v.optional(v.array(v.string())),
-      }),
     ),
   },
   handler: async (ctx, args) => {

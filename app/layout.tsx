@@ -16,9 +16,9 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: 'OPL Cricket Auction by Kavil Dani',
-  description: 'Manage cricket auctions with real-time bidding, team management, and live statistics',
-  keywords: ['cricket', 'auction', 'IPL', 'tournament', 'bidding'],
+  title: 'Bid11Pro - Professional Cricket Auction Platform',
+  description: 'The ultimate cricket auction management system with real-time bidding, team management, and live statistics. Experience the thrill of IPL-style auctions!',
+  keywords: ['cricket', 'auction', 'IPL', 'tournament', 'bidding', 'Bid11Pro', 'fantasy cricket', 'player auction'],
 };
 
 

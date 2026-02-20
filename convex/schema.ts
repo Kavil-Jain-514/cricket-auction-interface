@@ -93,10 +93,14 @@ export default defineSchema({
       ),
     ),
     jerseyNumber: v.optional(v.number()),
-    availability: v.object({
-      type: v.union(v.literal("available"), v.literal("unavailable")),
-      dates: v.optional(v.array(v.string())), // ["2025-03-05", "2025-03-06"]
-    }),
+    playerNumber: v.optional(v.number()), // Auto-incremented player number starting from 1
+    // Legacy field - kept for backward compatibility with existing data
+    availability: v.optional(
+      v.object({
+        type: v.union(v.literal("available"), v.literal("unavailable")),
+        dates: v.optional(v.array(v.string())),
+      }),
+    ),
     basePrice: v.number(), // Starting bid price
     soldPrice: v.optional(v.number()),
     teamId: v.optional(v.id("teams")), // null if unsold

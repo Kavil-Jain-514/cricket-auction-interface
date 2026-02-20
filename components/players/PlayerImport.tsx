@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useCallback } from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { Upload, FileSpreadsheet, CheckCircle, XCircle } from 'lucide-react';
@@ -23,10 +23,6 @@ interface ParsedPlayer {
   battingBowlingHand: string;
   tshirtSize?: string;
   jerseyNumber?: number;
-  availability: {
-    type: 'available' | 'unavailable';
-    dates?: string[];
-  };
   basePrice: number;
   photoUrl?: string;
 }
@@ -121,6 +117,11 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
   const [errors, setErrors] = useState<string[]>([]);
   
   const importPlayers = useMutation(api.players.bulkImport);
+  const existingPlayers = useQuery(api.players.listByTournament, { tournamentId });
+  
+  // Get the starting player number for new imports
+  const startingPlayerNumber = (existingPlayers?.reduce((max, p) => 
+    Math.max(max, p.playerNumber || 0), 0) || 0) + 1;
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -151,20 +152,6 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
 
       jsonData.forEach((row, idx) => {
         try {
-          // Parse availability
-          const availabilityText = String(getColumnValue(row, 'Availability', 'availability') || 'available');
-          let availability: ParsedPlayer['availability'];
-          
-          if (availabilityText.toLowerCase().includes('unavailable')) {
-            // Extract dates from text like "Unavailable on 5th, 6th, 7th March"
-            const dates = availabilityText.match(/\d+/g)?.map((day: string) => 
-              `2025-03-${day.padStart(2, '0')}`
-            ) || [];
-            availability = { type: 'unavailable', dates };
-          } else {
-            availability = { type: 'available' };
-          }
-
           const player: ParsedPlayer = {
             name: String(getColumnValue(row, 'Player Name', 'Name', 'player name') || '').trim(),
             phoneNumber: getColumnValue(row, 'Phone Number', 'Phone', 'phone number', 'Mobile') ? String(getColumnValue(row, 'Phone Number', 'Phone', 'phone number', 'Mobile')) : undefined,
@@ -173,7 +160,6 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             battingBowlingHand: String(getColumnValue(row, 'Batting/Bowling Hand', 'Hand', 'Batting Hand', 'batting/bowling hand') || '').includes('Left') ? 'Left-handed' : 'Right-handed',
             tshirtSize: parseTshirtSize(String(getColumnValue(row, 'T-Shirt Size', 'T Shirt Size', 'TShirt Size', 'Tshirt', 'T-Shirt', 'T shirt', 'tshirt size', 'Shirt Size', 'shirt') || '')),
             jerseyNumber: getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey') ? parseInt(String(getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey'))) : undefined,
-            availability,
             basePrice: parseInt(String(getColumnValue(row, 'Base Price', 'base price', 'Price'))) || 100000,
             photoUrl: parseGoogleDriveUrl(getColumnValue(row, 'Profile Photo', 'Photo', 'profile photo', 'Image') as string | undefined),
           };
@@ -331,6 +317,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
               <table className="w-full min-w-160">
                 <thead className="bg-slate-900">
                   <tr>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">#</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Photo</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Name</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Role</th>
@@ -339,12 +326,16 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                     <th className="px-4 py-3 text-left text-sm font-semibold">Jersey</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">T-Shirt</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Base Price</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">Availability</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700">
                   {parsed.slice(0, 10).map((player, idx) => (
                     <tr key={idx} className="hover:bg-slate-700/50">
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold">
+                          {startingPlayerNumber + idx}
+                        </span>
+                      </td>
                       <td className="px-4 py-3">
                         {player.photoUrl ? (
                           <div className="relative w-10 h-10">
@@ -389,18 +380,6 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                       <td className="px-4 py-3 text-sm">{player.tshirtSize || '-'}</td>
                       <td className="px-4 py-3 text-sm font-semibold">
                         ₹{(player.basePrice / 100000).toFixed(1)}L
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          player.availability.type === 'available'
-                            ? 'bg-green-600'
-                            : 'bg-orange-600'
-                        }`}>
-                          {player.availability.type === 'available' 
-                            ? 'Available' 
-                            : `Unavailable (${player.availability.dates?.length} days)`
-                          }
-                        </span>
                       </td>
                     </tr>
                   ))}
