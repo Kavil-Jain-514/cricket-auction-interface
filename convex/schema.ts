@@ -2,12 +2,30 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-  // Users table
+  // Users table with roles
   users: defineTable({
     email: v.string(),
     name: v.optional(v.string()),
+    role: v.optional(v.union(v.literal("admin"), v.literal("user"))), // Default: user
     createdAt: v.number(),
   }).index("by_email", ["email"]),
+
+  // Audit Log for tracking admin actions
+  auditLogs: defineTable({
+    userId: v.id("users"),
+    userEmail: v.string(),
+    action: v.string(), // e.g., "reassign_player", "update_sold_price", "adjust_purse"
+    targetType: v.string(), // e.g., "player", "team", "auction"
+    targetId: v.string(), // ID of the affected entity
+    previousData: v.optional(v.any()), // State before change
+    newData: v.optional(v.any()), // State after change
+    tournamentId: v.optional(v.id("tournaments")),
+    auctionRoomId: v.optional(v.id("auctionRooms")),
+    timestamp: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_tournament", ["tournamentId"])
+    .index("by_timestamp", ["timestamp"]),
 
   // Tournaments table
   tournaments: defineTable({

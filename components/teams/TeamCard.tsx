@@ -14,6 +14,7 @@ import { useMutation } from 'convex/react';
 import { toast } from 'sonner';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { generateTeamPdf } from '@/lib/generateTeamPdf';
+import { useUserRole } from '@/hooks/useUserRole';
 
 interface TeamCardProps {
   team: Doc<"teams">;
@@ -32,9 +33,10 @@ export function TeamCard({ team, tournamentId, isAuctionActive = false }: TeamCa
   const deleteTeam = useMutation(api.teams.deleteTeam);
   const teamPlayers = players?.filter(p => p.teamId === team._id) || [];
   const pursePercentage = (team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100;
+  const { isAdmin } = useUserRole();
 
-  // Check if can edit/delete (not during active auction)
-  const canModify = !isAuctionActive && tournament && tournament.status !== "completed";
+  // Check if can edit/delete (admin only AND not during active auction)
+  const canModify = isAdmin && !isAuctionActive && tournament && tournament.status !== "completed";
 
   const handleDownloadPdf = async () => {
     toast.info('Generating PDF...');

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireAdmin } from "./auth";
 
 export const create = mutation({
   args: {
@@ -24,6 +25,9 @@ export const create = mutation({
     captainHand: v.optional(v.union(v.literal("Right"), v.literal("Left"))),
   },
   handler: async (ctx, args) => {
+    // Admin only
+    await requireAdmin(ctx);
+
     // Validation
     if (!args.name || args.name.trim().length < 2) {
       throw new Error("Team name must be at least 2 characters");
@@ -137,6 +141,9 @@ export const update = mutation({
     captainHand: v.optional(v.union(v.literal("Right"), v.literal("Left"))),
   },
   handler: async (ctx, args) => {
+    // Admin only
+    await requireAdmin(ctx);
+
     const team = await ctx.db.get(args.id);
     if (!team) throw new Error("Team not found");
 
@@ -162,6 +169,9 @@ export const update = mutation({
 export const deleteTeam = mutation({
   args: { id: v.id("teams") },
   handler: async (ctx, args) => {
+    // Admin only
+    await requireAdmin(ctx);
+
     const team = await ctx.db.get(args.id);
     if (!team) throw new Error("Team not found");
 

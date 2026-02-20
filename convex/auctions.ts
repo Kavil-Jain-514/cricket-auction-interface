@@ -1,23 +1,16 @@
 // convex/auctions.ts
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireAdmin } from "./auth";
 
-// Create a new auction room
+// Create a new auction room (Admin only)
 export const createAuctionRoom = mutation({
   args: {
     tournamentId: v.id("tournaments"),
     name: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
-      .first();
-
-    if (!user) throw new Error("User not found");
+    const user = await requireAdmin(ctx);
 
     const auctionRoomId = await ctx.db.insert("auctionRooms", {
       tournamentId: args.tournamentId,
@@ -32,12 +25,14 @@ export const createAuctionRoom = mutation({
   },
 });
 
-// Start the auction
+// Start the auction (Admin only)
 export const startAuction = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
 
@@ -67,12 +62,14 @@ export const startAuction = mutation({
   },
 });
 
-// Pause the auction
+// Pause the auction (Admin only)
 export const pauseAuction = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
 
@@ -108,12 +105,14 @@ export const pauseAuction = mutation({
   },
 });
 
-// Resume the auction
+// Resume the auction (Admin only)
 export const resumeAuction = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
 
@@ -157,7 +156,7 @@ export const resumeAuction = mutation({
   },
 });
 
-// FAST BID - Only writes to liveBids table, NO auctionRoom update
+// FAST BID - Only writes to liveBids table, NO auctionRoom update (Admin only)
 export const placeBid = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
@@ -165,6 +164,9 @@ export const placeBid = mutation({
     amount: v.number(),
   },
   handler: async (ctx, args) => {
+    // Only admins can place bids
+    await requireAdmin(ctx);
+
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
 
@@ -284,12 +286,14 @@ export const placeBid = mutation({
   },
 });
 
-// Finalize player sale - handles SOLD/UNSOLD
+// Finalize player sale - handles SOLD/UNSOLD (Admin only)
 export const finalizePlayerSale = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
 
@@ -396,12 +400,14 @@ export const finalizePlayerSale = mutation({
   },
 });
 
-// Start auction for next player
+// Start auction for next player (Admin only)
 export const startNextPlayer = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
 
@@ -491,12 +497,14 @@ export const startNextPlayer = mutation({
   },
 });
 
-// Revert last bid
+// Revert last bid (Admin only)
 export const revertLastBid = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
 
@@ -527,6 +535,8 @@ export const restartCurrentPlayer = mutation({
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
 
@@ -755,12 +765,14 @@ export const isAuctionActive = query({
   },
 });
 
-// Restart auction - reset all players, teams, and auction state
+// Restart auction - reset all players, teams, and auction state (Admin only)
 export const restartAuction = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
 

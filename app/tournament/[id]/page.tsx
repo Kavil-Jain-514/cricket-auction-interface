@@ -5,19 +5,21 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
 import { TournamentSettingsModal } from '@/components/tournament/TournamentSettingsModal';
+import { useUserRole } from '@/hooks/useUserRole';
 
 export default function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
   const tournamentId = id as Id<"tournaments">;
   const [showSettings, setShowSettings] = useState(false);
+  const { isAdmin } = useUserRole();
   
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
@@ -172,14 +174,23 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             </div>
 
             <div className="flex flex-wrap gap-2 sm:gap-3">
-              {canModify?.canEdit && (
+              {/* Viewer Mode Indicator for non-admins */}
+              {!isAdmin && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-slate-800/60 rounded-lg border border-slate-700 h-11">
+                  <Eye className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm text-slate-300">Viewer Mode</span>
+                </div>
+              )}
+              
+              {/* Admin-only controls */}
+              {isAdmin && canModify?.canEdit && (
               <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} className="h-11 px-4 text-sm">
                 <Settings className="w-4 h-4 mr-2" />
                 Settings
               </Button>
               )}
 
-              {canModify?.canDelete && (
+              {isAdmin && canModify?.canDelete && (
                 <Button 
                   variant="outline" 
                   size="sm"
@@ -192,6 +203,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 </Button>
               )}
 
+              {isAdmin && (
               <Button 
                 onClick={handleStartAuction}
                 disabled={tournament.status === 'active' || tournament.status === 'completed'}
@@ -200,7 +212,9 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 <Play className="w-4 h-4 mr-2" />
                 Start Auction
               </Button>
-              {canResumeAuction() && (
+              )}
+              
+              {isAdmin && canResumeAuction() && (
                 <Button 
                   onClick={handleResumeAuction}
                   className="bg-green-600 hover:bg-green-700 h-11 px-4 sm:px-5 text-sm"
@@ -211,7 +225,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               )}
 
               {/* Restart Auction Button - show when auction exists (active or completed) */}
-              {auctionRooms && auctionRooms.length > 0 && (tournament.status === 'active' || tournament.status === 'completed') && (
+              {isAdmin && auctionRooms && auctionRooms.length > 0 && (tournament.status === 'active' || tournament.status === 'completed') && (
                 <Button 
                   onClick={handleRestartAuction}
                   disabled={restarting}

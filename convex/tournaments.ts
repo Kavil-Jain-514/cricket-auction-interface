@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireAdmin } from "./auth";
 
 export const create = mutation({
   args: {
@@ -14,6 +15,9 @@ export const create = mutation({
     }),
   },
   handler: async (ctx, args) => {
+    // Admin only
+    await requireAdmin(ctx);
+
     // Validation
     if (!args.name || args.name.trim().length < 3) {
       throw new Error("Tournament name must be at least 3 characters");
@@ -137,8 +141,8 @@ export const update = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    // Admin only
+    await requireAdmin(ctx);
 
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
@@ -161,8 +165,8 @@ export const update = mutation({
 export const deleteTournament = mutation({
   args: { id: v.id("tournaments") },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    // Admin only
+    await requireAdmin(ctx);
 
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");

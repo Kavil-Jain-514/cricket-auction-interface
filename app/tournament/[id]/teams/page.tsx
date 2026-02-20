@@ -5,17 +5,19 @@ import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Users, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Plus, Users, AlertCircle, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { TeamCard } from '@/components/teams/TeamCard';
 import { TeamForm } from '@/components/teams/TeamForm';
 import { useState } from 'react';
+import { useUserRole } from '@/hooks/useUserRole';
 
 export default function TeamsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const tournamentId = id as Id<"tournaments">;
   const [showAddForm, setShowAddForm] = useState(false);
+  const { isAdmin } = useUserRole();
   
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
@@ -49,12 +51,22 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
               <p className="text-slate-400 text-sm sm:text-base">{tournament?.name}</p>
             </div>
 
-            {!isAuctionActive && (
-              <Button onClick={() => setShowAddForm(true)} className="min-h-11 touch-target w-full sm:w-auto">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Team
-              </Button>
-            )}
+            <div className="flex flex-wrap gap-2 sm:gap-3">
+              {/* Viewer Mode Indicator */}
+              {!isAdmin && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/60 rounded-lg border border-slate-700 min-h-11">
+                  <Eye className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm text-slate-300">Viewer Mode</span>
+                </div>
+              )}
+              
+              {isAdmin && !isAuctionActive && (
+                <Button onClick={() => setShowAddForm(true)} className="min-h-11 touch-target w-full sm:w-auto">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Team
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 

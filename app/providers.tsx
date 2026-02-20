@@ -1,17 +1,37 @@
 'use client';
 import { ClerkProvider, useAuth } from "@clerk/nextjs";
-import { ConvexReactClient } from "convex/react";
+import { ConvexReactClient, useMutation } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { Toaster } from "sonner";
+import { api } from "@/convex/_generated/api";
 
 
 const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL! as string);
 
+// Auto-initialize user on sign-in
+function UserInitializer({ children }: { children: ReactNode }) {
+  const { isSignedIn } = useAuth();
+  const ensureUser = useMutation(api.auth.ensureUser);
+  const hasInitialized = useRef(false);
+  
+  useEffect(() => {
+    // Only run once per mount when user is signed in
+    if (isSignedIn && !hasInitialized.current) {
+      hasInitialized.current = true;
+      ensureUser().catch(console.error);
+    }
+  }, [isSignedIn, ensureUser]);
+  
+  return <>{children}</>;
+}
+
 function ConvexClientProvider({ children }: { children: ReactNode }) {
   return (
     <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-      {children}
+      <UserInitializer>
+        {children}
+      </UserInitializer>
     </ConvexProviderWithClerk>
   );
 }

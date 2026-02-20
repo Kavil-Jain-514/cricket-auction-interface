@@ -10,6 +10,7 @@ import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { toast } from 'sonner';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
+import { useUserRole } from '@/hooks/useUserRole';
 
 interface PlayerCardProps {
   player: Doc<"players">;
@@ -36,9 +37,10 @@ export function PlayerCard({ player, onClick, isAuctionActive = false }: PlayerC
   const [showEdit, setShowEdit] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const deletePlayer = useMutation(api.players.deletePlayer);
+  const { isAdmin } = useUserRole();
 
-  // Can modify if not during active auction AND player is pending/unsold
-  const canModify = !isAuctionActive && (player.auctionStatus === "pending" || player.auctionStatus === "unsold");
+  // Can modify if admin AND not during active auction AND player is pending/unsold
+  const canModify = isAdmin && !isAuctionActive && (player.auctionStatus === "pending" || player.auctionStatus === "unsold");
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();

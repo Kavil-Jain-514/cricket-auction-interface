@@ -9,7 +9,8 @@ import { Id } from '@/convex/_generated/dataModel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   SkipForward, Trophy, 
-  TrendingUp, Users, Gavel , RotateCcw, RotateCw, Play, Pause, RefreshCcw
+  TrendingUp, Users, Gavel , RotateCcw, RotateCw, Play, Pause, RefreshCcw,
+  Eye
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +21,7 @@ import { PlayerResultPopup } from '@/components/auction/PlayerResultPopup';
 import { AuctionCompleteScreen } from '@/components/auction/AuctionCompleteScreen';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { TeamLogo } from '@/components/ui/team-logo';
+import { useUserRole } from '@/hooks/useUserRole';
 import Image from 'next/image';
 
 interface AuctionPageProps {
@@ -29,6 +31,9 @@ interface AuctionPageProps {
 export default function AuctionPage({ params }: AuctionPageProps) {
     const { roomId } = use(params);
     const auctionRoomId = roomId as Id<"auctionRooms">;
+  
+  // RBAC - Role Based Access Control
+  const { isAdmin } = useUserRole();
   
   // Convex queries and mutations
   const auctionData = useQuery(api.auctions.getLiveAuction, { 
@@ -397,6 +402,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               </div>
             </div>
 
+            {/* Admin Controls - Only visible to admins */}
+            {isAdmin ? (
              <div className="flex flex-wrap justify-end gap-1.5 sm:gap-2">
               {/* Revert Last Bid */}
               <Button
@@ -530,6 +537,13 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 <span className="hidden sm:inline">Next</span>
               </Button>
             </div>
+            ) : (
+              /* Viewer Mode Indicator - Shown to non-admins */
+              <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/60 rounded-lg border border-slate-700">
+                <Eye className="w-4 h-4 text-blue-400" />
+                <span className="text-sm text-slate-300">Viewer Mode</span>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -557,11 +571,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 const exceedsMaxAllowed = customAmount > maxAllowedBid;
                 
                 const isValidBid = customAmount >= minBidForTeam && customAmount <= team.purseRemaining && !exceedsMaxAllowed;
-                const canBid = hasSufficientPurse && !hasReachedMaxPlayers && isValidBid && currentPlayer && auctionRoom.status === 'live';
+                // Only admins can place bids
+                const canBid = isAdmin && hasSufficientPurse && !hasReachedMaxPlayers && isValidBid && currentPlayer && auctionRoom.status === 'live';
                 
                 // Determine the error message
                 let bidError: string | null = null;
-                if (hasReachedMaxPlayers) {
+                if (!isAdmin) {
+                  bidError = "Viewer mode - cannot place bids";
+                } else if (hasReachedMaxPlayers) {
                   bidError = "Squad full";
                 } else if (exceedsMaxAllowed && team.playersNeeded && team.playersNeeded > 1) {
                   bidError = `Max bid: ${formatCurrency(maxAllowedBid)} (need ${team.playersNeeded} more players)`;
@@ -620,8 +637,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   )}
                 </div>
 
-                {/* Custom Bid Input */}
-                {currentPlayer && !hasReachedMaxPlayers && (
+                {/* Custom Bid Input - Only shown to admins */}
+                {isAdmin && currentPlayer && !hasReachedMaxPlayers && (
                   <div 
                     className="relative"
                     onClick={(e) => e.stopPropagation()}
@@ -643,8 +660,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   </div>
                 )}
 
-                {/* Validation Messages */}
-                {currentPlayer && !hasReachedMaxPlayers && customAmount > 0 && (
+                {/* Validation Messages - Only shown to admins */}
+                {isAdmin && currentPlayer && !hasReachedMaxPlayers && customAmount > 0 && (
                   <div className="mt-1">
                     {customAmount < minBidForTeam && (
                       <p className="text-[10px] text-red-400">Min: {formatCurrency(minBidForTeam)}</p>

@@ -3,11 +3,12 @@
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import Link from 'next/link';
-import { Plus, Trophy, Users } from 'lucide-react';
+import { Plus, Trophy, Users, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useUser } from '@clerk/nextjs';
 import { redirect } from 'next/navigation';
+import { useUserRole } from '@/hooks/useUserRole';
 
 // Cricket Ball SVG Component
 function CricketBall({ className }: { className?: string }) {
@@ -31,6 +32,7 @@ function CricketBall({ className }: { className?: string }) {
 export default function DashboardPage() {
   const { isSignedIn, isLoaded } = useUser();
   const tournaments = useQuery(api.tournaments.list);
+  const { isAdmin } = useUserRole();
 
   // Redirect if not signed in
   if (isLoaded && !isSignedIn) {
@@ -109,12 +111,19 @@ export default function DashboardPage() {
         {/* Action Button */}
         <div className="mb-5 sm:mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <h2 className="text-xl sm:text-2xl font-bold">My Tournaments</h2>
-          <Link href="/tournament/create">
-            <Button size="lg" className="h-12 px-5 sm:px-6 text-base w-full sm:w-auto bg-linear-to-r from-red-600 to-orange-500 hover:from-red-700 hover:to-orange-600">
-              <Plus className="w-5 h-5 mr-2" />
-              New Tournament
-            </Button>
-          </Link>
+          {isAdmin ? (
+            <Link href="/tournament/create">
+              <Button size="lg" className="h-12 px-5 sm:px-6 text-base w-full sm:w-auto bg-linear-to-r from-red-600 to-orange-500 hover:from-red-700 hover:to-orange-600">
+                <Plus className="w-5 h-5 mr-2" />
+                New Tournament
+              </Button>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-2 px-4 py-2 bg-slate-800/60 rounded-lg border border-slate-700">
+              <Eye className="w-4 h-4 text-blue-400" />
+              <span className="text-sm text-slate-300">Viewer Mode</span>
+            </div>
+          )}
         </div>
 
         {/* Tournaments List */}
@@ -127,14 +136,19 @@ export default function DashboardPage() {
             <CricketBall className="w-16 sm:w-20 h-16 sm:h-20 mx-auto mb-4 opacity-30" />
             <h3 className="text-lg sm:text-xl font-semibold mb-2">No tournaments yet</h3>
             <p className="text-slate-400 mb-6 text-sm sm:text-base">
-              Create your first tournament and experience IPL-style auctions
+              {isAdmin 
+                ? "Create your first tournament and experience IPL-style auctions"
+                : "No tournaments are available to view at this time"
+              }
             </p>
-            <Link href="/tournament/create">
-              <Button size="lg" className="h-12 px-6 text-base bg-linear-to-r from-red-600 to-orange-500 hover:from-red-700 hover:to-orange-600">
-                <Plus className="w-5 h-5 mr-2" />
-                Create Tournament
-              </Button>
-            </Link>
+            {isAdmin && (
+              <Link href="/tournament/create">
+                <Button size="lg" className="h-12 px-6 text-base bg-linear-to-r from-red-600 to-orange-500 hover:from-red-700 hover:to-orange-600">
+                  <Plus className="w-5 h-5 mr-2" />
+                  Create Tournament
+                </Button>
+              </Link>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 lg:gap-6">

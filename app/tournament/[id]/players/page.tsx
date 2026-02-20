@@ -5,7 +5,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Doc, Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Upload, Users, Trash2, AlertTriangle, Download, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Users, Trash2, AlertTriangle, Download, AlertCircle, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { PlayerCard } from '@/components/players/PlayerCard';
@@ -15,6 +15,7 @@ import { PlayerDetailsModal } from '@/components/players/PlayerDetailsModal';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import { getPlayerInitials } from '@/lib/utils';
+import { useUserRole } from '@/hooks/useUserRole';
 
 export default function PlayersPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -32,6 +33,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
   const auctionStatus = useQuery(api.auctions.isAuctionActive, { tournamentId });
   const deleteAllPlayers = useMutation(api.players.deleteAllByTournament);
+  const { isAdmin } = useUserRole();
 
   const isAuctionActive = auctionStatus?.isActive ?? false;
 
@@ -197,16 +199,16 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         pdf.setTextColor(255, 255, 255);
         pdf.text(player.role, textX + 2, y + 13);
 
-        // Status badge
-        // const statusColor = player.auctionStatus === 'sold' ? [34, 197, 94] : // green
-        //                     player.auctionStatus === 'unsold' ? [239, 68, 68] : // red
-        //                     player.auctionStatus === 'in_auction' ? [234, 179, 8] : // yellow
-        //                     [100, 116, 139]; // slate
-        // pdf.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
-        // const statusText = statusLabels[player.auctionStatus] || player.auctionStatus;
-        // const statusWidth = pdf.getTextWidth(statusText) + 4;
-        // pdf.roundedRect(textX + roleWidth + 2, y + 10, statusWidth, 4, 1, 1, 'F');
-        // pdf.text(statusText, textX + roleWidth + 4, y + 13);
+        //Status badge
+        const statusColor = player.auctionStatus === 'sold' ? [34, 197, 94] : // green
+                            player.auctionStatus === 'unsold' ? [239, 68, 68] : // red
+                            player.auctionStatus === 'in_auction' ? [234, 179, 8] : // yellow
+                            [100, 116, 139]; // slate
+        pdf.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
+        const statusText = statusLabels[player.auctionStatus] || player.auctionStatus;
+        const statusWidth = pdf.getTextWidth(statusText) + 4;
+        pdf.roundedRect(textX + roleWidth + 2, y + 10, statusWidth, 4, 1, 1, 'F');
+        pdf.text(statusText, textX + roleWidth + 4, y + 13);
 
         // Age on right side of photo area
         pdf.setFontSize(7);
@@ -218,25 +220,25 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         pdf.setFont('helvetica', 'normal');
         let detailY = y + 26;
 
-        // Base Price & Sold Price
-        // pdf.setTextColor(148, 163, 184);
-        // pdf.text('Base:', x + 8, detailY);
-        // pdf.setTextColor(34, 197, 94); // green
-        // pdf.text(formatCurrency(player.basePrice), x + 18, detailY);
+        //Base Price & Sold Price
+        pdf.setTextColor(148, 163, 184);
+        pdf.text('Base:', x + 8, detailY);
+        pdf.setTextColor(34, 197, 94); // green
+        pdf.text(formatCurrency(player.basePrice), x + 18, detailY);
 
-        // if (player.soldPrice) {
-        //   pdf.setTextColor(148, 163, 184);
-        //   pdf.text('Sold:', x + cardWidth / 2, detailY);
-        //   pdf.setTextColor(234, 179, 8); // yellow
-        //   pdf.text(formatCurrency(player.soldPrice), x + cardWidth / 2 + 10, detailY);
-        // } else {
-        //   // Style
-        //   pdf.setTextColor(148, 163, 184);
-        //   pdf.text('Style:', x + cardWidth / 2, detailY);
-        //   pdf.setTextColor(255, 255, 255);
-        //   const styleShort = player.battingBowlingHand.includes('Right') ? 'Right' : 'Left';
-        //   pdf.text(styleShort, x + cardWidth / 2 + 12, detailY);
-        // }
+        if (player.soldPrice) {
+          pdf.setTextColor(148, 163, 184);
+          pdf.text('Sold:', x + cardWidth / 2, detailY);
+          pdf.setTextColor(234, 179, 8); // yellow
+          pdf.text(formatCurrency(player.soldPrice), x + cardWidth / 2 + 10, detailY);
+        } else {
+          // Style
+          pdf.setTextColor(148, 163, 184);
+          pdf.text('Style:', x + cardWidth / 2, detailY);
+          pdf.setTextColor(255, 255, 255);
+          const styleShort = player.battingBowlingHand.includes('Right') ? 'Right' : 'Left';
+          pdf.text(styleShort, x + cardWidth / 2 + 12, detailY);
+        }
 
         detailY += 6;
 
@@ -257,21 +259,21 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           pdf.text(player.phoneNumber, x + 20, detailY);
         }
 
-        // detailY += 6;
+        detailY += 6;
 
-        // // Jersey & T-Shirt
-        // if (player.jerseyNumber) {
-        //   pdf.setTextColor(148, 163, 184);
-        //   pdf.text('Jersey:', x + 8, detailY);
-        //   pdf.setTextColor(255, 255, 255);
-        //   pdf.text(`#${player.jerseyNumber}`, x + 20, detailY);
-        // }
-        // if (player.tshirtSize) {
-        //   pdf.setTextColor(148, 163, 184);
-        //   pdf.text('Size:', x + cardWidth / 2, detailY);
-        //   pdf.setTextColor(255, 255, 255);
-        //   pdf.text(player.tshirtSize, x + cardWidth / 2 + 10, detailY);
-        // }
+        // Jersey & T-Shirt
+        if (player.jerseyNumber) {
+          pdf.setTextColor(148, 163, 184);
+          pdf.text('Jersey:', x + 8, detailY);
+          pdf.setTextColor(255, 255, 255);
+          pdf.text(`#${player.jerseyNumber}`, x + 20, detailY);
+        }
+        if (player.tshirtSize) {
+          pdf.setTextColor(148, 163, 184);
+          pdf.text('Size:', x + cardWidth / 2, detailY);
+          pdf.setTextColor(255, 255, 255);
+          pdf.text(player.tshirtSize, x + cardWidth / 2 + 10, detailY);
+        }
       };
 
       // Draw each page
@@ -385,6 +387,14 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             </div>
 
             <div className="flex flex-wrap gap-2 sm:gap-3">
+              {/* Viewer Mode Indicator */}
+              {!isAdmin && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/60 rounded-lg border border-slate-700 h-11">
+                  <Eye className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm text-slate-300">Viewer Mode</span>
+                </div>
+              )}
+              
               {stats.total > 0 && (
                 <>
                   <Button 
@@ -405,7 +415,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                       </>
                     )}
                   </Button>
-                  {!isAuctionActive && (
+                  {isAdmin && !isAuctionActive && (
                     <Button 
                       variant="outline" 
                       onClick={() => setShowDeleteConfirm(true)}
@@ -417,7 +427,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                   )}
                 </>
               )}
-              {!isAuctionActive && (
+              {isAdmin && !isAuctionActive && (
                 <>
                   <Button variant="outline" onClick={() => setShowImport(true)} className="h-11 px-3 sm:px-4 text-sm">
                     <Upload className="w-4 h-4 sm:mr-2" />

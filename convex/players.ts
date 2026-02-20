@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireAdmin } from "./auth";
 
 export const create = mutation({
   args: {
@@ -33,6 +34,9 @@ export const create = mutation({
     // ... other fields
   },
   handler: async (ctx, args) => {
+    // Admin only
+    await requireAdmin(ctx);
+
     // Validation
     if (!args.name || args.name.trim().length < 2) {
       throw new Error("Player name must be at least 2 characters");
@@ -105,6 +109,9 @@ export const bulkImport = mutation({
     players: v.array(v.any()),
   },
   handler: async (ctx, args) => {
+    // Admin only
+    await requireAdmin(ctx);
+
     const now = Date.now();
 
     // Get the current max player number for this tournament
@@ -198,6 +205,9 @@ export const update = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    // Admin only
+    await requireAdmin(ctx);
+
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
 
@@ -225,6 +235,9 @@ export const update = mutation({
 export const deletePlayer = mutation({
   args: { id: v.id("players") },
   handler: async (ctx, args) => {
+    // Admin only
+    await requireAdmin(ctx);
+
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
 
@@ -251,6 +264,9 @@ export const deleteAllByTournament = mutation({
     includesSold: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    // Admin only
+    await requireAdmin(ctx);
+
     const players = await ctx.db
       .query("players")
       .withIndex("by_tournament", (q) =>
