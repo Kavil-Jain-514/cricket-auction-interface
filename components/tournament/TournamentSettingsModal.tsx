@@ -27,10 +27,10 @@ interface TournamentSettingsModalProps {
   onClose: () => void;
 }
 
-export function TournamentSettingsModal({ 
-  tournamentId, 
-  currentSettings, 
-  onClose 
+export function TournamentSettingsModal({
+  tournamentId,
+  currentSettings,
+  onClose
 }: TournamentSettingsModalProps) {
   const updateTournament = useMutation(api.tournaments.update);
   const [loading, setLoading] = useState(false);
@@ -67,8 +67,8 @@ export function TournamentSettingsModal({
       toast.success('Tournament updated successfully!');
       onClose();
     } catch (error) {
-      toast.error('Failed to update settings', { 
-        description: (error as Error).message 
+      toast.error('Failed to update settings', {
+        description: (error as Error).message
       });
     } finally {
       setLoading(false);
@@ -76,15 +76,15 @@ export function TournamentSettingsModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full p-6 my-8">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full p-6 my-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <Settings className="w-6 h-6 text-blue-500" />
             <h2 className="text-2xl font-bold">Tournament Settings</h2>
           </div>
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             className="p-2 hover:bg-slate-800 rounded-lg transition"
           >
             <X className="w-5 h-5" />
@@ -97,7 +97,7 @@ export function TournamentSettingsModal({
             <h3 className="text-lg font-semibold text-slate-300 border-b border-slate-700 pb-2">
               Basic Information
             </h3>
-            
+
             <div>
               <Label htmlFor="name">Tournament Name *</Label>
               <Input
@@ -128,9 +128,9 @@ export function TournamentSettingsModal({
                   <div className="relative w-full">
                     <div className="flex items-center gap-4 p-4 border border-slate-600 rounded-xl bg-slate-800/30">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img 
-                        src={logoPreview} 
-                        alt="Logo preview" 
+                      <img
+                        src={logoPreview}
+                        alt="Logo preview"
                         className="w-20 h-20 rounded-lg object-cover border border-slate-500"
                       />
                       <div className="flex-1">
@@ -152,8 +152,8 @@ export function TournamentSettingsModal({
                     </div>
                   </div>
                 ) : (
-                  <label 
-                    htmlFor="logoUrl" 
+                  <label
+                    htmlFor="logoUrl"
                     className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-600 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-slate-800/50 transition-all group"
                   >
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
@@ -195,7 +195,7 @@ export function TournamentSettingsModal({
             <h3 className="text-lg font-semibold text-slate-300 border-b border-slate-700 pb-2">
               Auction Settings
             </h3>
-            
+
             <div className="grid md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="basePurse">Base Purse per Team (₹) *</Label>
@@ -269,17 +269,17 @@ export function TournamentSettingsModal({
 
           {/* Actions */}
           <div className="pt-4 flex gap-3 border-t border-slate-700">
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={onClose} 
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
               className="flex-1"
             >
               Cancel
             </Button>
-            <Button 
-              type="submit" 
-              disabled={loading} 
+            <Button
+              type="submit"
+              disabled={loading}
               className="flex-1"
             >
               {loading ? 'Saving...' : 'Save Changes'}

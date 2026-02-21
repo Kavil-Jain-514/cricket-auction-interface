@@ -87,8 +87,8 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-3xl w-full p-6 my-8">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-3xl w-full p-6 my-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold">Edit Team</h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg transition">
@@ -162,11 +162,10 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
                       colorPrimary: color.primary,
                       colorSecondary: color.secondary,
                     })}
-                    className={`p-3 rounded-lg border-2 transition ${
-                      formData.colorPrimary === color.primary
+                    className={`p-3 rounded-lg border-2 transition ${formData.colorPrimary === color.primary
                         ? 'border-white'
                         : 'border-transparent hover:border-slate-600'
-                    }`}
+                      }`}
                     style={{
                       background: `linear-gradient(135deg, ${color.primary}, ${color.secondary})`
                     }}
@@ -186,7 +185,7 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
               <Crown className="w-5 h-5 text-yellow-500" />
               <h3 className="text-lg font-semibold">Captain Details (Optional)</h3>
             </div>
-            
+
             {/* Captain Row 1: Name and Age */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div className="md:col-span-2">
@@ -207,9 +206,9 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
                   min="15"
                   max="50"
                   value={formData.captainAge || ''}
-                  onChange={(e) => setFormData({ 
-                    ...formData, 
-                    captainAge: e.target.value ? parseInt(e.target.value) : undefined 
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    captainAge: e.target.value ? parseInt(e.target.value) : undefined
                   })}
                   placeholder="e.g., 35"
                   className="mt-2"

@@ -50,6 +50,11 @@ export const startAuction = mutation({
         status: "live",
         updatedAt: now,
       }),
+      // Ensure tournament status is 'active' so viewers can access the auction
+      ctx.db.patch(auctionRoom.tournamentId, {
+        status: "active",
+        updatedAt: now,
+      }),
       ctx.db.insert("auctionEvents", {
         auctionRoomId: args.auctionRoomId,
         type: "auction_started",
@@ -562,8 +567,6 @@ export const restartCurrentPlayer = mutation({
     await Promise.all([
       ...allBids.map((bid) => ctx.db.delete(bid._id)),
       ctx.db.patch(args.auctionRoomId, {
-        currentBidAmount: undefined,
-        currentBidTeamId: undefined,
         bidTimerEndsAt: now + bidTimerSeconds * 1000,
         updatedAt: now,
       }),
@@ -820,15 +823,13 @@ export const restartAuction = mutation({
       ctx.db.patch(args.auctionRoomId, {
         status: "waiting",
         currentPlayerId: undefined,
-        currentBidAmount: undefined,
-        currentBidTeamId: undefined,
         bidTimerEndsAt: undefined,
         pausedTimeRemaining: undefined,
         updatedAt: now,
       }),
-      // Reset tournament status
+      // Keep tournament active — it's still in use, just reset
       ctx.db.patch(auctionRoom.tournamentId, {
-        status: "setup",
+        status: "active",
         updatedAt: now,
       }),
       // Reset all players

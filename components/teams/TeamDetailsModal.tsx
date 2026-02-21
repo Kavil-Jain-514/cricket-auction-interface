@@ -26,7 +26,7 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
 
   if (!teamData) {
     return (
-      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center">
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center" onClick={onClose}>
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
       </div>
     );
@@ -48,21 +48,22 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
     .slice(0, 2);
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-slate-900 border border-slate-700 rounded-xl max-w-5xl w-full p-6 my-8"
+        className="bg-slate-900 border border-slate-700 rounded-xl max-w-5xl w-full p-6 my-auto"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div className="flex items-center gap-4">
             <TeamLogo
-            name={team.name}
-            logoUrl={team.logoUrl}
-            primaryColor={team.colorPrimary}
-            size="lg"
-          />
+              name={team.name}
+              logoUrl={team.logoUrl}
+              primaryColor={team.colorPrimary}
+              size="lg"
+            />
             <div>
               <h2 className="text-3xl font-bold">{team.name}</h2>
               <p className="text-slate-400">Owner: {team.ownerName}</p>
@@ -143,9 +144,9 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
             </div>
             <div className="bg-linear-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/30 rounded-xl p-4">
               <div className="flex items-center gap-4">
-                <PlayerAvatarCircle 
-                  name={team.captainName} 
-                  photoUrl={team.captainPhotoUrl} 
+                <PlayerAvatarCircle
+                  name={team.captainName}
+                  photoUrl={team.captainPhotoUrl}
                   size="lg"
                 />
                 <div className="flex-1">
@@ -156,10 +157,9 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
                   <div className="flex items-center gap-3 mt-1 text-sm text-slate-400">
                     {team.captainAge && <span>{team.captainAge} years</span>}
                     {team.captainRole && (
-                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                        team.captainRole === 'Batter' ? 'bg-blue-600' :
+                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${team.captainRole === 'Batter' ? 'bg-blue-600' :
                         team.captainRole === 'Bowler' ? 'bg-red-600' : 'bg-purple-600'
-                      }`}>
+                        }`}>
                         {team.captainRole}
                       </span>
                     )}
@@ -196,7 +196,7 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
             <h3 className="text-lg font-bold mb-3">Top Purchases</h3>
             <div className="space-y-2">
               {topPlayers.map((player, idx) => (
-                <div 
+                <div
                   key={player._id}
                   className="bg-slate-800/50 border border-slate-700 rounded-lg p-3 flex items-center justify-between"
                 >
@@ -232,7 +232,7 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto">
               {players.map((player) => (
-                <div 
+                <div
                   key={player._id}
                   className="bg-slate-800/30 border border-slate-700 rounded-lg p-3 hover:bg-slate-800/50 transition"
                 >
