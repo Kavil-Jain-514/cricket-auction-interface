@@ -19,10 +19,9 @@ import { useUserRole } from '@/hooks/useUserRole';
 interface TeamCardProps {
   team: Doc<"teams">;
   tournamentId: Id<"tournaments">;
-  isAuctionActive?: boolean;
 }
 
-export function TeamCard({ team, tournamentId, isAuctionActive = false }: TeamCardProps) {
+export function TeamCard({ team, tournamentId }: TeamCardProps) {
   const [showEdit, setShowEdit] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -35,8 +34,8 @@ export function TeamCard({ team, tournamentId, isAuctionActive = false }: TeamCa
   const pursePercentage = (team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100;
   const { isAdmin } = useUserRole();
 
-  // Check if can edit/delete (admin only AND not during active auction)
-  const canModify = isAdmin && !isAuctionActive && tournament && tournament.status !== "completed";
+  // Check if can edit/delete (admin only, not for completed tournaments)
+  const canModify = isAdmin && tournament && tournament.status !== "completed";
 
   const handleDownloadPdf = async () => {
     toast.info('Generating PDF...');

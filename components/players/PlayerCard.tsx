@@ -15,7 +15,6 @@ import { useUserRole } from '@/hooks/useUserRole';
 interface PlayerCardProps {
   player: Doc<"players">;
   onClick?: () => void;
-  isAuctionActive?: boolean;
 }
 
 const roleColors: Record<string, string> = {
@@ -33,14 +32,14 @@ const statusColors: Record<string, string> = {
   'unsold': 'bg-red-600',
 };
 
-export function PlayerCard({ player, onClick, isAuctionActive = false }: PlayerCardProps) {
+export function PlayerCard({ player, onClick }: PlayerCardProps) {
   const [showEdit, setShowEdit] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const deletePlayer = useMutation(api.players.deletePlayer);
   const { isAdmin } = useUserRole();
 
-  // Can modify if admin AND not during active auction AND player is pending/unsold
-  const canModify = isAdmin && !isAuctionActive && (player.auctionStatus === "pending" || player.auctionStatus === "unsold");
+  // Can modify if admin AND player is pending/unsold (not sold or in_auction)
+  const canModify = isAdmin && (player.auctionStatus === "pending" || player.auctionStatus === "unsold");
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();

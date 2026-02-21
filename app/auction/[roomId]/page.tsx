@@ -333,15 +333,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     
   }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, auctionData?.currentPlayer, auctionData?.currentBidTeam, auctionData?.auctionRoom?.currentBidAmount, showStatusFlash]);
 
-  // Auto-hide status flash (longer duration for sold/unsold)
+  // Auto-hide status flash after 3 seconds
   useEffect(() => {
     if (statusFlash) {
-      const duration = (statusFlash.type === 'sold' || statusFlash.type === 'unsold') 
-        ? 5000  // 5 seconds for sold/unsold
-        : 3000; // 3 seconds for other notifications
       const timer = setTimeout(() => {
         setStatusFlash(null);
-      }, duration);
+      }, 3000);
       return () => clearTimeout(timer);
     }
   }, [statusFlash]);
@@ -691,6 +688,18 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 <span className="text-sm text-slate-300">Viewer Mode</span>
               </div>
             )}
+            
+            {/* View Teams Button - Available for both Admin and Viewer */}
+            <Button
+              onClick={() => window.open(`/tournament/${auctionData.tournament?._id}/teams`, '_blank')}
+              variant="outline"
+              size="lg"
+              className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target border-slate-600 hover:bg-slate-800"
+              title="View all teams in new tab"
+            >
+              <Users className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+              <span className="hidden sm:inline">View Teams</span>
+            </Button>
           </div>
         </div>
       </header>
@@ -703,25 +712,17 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -50, scale: 0.9 }}
             transition={{ type: "spring", damping: 20, stiffness: 300 }}
-            className={`fixed left-1/2 -translate-x-1/2 z-50 ${
-              statusFlash.type === 'sold' || statusFlash.type === 'unsold' 
-                ? 'top-1/3' // Center sold/unsold more prominently
-                : 'top-20'
-            }`}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-50"
           >
             <div className={`
-              rounded-xl shadow-2xl border-2 backdrop-blur-lg
-              ${statusFlash.type === 'sold' || statusFlash.type === 'unsold' 
-                ? 'px-10 py-8' // Larger for sold/unsold
-                : 'px-6 py-4'
-              }
+              px-6 py-4 rounded-xl shadow-2xl border-2 backdrop-blur-lg
               ${statusFlash.type === 'paused' ? 'bg-yellow-500/90 border-yellow-400 text-yellow-950' : ''}
               ${statusFlash.type === 'resumed' ? 'bg-green-500/90 border-green-400 text-green-950' : ''}
               ${statusFlash.type === 'reverted' ? 'bg-orange-500/90 border-orange-400 text-orange-950' : ''}
               ${statusFlash.type === 'rebid' ? 'bg-blue-500/90 border-blue-400 text-blue-950' : ''}
               ${statusFlash.type === 'new_bid' ? 'bg-purple-500/90 border-purple-400 text-purple-950' : ''}
-              ${statusFlash.type === 'sold' ? 'bg-gradient-to-br from-green-600 to-green-800 border-green-400 text-white' : ''}
-              ${statusFlash.type === 'unsold' ? 'bg-gradient-to-br from-red-600 to-red-800 border-red-400 text-white' : ''}
+              ${statusFlash.type === 'sold' ? 'bg-green-600/90 border-green-500 text-white' : ''}
+              ${statusFlash.type === 'unsold' ? 'bg-red-500/90 border-red-400 text-white' : ''}
             `}>
               <motion.div
                 initial={{ scale: 0.8 }}
@@ -735,36 +736,22 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 {statusFlash.type === 'reverted' && <RotateCcw className="w-6 h-6 mb-1" />}
                 {statusFlash.type === 'rebid' && <RotateCw className="w-6 h-6 mb-1" />}
                 {statusFlash.type === 'new_bid' && <Gavel className="w-6 h-6 mb-1" />}
-                {statusFlash.type === 'sold' && <Trophy className="w-10 h-10 mb-2" />}
-                {statusFlash.type === 'unsold' && <Users className="w-10 h-10 mb-2" />}
+                {statusFlash.type === 'sold' && <Trophy className="w-6 h-6 mb-1" />}
+                {statusFlash.type === 'unsold' && <Users className="w-6 h-6 mb-1" />}
                 
-                <span className={`font-bold ${
-                  statusFlash.type === 'sold' || statusFlash.type === 'unsold' 
-                    ? 'text-3xl' 
-                    : 'text-lg'
-                }`}>
-                  {statusFlash.message}
-                </span>
+                <span className="font-bold text-lg">{statusFlash.message}</span>
                 
                 {/* Show player name for sold/unsold */}
                 {(statusFlash.type === 'sold' || statusFlash.type === 'unsold') && statusFlash.playerName && (
-                  <div className="text-xl font-semibold mt-1 opacity-95">
+                  <div className="text-sm font-medium opacity-90">
                     {statusFlash.playerName}
                   </div>
                 )}
                 
                 {/* Show team name and amount for sold players */}
                 {statusFlash.type === 'sold' && statusFlash.teamName && statusFlash.amount && (
-                  <div className="flex flex-col items-center gap-1 mt-2">
-                    <div 
-                      className="text-lg font-medium px-3 py-1 rounded-lg"
-                      style={{ backgroundColor: statusFlash.teamColor ? `${statusFlash.teamColor}40` : 'rgba(255,255,255,0.2)' }}
-                    >
-                      → {statusFlash.teamName}
-                    </div>
-                    <div className="text-2xl font-bold">
-                      {formatCurrency(statusFlash.amount)}
-                    </div>
+                  <div className="text-sm font-medium opacity-90">
+                    {statusFlash.teamName} • {formatCurrency(statusFlash.amount)}
                   </div>
                 )}
                 

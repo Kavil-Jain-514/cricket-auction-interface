@@ -147,12 +147,13 @@ export const update = mutation({
     const team = await ctx.db.get(args.id);
     if (!team) throw new Error("Team not found");
 
-    // Check if tournament is active
+    // Check if tournament exists
     const tournament = await ctx.db.get(team.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
 
-    if (tournament.status === "active" || tournament.status === "completed") {
-      throw new Error("Cannot edit team during or after auction");
+    // Cannot edit completed tournament teams
+    if (tournament.status === "completed") {
+      throw new Error("Cannot edit team after tournament is completed");
     }
 
     const { id, ...updates } = args;
@@ -175,25 +176,32 @@ export const deleteTeam = mutation({
     const team = await ctx.db.get(args.id);
     if (!team) throw new Error("Team not found");
 
-    // Check if tournament is active
+    // Check if tournament exists
     const tournament = await ctx.db.get(team.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
 
-    if (tournament.status === "active") {
-      throw new Error("Cannot delete team during active auction");
+    // Cannot delete from completed tournament
+    if (tournament.status === "completed") {
+      throw new Error("Cannot delete team after tournament is completed");
     }
 
-    // Check if team has players
+    // Check if team has players - release them first
     const players = await ctx.db
       .query("players")
       .withIndex("by_team", (q) => q.eq("teamId", args.id))
       .collect();
 
-    if (players.length > 0) {
-      throw new Error("Cannot delete team with players. Remove players first.");
+    // Release all players from this team
+    for (const player of players) {
+      await ctx.db.patch(player._id, {
+        teamId: undefined,
+        soldPrice: undefined,
+        auctionStatus: "pending",
+        updatedAt: Date.now(),
+      });
     }
 
     await ctx.db.delete(args.id);
-    return { success: true };
+    return { success: true, releasedPlayers: players.length };
   },
 });

@@ -5,7 +5,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Doc, Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Upload, Users, Trash2, AlertTriangle, Download, AlertCircle, Eye } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Users, Trash2, AlertTriangle, Download, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { PlayerCard } from '@/components/players/PlayerCard';
@@ -31,11 +31,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const allPlayers = useQuery(api.players.listByTournament, { tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
-  const auctionStatus = useQuery(api.auctions.isAuctionActive, { tournamentId });
   const deleteAllPlayers = useMutation(api.players.deleteAllByTournament);
   const { isAdmin } = useUserRole();
-
-  const isAuctionActive = auctionStatus?.isActive ?? false;
 
   // Get team name for a player
   const getTeamName = useCallback((teamId?: Id<"teams">) => {
@@ -365,14 +362,6 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       <Navbar />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 safe-bottom">
-        {/* Auction Active Warning */}
-        {isAuctionActive && (
-          <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2 text-yellow-400">
-            <AlertCircle className="w-5 h-5 shrink-0" />
-            <span className="text-sm">Auction is currently active. Player management is disabled.</span>
-          </div>
-        )}
-
         {/* Header */}
         <div className="mb-6 sm:mb-8">
           <Link href={`/tournament/${tournamentId}`} className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition mb-4 py-2 touch-target">
@@ -395,7 +384,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                 </div>
               )}
               
-              {stats.total > 0 && (
+              {stats.total > 0 && isAdmin && (
                 <>
                   <Button 
                     variant="outline" 
@@ -415,19 +404,17 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                       </>
                     )}
                   </Button>
-                  {isAdmin && !isAuctionActive && (
-                    <Button 
-                      variant="outline" 
-                      onClick={() => setShowDeleteConfirm(true)}
-                      className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300 h-11 px-3 sm:px-4 text-sm"
-                    >
-                      <Trash2 className="w-4 h-4 sm:mr-2" />
-                      <span className="hidden sm:inline">Delete All</span>
-                    </Button>
-                  )}
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300 h-11 px-3 sm:px-4 text-sm"
+                  >
+                    <Trash2 className="w-4 h-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Delete All</span>
+                  </Button>
                 </>
               )}
-              {isAdmin && !isAuctionActive && (
+              {isAdmin && (
                 <>
                   <Button variant="outline" onClick={() => setShowImport(true)} className="h-11 px-3 sm:px-4 text-sm">
                     <Upload className="w-4 h-4 sm:mr-2" />
@@ -621,7 +608,6 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                 key={player._id} 
                 player={player} 
                 onClick={() => setSelectedPlayer(player)}
-                isAuctionActive={isAuctionActive}
               />
             ))}
           </div>

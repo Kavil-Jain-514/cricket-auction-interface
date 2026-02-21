@@ -31,15 +31,21 @@ function CricketBall({ className }: { className?: string }) {
 
 export default function DashboardPage() {
   const { isSignedIn, isLoaded } = useUser();
-  const tournaments = useQuery(api.tournaments.list);
-  const { isAdmin } = useUserRole();
+  const { isAdmin, isLoading: isRoleLoading } = useUserRole();
+  
+  // Admins see their own tournaments, viewers see all tournaments
+  const adminTournaments = useQuery(api.tournaments.list);
+  const allTournaments = useQuery(api.tournaments.listAll);
+  
+  // Use appropriate tournament list based on role
+  const tournaments = isAdmin ? adminTournaments : allTournaments;
 
   // Redirect if not signed in
   if (isLoaded && !isSignedIn) {
     redirect('/sign-in');
   }
 
-  if (!isLoaded) {
+  if (!isLoaded || isRoleLoading) {
     return (
       <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500" />
@@ -110,7 +116,9 @@ export default function DashboardPage() {
 
         {/* Action Button */}
         <div className="mb-5 sm:mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <h2 className="text-xl sm:text-2xl font-bold">My Tournaments</h2>
+          <h2 className="text-xl sm:text-2xl font-bold">
+            {isAdmin ? 'My Tournaments' : 'Active Tournaments'}
+          </h2>
           {isAdmin ? (
             <Link href="/tournament/create">
               <Button size="lg" className="h-12 px-5 sm:px-6 text-base w-full sm:w-auto bg-linear-to-r from-red-600 to-orange-500 hover:from-red-700 hover:to-orange-600">

@@ -110,6 +110,17 @@ export const list = query({
   },
 });
 
+// List all tournaments - for viewers to see active tournaments
+export const listAll = query({
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    // Return all tournaments ordered by creation date
+    return await ctx.db.query("tournaments").order("desc").collect();
+  },
+});
+
 export const getById = query({
   args: { id: v.id("tournaments") },
   handler: async (ctx, args) => {
@@ -147,9 +158,9 @@ export const update = mutation({
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
 
-    // Prevent editing if auction is active or completed
-    if (tournament.status === "active" || tournament.status === "completed") {
-      throw new Error("Cannot edit tournament during or after auction");
+    // Cannot edit completed tournaments
+    if (tournament.status === "completed") {
+      throw new Error("Cannot edit tournament after it is completed");
     }
     const { id, ...updates } = args;
 
@@ -170,11 +181,6 @@ export const deleteTournament = mutation({
 
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
-
-    // Prevent deletion if auction is active
-    if (tournament.status === "active") {
-      throw new Error("Cannot delete active tournament");
-    }
 
     // Fetch all related data in parallel
     const [teams, players, auctionRooms] = await Promise.all([

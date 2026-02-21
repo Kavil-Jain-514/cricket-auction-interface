@@ -5,7 +5,7 @@ import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Users, AlertCircle, Eye } from 'lucide-react';
+import { ArrowLeft, Plus, Users, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { TeamCard } from '@/components/teams/TeamCard';
@@ -21,23 +21,12 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
   
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
-  const auctionStatus = useQuery(api.auctions.isAuctionActive, { tournamentId });
-  
-  const isAuctionActive = auctionStatus?.isActive ?? false;
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
       <Navbar />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {/* Auction Active Warning */}
-        {isAuctionActive && (
-          <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2 text-yellow-400">
-            <AlertCircle className="w-5 h-5 shrink-0" />
-            <span className="text-sm">Auction is currently active. Team management is disabled.</span>
-          </div>
-        )}
-
         {/* Header */}
         <div className="mb-6 sm:mb-8">
           <Link href={`/tournament/${tournamentId}`} className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition mb-4 min-h-11 touch-target">
@@ -60,7 +49,7 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
                 </div>
               )}
               
-              {isAdmin && !isAuctionActive && (
+              {isAdmin && (
                 <Button onClick={() => setShowAddForm(true)} className="min-h-11 touch-target w-full sm:w-auto">
                   <Plus className="w-4 h-4 mr-2" />
                   Add Team
@@ -80,12 +69,9 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
             <Users className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 text-slate-700" />
             <h3 className="text-lg sm:text-xl font-semibold mb-2">No teams yet</h3>
             <p className="text-slate-400 mb-6 text-sm sm:text-base">
-              {isAuctionActive 
-                ? 'Cannot add teams while auction is active'
-                : 'Add your first team to get started'
-              }
+              Add your first team to get started
             </p>
-            {!isAuctionActive && (
+            {isAdmin && (
               <Button onClick={() => setShowAddForm(true)} className="min-h-11 touch-target">
                 <Plus className="w-5 h-5 mr-2" />
                 Add First Team
@@ -100,7 +86,7 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {teams.map((team) => (
-                <TeamCard key={team._id} team={team} tournamentId={tournamentId} isAuctionActive={isAuctionActive} />
+                <TeamCard key={team._id} team={team} tournamentId={tournamentId} />
               ))}
             </div>
           </>
