@@ -90,16 +90,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
   // Timer management with better precision
   const handleFinalize = useCallback(async () => {
+    if (!isAdmin) return; // Only admins can finalize
     if (showResult) return; // Prevent multiple auto-finalizes
-    
     // Capture current bid state BEFORE calling finalize mutation
-    // This is important because the mutation clears the auction room state
     const hadBidder = Boolean(auctionData?.currentBidTeam);
     const bidAmount = auctionData?.auctionRoom?.currentBidAmount ?? 0;
     const bidderTeam = auctionData?.currentBidTeam;
     const playerName = auctionData?.currentPlayer?.name ?? '';
     const playerPhotoUrl = auctionData?.currentPlayer?.photoUrl;
-    
     try {
       const res = (await finalizePlayer({ auctionRoomId })) as {
         playerName?: string;
@@ -108,15 +106,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         sold?: boolean;
         success?: boolean;
       } | null;
-
-      // Use the mutation response, but fall back to captured state if needed
-      // The server sets sold=true when currentBidTeamId && currentBidAmount exist
       const isSold = res?.sold ?? hadBidder;
       const finalTeamName = res?.teamName ?? bidderTeam?.name ?? null;
       const finalAmount = res?.amount ?? bidAmount;
       const finalPlayerName = res?.playerName ?? playerName;
       const winningTeam = auctionData?.teams?.find(t => t.name === finalTeamName || t._id === bidderTeam?._id);
-
       setResult({
         playerName: finalPlayerName,
         playerPhotoUrl,
@@ -127,18 +121,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         teamColor: winningTeam?.colorPrimary,
       });
       setShowResult(true);
-
-      // Play sound based on actual sold status
       if (isSold) {
         play('sold', 0.7);
       } else {
         play('unsold', 0.5);
       }
-
     } catch (error) {
       toast.error((error as Error)?.message || "Failed to finalize");
     }
-  }, [showResult, finalizePlayer, auctionRoomId, auctionData, play]);
+  }, [isAdmin, showResult, finalizePlayer, auctionRoomId, auctionData, play]);
 
   // Timer effect - only runs when auction is live and has a timer
   useEffect(() => {
@@ -661,16 +652,18 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               </Button>
 
 
-              <Button
-                onClick={handleFinalize}
-                disabled={!currentPlayer || auctionRoom.status !== 'live'}
-                variant="outline"
-                size="lg"
-                className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
-              >
-                <Gavel className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                <span className="hidden sm:inline">Finalize</span>
-              </Button>
+              {isAdmin && (
+                <Button
+                  onClick={handleFinalize}
+                  disabled={!currentPlayer || auctionRoom.status !== 'live'}
+                  variant="outline"
+                  size="lg"
+                  className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
+                >
+                  <Gavel className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                  <span className="hidden sm:inline">Finalize</span>
+                </Button>
+              )}
               <Button
                 onClick={handleNextPlayer}
                 disabled={auctionRoom.currentPlayerId !== undefined || auctionRoom.status !== 'live'}

@@ -1,4 +1,12 @@
+
 "use client";
+
+const statusLabels: Record<string, string> = {
+  sold: "Sold",
+  unsold: "Unsold",
+  in_auction: "In Auction",
+  pending: "Pending",
+};
 
 import { use, useCallback, useMemo, useState } from 'react';
 import { useQuery, useMutation } from 'convex/react';
@@ -16,6 +24,7 @@ import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import { getPlayerInitials } from '@/lib/utils';
 import { useUserRole } from '@/hooks/useUserRole';
+import {formatCurrency} from '@/lib/utils';
 
 export default function PlayersPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
