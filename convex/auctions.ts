@@ -423,6 +423,44 @@ export const startNextPlayer = mutation({
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
 
+    // Check if all teams have filled their squads
+    const maxPlayersPerTeam = tournament.settings.maxPlayersPerTeam;
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", auctionRoom.tournamentId))
+      .collect();
+
+    if (teams.length > 0) {
+      const soldPlayers = await ctx.db
+        .query("players")
+        .withIndex("by_tournament_status", (q) =>
+          q.eq("tournamentId", auctionRoom.tournamentId).eq("auctionStatus", "sold")
+        )
+        .collect();
+
+      const allSquadsFull = teams.every((team) => {
+        const teamPlayerCount = soldPlayers.filter((p) => p.teamId === team._id).length;
+        return teamPlayerCount >= maxPlayersPerTeam;
+      });
+
+      if (allSquadsFull) {
+        const now = Date.now();
+        await Promise.all([
+          ctx.db.patch(args.auctionRoomId, {
+            status: "completed",
+            currentPlayerId: undefined,
+            bidTimerEndsAt: undefined,
+            updatedAt: now,
+          }),
+          ctx.db.patch(auctionRoom.tournamentId, {
+            status: "completed",
+            updatedAt: now,
+          }),
+        ]);
+        return { success: true, completed: true };
+      }
+    }
+
     // Get all pending players and pick randomly
     const pendingPlayers = await ctx.db
       .query("players")

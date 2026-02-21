@@ -1,24 +1,25 @@
 // app/auction/[roomId]/page.tsx
 "use client";
 
-import {use, useRef} from 'react';
+import { use, useRef } from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  SkipForward, Trophy, 
-  TrendingUp, Users, Gavel , RotateCcw, RotateCw, Play, Pause, RefreshCcw,
-  Eye
+import {
+  SkipForward, Trophy,
+  TrendingUp, Users, Gavel, RotateCcw, RotateCw, Play, Pause, RefreshCcw,
+  Eye, Settings2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
-import {useSound} from '@/hooks/useSound';
+import { useSound } from '@/hooks/useSound';
 import { PlayerResultPopup } from '@/components/auction/PlayerResultPopup';
 import { AuctionCompleteScreen } from '@/components/auction/AuctionCompleteScreen';
+import { AdminPlayerManager } from '@/components/auction/AdminPlayerManager';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -29,15 +30,15 @@ interface AuctionPageProps {
 }
 
 export default function AuctionPage({ params }: AuctionPageProps) {
-    const { roomId } = use(params);
-    const auctionRoomId = roomId as Id<"auctionRooms">;
-  
+  const { roomId } = use(params);
+  const auctionRoomId = roomId as Id<"auctionRooms">;
+
   // RBAC - Role Based Access Control
   const { isAdmin } = useUserRole();
-  
+
   // Convex queries and mutations
-  const auctionData = useQuery(api.auctions.getLiveAuction, { 
-    auctionRoomId 
+  const auctionData = useQuery(api.auctions.getLiveAuction, {
+    auctionRoomId
   });
   const placeBid = useMutation(api.auctions.placeBid);
   const finalizePlayer = useMutation(api.auctions.finalizePlayerSale);
@@ -54,9 +55,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const [showResult, setShowResult] = useState(false);
   const [customBidAmounts, setCustomBidAmounts] = useState<Record<string, number>>({});
   const [showPlayerIntro, setShowPlayerIntro] = useState(false);
+  const [showPlayerManager, setShowPlayerManager] = useState(false);
   const lastPlayerIdRef = useRef<string | null>(null);
   const introTimerRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Viewer mode status flash notifications
   const [statusFlash, setStatusFlash] = useState<{
     type: 'paused' | 'resumed' | 'reverted' | 'rebid' | 'sold' | 'unsold' | 'new_bid' | null;
@@ -76,7 +78,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     teamColor?: string;
     amount?: number;
   } | null>(null);
-  
+
   const [result, setResult] = useState<{
     playerName: string;
     playerPhotoUrl?: string;
@@ -147,18 +149,18 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       if (auctionData?.auctionRoom?.status !== 'live') return;
 
       const remaining = Math.max(
-        0, 
+        0,
         Math.ceil((auctionData.auctionRoom.bidTimerEndsAt! - Date.now()) / 1000)
       );
-      
+
       // Only update state if value changed (prevents unnecessary re-renders)
       setTimeLeft((prev) => (prev !== remaining ? remaining : prev));
 
       // Auto-finalize when timer reaches 0 AND auction is still live
-      if (remaining === 0 && 
-          auctionData.auctionRoom.status === 'live' && 
-          auctionData.auctionRoom.currentPlayerId &&
-          !showResult) {
+      if (remaining === 0 &&
+        auctionData.auctionRoom.status === 'live' &&
+        auctionData.auctionRoom.currentPlayerId &&
+        !showResult) {
         handleFinalize();
       }
 
@@ -183,27 +185,27 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   useEffect(() => {
     const newPlayerId = auctionData?.auctionRoom?.currentPlayerId;
     const player = auctionData?.currentPlayer;
-    
+
     // Check if this is a new player (different from last one we showed intro for)
     if (newPlayerId && player && newPlayerId !== lastPlayerIdRef.current) {
       lastPlayerIdRef.current = newPlayerId;
-      
+
       // Clear any existing timer
       if (introTimerRef.current) {
         clearTimeout(introTimerRef.current);
       }
-      
+
       // Use requestAnimationFrame to defer state update
       requestAnimationFrame(() => {
         setShowPlayerIntro(true);
-        
+
         // Auto-hide after 2 seconds
         introTimerRef.current = setTimeout(() => {
           setShowPlayerIntro(false);
         }, 2000);
       });
     }
-    
+
     return () => {
       if (introTimerRef.current) {
         clearTimeout(introTimerRef.current);
@@ -218,16 +220,16 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
   useEffect(() => {
     if (isAdmin) return; // Only for viewers
-    
+
     const currentStatus = auctionData?.auctionRoom?.status;
     const currentBidCount = auctionData?.recentBids?.length ?? 0;
     const currentPlayerIdNow = auctionData?.auctionRoom?.currentPlayerId;
     const currentPlayer = auctionData?.currentPlayer;
     const currentBidTeam = auctionData?.currentBidTeam;
     const currentBidAmountNow = auctionData?.auctionRoom?.currentBidAmount;
-    
+
     let flashToShow: typeof statusFlash = null;
-    
+
     // Check for player sold/unsold (player was being auctioned and now no player is selected)
     if (!flashToShow && prevCurrentPlayerIdRef.current && !currentPlayerIdNow && prevPlayerInfoRef.current) {
       if (prevPlayerInfoRef.current.teamName && prevPlayerInfoRef.current.amount) {
@@ -249,7 +251,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         };
       }
     }
-    
+
     // Check for auction paused/resumed
     if (!flashToShow && prevAuctionStatusRef.current && currentStatus !== prevAuctionStatusRef.current) {
       if (currentStatus === 'paused') {
@@ -264,7 +266,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         };
       }
     }
-    
+
     // Check for bid reverted (bid count decreased)
     if (!flashToShow && prevBidCountRef.current > 0 && currentBidCount < prevBidCountRef.current) {
       flashToShow = {
@@ -272,7 +274,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         message: 'Last Bid Reverted',
       };
     }
-    
+
     // Check for new bid (bid count increased)
     if (!flashToShow && currentBidCount > prevBidCountRef.current && prevBidCountRef.current > 0) {
       const latestBid = auctionData?.recentBids?.[0];
@@ -287,18 +289,18 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         };
       }
     }
-    
+
     // Check for player reset/rebid (same player but bids cleared)
-    if (!flashToShow && currentPlayerIdNow && 
-        currentPlayerIdNow === prevCurrentPlayerIdRef.current && 
-        prevBidCountRef.current > 0 && 
-        currentBidCount === 0) {
+    if (!flashToShow && currentPlayerIdNow &&
+      currentPlayerIdNow === prevCurrentPlayerIdRef.current &&
+      prevBidCountRef.current > 0 &&
+      currentBidCount === 0) {
       flashToShow = {
         type: 'rebid',
         message: 'Bidding Restarted',
       };
     }
-    
+
     // Update player info ref BEFORE updating player ID ref (to capture last state)
     if (currentPlayerIdNow && currentPlayer) {
       prevPlayerInfoRef.current = {
@@ -308,12 +310,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         amount: currentBidAmountNow,
       };
     }
-    
+
     // Update refs
     prevAuctionStatusRef.current = currentStatus ?? null;
     prevBidCountRef.current = currentBidCount;
     prevCurrentPlayerIdRef.current = currentPlayerIdNow ?? null;
-    
+
     // Show flash if any
     if (flashToShow) {
       // Use requestAnimationFrame to avoid sync setState in effect
@@ -321,7 +323,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         showStatusFlash(flashToShow);
       });
     }
-    
+
   }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, auctionData?.currentPlayer, auctionData?.currentBidTeam, auctionData?.auctionRoom?.currentBidAmount, showStatusFlash]);
 
   // Auto-hide status flash after 3 seconds
@@ -337,17 +339,17 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   // Track the current player ID and bid amount 
   const currentPlayerId = auctionData?.auctionRoom?.currentPlayerId;
   const currentBidAmount = auctionData?.auctionRoom?.currentBidAmount;
-  
+
   // Create a unique key that changes when player or bid changes
   // This will be used to namespace our custom bid amounts
   const bidContextKey = `${currentPlayerId || 'none'}-${currentBidAmount || 0}`;
-  
+
   // Get custom amount for a team, or return the minimum bid as default
   const getCustomBidAmount = useCallback((teamId: string, minBid: number): number => {
     const key = `${bidContextKey}-${teamId}`;
     return customBidAmounts[key] ?? minBid;
   }, [bidContextKey, customBidAmounts]);
-  
+
   // Set custom amount for a team with the context key
   const setCustomBidAmount = useCallback((teamId: string, amount: number) => {
     const key = `${bidContextKey}-${teamId}`;
@@ -367,10 +369,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     setTimeout(() => setBidding(null), 300);
 
     try {
-      const res = await placeBid({ 
-        auctionRoomId, 
-        teamId, 
-        amount 
+      const res = await placeBid({
+        auctionRoomId,
+        teamId,
+        amount
       });
 
       if (res && typeof res === 'object' && 'success' in res) {
@@ -387,7 +389,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const handleNextPlayer = useCallback(async () => {
     try {
       const res = await startNext({ auctionRoomId });
-      
+
       if (res.completed) {
         toast.success("Auction completed! All players have been auctioned.");
       } else {
@@ -409,7 +411,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       toast.error((error as Error).message || "Failed to revert bid");
     }
   }, [revertBid, auctionRoomId]);
-  
+
   if (!auctionData) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -454,8 +456,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const currentBid = auctionRoom.currentBidAmount || currentPlayer?.basePrice || 0;
   const minNextBid = currentBid + (auctionData.tournament?.settings.minBidIncrement || 25000);
 
-  const isFirstBid = !recentBids || recentBids.length === 0 || 
-                     (recentBids.length === 0 && currentBid === currentPlayer?.basePrice);
+  const isFirstBid = !recentBids || recentBids.length === 0 ||
+    (recentBids.length === 0 && currentBid === currentPlayer?.basePrice);
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden">
@@ -463,16 +465,16 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       <div className="fixed inset-0 pointer-events-none">
         {/* Cricket field green gradient at bottom */}
         <div className="absolute bottom-0 left-0 right-0 h-40 bg-linear-to-t from-green-900/15 to-transparent" />
-        
+
         {/* Stadium floodlight effects */}
         <div className="absolute top-0 left-[15%] w-80 h-80 bg-yellow-500/5 rounded-full blur-3xl" />
         <div className="absolute top-0 right-[15%] w-80 h-80 bg-yellow-500/5 rounded-full blur-3xl" />
         <div className="absolute top-1/3 left-0 w-60 h-60 bg-blue-500/5 rounded-full blur-3xl" />
         <div className="absolute top-1/3 right-0 w-60 h-60 bg-blue-500/5 rounded-full blur-3xl" />
-        
+
         {/* Cricket pitch markings - subtle center line */}
         <div className="absolute left-1/2 bottom-0 w-px h-32 bg-linear-to-t from-green-700/20 to-transparent transform -translate-x-1/2" />
-        
+
         {/* Floating cricket ball decorations */}
         <svg className="absolute top-20 left-8 w-8 h-8 opacity-10 animate-bounce" style={{ animationDuration: '4s' }} viewBox="0 0 100 100">
           <circle cx="50" cy="50" r="45" fill="#DC2626" />
@@ -484,7 +486,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           <path d="M20 50 Q35 30, 50 50 Q65 70, 80 50" fill="none" stroke="white" strokeWidth="4" />
           <path d="M20 50 Q35 70, 50 50 Q65 30, 80 50" fill="none" stroke="white" strokeWidth="4" />
         </svg>
-        
+
         {/* Cricket stumps decoration */}
         <svg className="absolute bottom-8 left-10 w-8 h-16 opacity-10" viewBox="0 0 60 100">
           <rect x="8" y="10" width="6" height="80" fill="#D4A574" rx="1" />
@@ -505,8 +507,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 <div className="relative">
                   <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img 
-                      src={auctionData.tournament.logoUrl} 
+                    <img
+                      src={auctionData.tournament.logoUrl}
                       alt={auctionData.tournament.name}
                       className="w-full h-full object-cover"
                     />
@@ -539,141 +541,153 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
             {/* Admin Controls - Only visible to admins */}
             {isAdmin ? (
-             <div className="flex flex-wrap justify-end gap-1.5 sm:gap-2">
-              {/* Revert Last Bid */}
-              <Button
-                onClick={handleRevertBid}
-                disabled={!recentBids || recentBids.length === 0}
-                variant="outline"
-                size="lg"
-                title="Revert last bid"
-                className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
-              > 
-                <RotateCcw className="w-4 h-4 sm:mr-2" />
-                <span className="hidden sm:inline">Revert</span>
-              </Button>
-
-              {/* Restart Current Player */}
-              <Button
-                onClick={async () => {
-                  if (!confirm("Restart bidding for this player? All bids will be cleared and timer will reset.")) return;
-                  try {
-                    await restartCurrentPlayer({ auctionRoomId });
-                    toast.success('Player bidding restarted!');
-                  } catch (error) {
-                    toast.error((error as Error).message || 'Failed to restart player');
-                  }
-                }}
-                disabled={!currentPlayer || auctionRoom.status !== 'live'}
-                variant="outline"
-                size="lg"
-                title="Restart bidding for current player"
-                className="border-orange-500/50 text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
-              >
-                <RotateCw className="w-4 h-4 sm:mr-2" />
-                <span className="hidden sm:inline">Re-bid</span>
-              </Button>
-
-              {/* Start/Pause/Resume buttons based on status */}
-              {auctionRoom.status === 'waiting' && (
+              <div className="flex flex-wrap justify-end gap-1.5 sm:gap-2">
+                {/* Revert Last Bid */}
                 <Button
-                    onClick={async () => {
-                    try {
-                      await startAuction({ auctionRoomId });
-                      toast.success('Auction started!');
-                    } catch {
-                      toast.error('Failed to start auction');
-                    }
-                  }}
-                  variant="default"
-                  size="lg"
-                  className="bg-green-600 hover:bg-green-700 h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
-                >
-                  <Play className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                  <span className="hidden sm:inline">Start</span>
-                </Button>
-              )}
-
-              {auctionRoom.status === 'live' && (
-                <Button
-                  onClick={async () => {
-                    try {
-                      await pauseAuction({ auctionRoomId });
-                      toast.info('Auction paused');
-                    } catch {
-                      toast.error('Failed to pause auction');
-                    }
-                  }}
+                  onClick={handleRevertBid}
+                  disabled={!recentBids || recentBids.length === 0}
                   variant="outline"
                   size="lg"
-                  className="h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
+                  title="Revert last bid"
+                  className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
                 >
-                  <Pause className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                  <span className="hidden sm:inline">Pause</span>
+                  <RotateCcw className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Revert</span>
                 </Button>
-              )}
 
-              {auctionRoom.status === 'paused' && (
+                {/* Restart Current Player */}
                 <Button
                   onClick={async () => {
+                    if (!confirm("Restart bidding for this player? All bids will be cleared and timer will reset.")) return;
                     try {
-                      await resumeAuction({ auctionRoomId });
-                      toast.success('Auction resumed!');
-                    } catch {
-                      toast.error('Failed to resume auction');
+                      await restartCurrentPlayer({ auctionRoomId });
+                      toast.success('Player bidding restarted!');
+                    } catch (error) {
+                      toast.error((error as Error).message || 'Failed to restart player');
                     }
                   }}
-                  variant="default"
-                  size="lg"
-                  className="bg-green-600 hover:bg-green-700 h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target">
-                  <Play className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                  <span className="hidden sm:inline">Resume</span>
-                </Button>
-              )}
-
-              {/* Restart Auction Button */}
-              <Button
-                onClick={async () => {
-                  if (!confirm("Are you sure you want to restart the auction? This will reset ALL players, teams purses, and bid history. This action cannot be undone.")) return;
-                  try {
-                    await restartAuction({ auctionRoomId });
-                    toast.success('Auction has been reset!');
-                  } catch (error) {
-                    toast.error((error as Error).message || 'Failed to restart auction');
-                  }
-                }}
-                variant="outline"
-                size="lg"
-                className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300 h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
-                title="Restart auction from the beginning"
-              >
-                <RefreshCcw className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                <span className="hidden sm:inline">Restart</span>
-              </Button>
-
-
-              {isAdmin && (
-                <Button
-                  onClick={handleFinalize}
                   disabled={!currentPlayer || auctionRoom.status !== 'live'}
                   variant="outline"
                   size="lg"
-                  className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
+                  title="Restart bidding for current player"
+                  className="border-orange-500/50 text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
                 >
-                  <Gavel className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                  <span className="hidden sm:inline">Finalize</span>
+                  <RotateCw className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Re-bid</span>
                 </Button>
-              )}
-              <Button
-                onClick={handleNextPlayer}
-                disabled={auctionRoom.currentPlayerId !== undefined || auctionRoom.status !== 'live'}
-                size="lg"
-                className="h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
-              >
-                <SkipForward className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                <span className="hidden sm:inline">Next</span>
-              </Button>
-            </div>
+
+                {/* Start/Pause/Resume buttons based on status */}
+                {auctionRoom.status === 'waiting' && (
+                  <Button
+                    onClick={async () => {
+                      try {
+                        await startAuction({ auctionRoomId });
+                        toast.success('Auction started!');
+                      } catch {
+                        toast.error('Failed to start auction');
+                      }
+                    }}
+                    variant="default"
+                    size="lg"
+                    className="bg-green-600 hover:bg-green-700 h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
+                  >
+                    <Play className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                    <span className="hidden sm:inline">Start</span>
+                  </Button>
+                )}
+
+                {auctionRoom.status === 'live' && (
+                  <Button
+                    onClick={async () => {
+                      try {
+                        await pauseAuction({ auctionRoomId });
+                        toast.info('Auction paused');
+                      } catch {
+                        toast.error('Failed to pause auction');
+                      }
+                    }}
+                    variant="outline"
+                    size="lg"
+                    className="h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
+                  >
+                    <Pause className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                    <span className="hidden sm:inline">Pause</span>
+                  </Button>
+                )}
+
+                {auctionRoom.status === 'paused' && (
+                  <Button
+                    onClick={async () => {
+                      try {
+                        await resumeAuction({ auctionRoomId });
+                        toast.success('Auction resumed!');
+                      } catch {
+                        toast.error('Failed to resume auction');
+                      }
+                    }}
+                    variant="default"
+                    size="lg"
+                    className="bg-green-600 hover:bg-green-700 h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target">
+                    <Play className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                    <span className="hidden sm:inline">Resume</span>
+                  </Button>
+                )}
+
+                {/* Restart Auction Button */}
+                <Button
+                  onClick={async () => {
+                    if (!confirm("Are you sure you want to restart the auction? This will reset ALL players, teams purses, and bid history. This action cannot be undone.")) return;
+                    try {
+                      await restartAuction({ auctionRoomId });
+                      toast.success('Auction has been reset!');
+                    } catch (error) {
+                      toast.error((error as Error).message || 'Failed to restart auction');
+                    }
+                  }}
+                  variant="outline"
+                  size="lg"
+                  className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300 h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
+                  title="Restart auction from the beginning"
+                >
+                  <RefreshCcw className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                  <span className="hidden sm:inline">Restart</span>
+                </Button>
+
+                {/* Manage Players Button */}
+                <Button
+                  onClick={() => setShowPlayerManager(true)}
+                  variant="outline"
+                  size="lg"
+                  className="border-purple-500/50 text-purple-400 hover:bg-purple-500/10 hover:text-purple-300 h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
+                  title="Manage sold/unsold players"
+                >
+                  <Settings2 className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                  <span className="hidden sm:inline">Players</span>
+                </Button>
+
+
+                {isAdmin && (
+                  <Button
+                    onClick={handleFinalize}
+                    disabled={!currentPlayer || auctionRoom.status !== 'live'}
+                    variant="outline"
+                    size="lg"
+                    className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
+                  >
+                    <Gavel className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                    <span className="hidden sm:inline">Finalize</span>
+                  </Button>
+                )}
+                <Button
+                  onClick={handleNextPlayer}
+                  disabled={auctionRoom.currentPlayerId !== undefined || auctionRoom.status !== 'live'}
+                  size="lg"
+                  className="h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
+                >
+                  <SkipForward className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                  <span className="hidden sm:inline">Next</span>
+                </Button>
+              </div>
             ) : (
               /* Viewer Mode Indicator - Shown to non-admins */
               <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/60 rounded-lg border border-slate-700">
@@ -681,7 +695,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 <span className="text-sm text-slate-300">Viewer Mode</span>
               </div>
             )}
-            
+
             {/* View Teams Button - Available for both Admin and Viewer */}
             <Button
               onClick={() => window.open(`/tournament/${auctionData.tournament?._id}/teams`, '_blank')}
@@ -696,7 +710,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           </div>
         </div>
       </header>
-      
+
       {/* Viewer Status Flash Notification */}
       <AnimatePresence>
         {!isAdmin && statusFlash && (
@@ -731,23 +745,23 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 {statusFlash.type === 'new_bid' && <Gavel className="w-6 h-6 mb-1" />}
                 {statusFlash.type === 'sold' && <Trophy className="w-6 h-6 mb-1" />}
                 {statusFlash.type === 'unsold' && <Users className="w-6 h-6 mb-1" />}
-                
+
                 <span className="font-bold text-lg">{statusFlash.message}</span>
-                
+
                 {/* Show player name for sold/unsold */}
                 {(statusFlash.type === 'sold' || statusFlash.type === 'unsold') && statusFlash.playerName && (
                   <div className="text-sm font-medium opacity-90">
                     {statusFlash.playerName}
                   </div>
                 )}
-                
+
                 {/* Show team name and amount for sold players */}
                 {statusFlash.type === 'sold' && statusFlash.teamName && statusFlash.amount && (
                   <div className="text-sm font-medium opacity-90">
                     {statusFlash.teamName} • {formatCurrency(statusFlash.amount)}
                   </div>
                 )}
-                
+
                 {/* Show team name and amount for new bids */}
                 {statusFlash.type === 'new_bid' && statusFlash.teamName && statusFlash.amount && (
                   <div className="text-sm font-medium opacity-90">
@@ -759,14 +773,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           </motion.div>
         )}
       </AnimatePresence>
-                
+
       <main className="max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 pb-20 safe-bottom">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 lg:gap-6">
           {/* Teams Panel - Full width on mobile/tablet, side panel on desktop */}
           <aside className="lg:col-span-3 order-2 lg:order-2">
             <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
               <Users className="w-4 h-4 sm:w-5 sm:h-5" />
-                Teams
+              Teams
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3">
               {teams?.map((team) => {
@@ -777,15 +791,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 const minBidForTeam = isFirstBid ? (currentPlayer?.basePrice || 0) : minNextBid;
                 const customAmount = getCustomBidAmount(team._id, minBidForTeam);
                 const hasSufficientPurse = team.purseRemaining >= customAmount;
-                
+
                 // Check if bid exceeds max allowed for squad completion
                 const maxAllowedBid = team.maxAllowedBid ?? team.purseRemaining;
                 const exceedsMaxAllowed = customAmount > maxAllowedBid;
-                
+
                 const isValidBid = customAmount >= minBidForTeam && customAmount <= team.purseRemaining && !exceedsMaxAllowed;
                 // Only admins can place bids
                 const canBid = isAdmin && hasSufficientPurse && !hasReachedMaxPlayers && isValidBid && currentPlayer && auctionRoom.status === 'live';
-                
+
                 // Determine the error message
                 let bidError: string | null = null;
                 if (!isAdmin) {
@@ -797,96 +811,96 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 } else if (!hasSufficientPurse) {
                   bidError = "Insufficient purse";
                 }
-                
+
                 return (
-              <motion.div
-                key={team._id}
-                onClick={() => {
-                  if (canBid) {
-                    handleBid(team._id, customAmount);
-                  } else if (bidError) {
-                    toast.error(bidError);
-                  }
-                }}
-                className={`
+                  <motion.div
+                    key={team._id}
+                    onClick={() => {
+                      if (canBid) {
+                        handleBid(team._id, customAmount);
+                      } else if (bidError) {
+                        toast.error(bidError);
+                      }
+                    }}
+                    className={`
                   relative rounded-xl p-2.5 sm:p-3 border-2 transition-all
                   ${canBid ? 'cursor-pointer hover:border-blue-500 hover:bg-slate-700/50 active:scale-[0.98]' : 'cursor-not-allowed'}
-                  ${isCurrentBidder 
-                ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' 
-                : 'border-slate-700 bg-slate-800/50'
-                  }
+                  ${isCurrentBidder
+                        ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20'
+                        : 'border-slate-700 bg-slate-800/50'
+                      }
                   ${hasReachedMaxPlayers || exceedsMaxAllowed ? 'opacity-50' : ''}
                 `}
-              >
-                {bidding === team._id && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl z-10">
-                <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-white" />
-                  </div>
-                )}
+                  >
+                    {bidding === team._id && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl z-10">
+                        <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-white" />
+                      </div>
+                    )}
 
-                <div className="flex items-center gap-2 mb-2">
-                  {/* Team Logo */}
-                  <TeamLogo
-                    name={team.name}
-                    logoUrl={team.logoUrl}
-                    primaryColor={team.colorPrimary}
-                    size="sm"
-                  />
+                    <div className="flex items-center gap-2 mb-2">
+                      {/* Team Logo */}
+                      <TeamLogo
+                        name={team.name}
+                        logoUrl={team.logoUrl}
+                        primaryColor={team.colorPrimary}
+                        size="sm"
+                      />
 
-                  <div className="flex-1 min-w-0">
-                    <span className="font-semibold text-xs sm:text-sm truncate block">
-                      {team.name}
-                    </span>
-                    {/* <span className={`text-xs ${
+                      <div className="flex-1 min-w-0">
+                        <span className="font-semibold text-xs sm:text-sm truncate block">
+                          {team.name}
+                        </span>
+                        {/* <span className={`text-xs ${
                       hasReachedMaxPlayers ? 'text-red-400' : 'text-slate-400'
                     }`}>
                       {hasReachedMaxPlayers ? 'Squad Full' : formatCurrency(team.purseRemaining)}
                     </span> */}
-                  </div>
+                      </div>
 
-                  {isCurrentBidder && (
-                    <Gavel className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 animate-pulse shrink-0" />
-                  )}
-                </div>
+                      {isCurrentBidder && (
+                        <Gavel className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 animate-pulse shrink-0" />
+                      )}
+                    </div>
 
-                {/* Custom Bid Input - Only shown to admins */}
-                {isAdmin && currentPlayer && !hasReachedMaxPlayers && (
-                  <div 
-                    className="relative"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">₹</span>
-                    <Input
-                      type="number"
-                      min={minBidForTeam}
-                      max={maxAllowedBid}
-                      step={auctionData.tournament?.settings.minBidIncrement || 25000}
-                      value={customAmount}
-                      onChange={(e) => {
-                        const value = parseInt(e.target.value) || minBidForTeam;
-                        setCustomBidAmount(team._id, value);
-                      }}
-                      className={`pl-6 pr-2 py-1 h-8 text-xs bg-slate-900 border-slate-600 text-white w-full ${exceedsMaxAllowed ? 'border-red-500' : ''}`}
-                      disabled={!currentPlayer || hasReachedMaxPlayers}
-                    />
-                  </div>
-                )}
+                    {/* Custom Bid Input - Only shown to admins */}
+                    {isAdmin && currentPlayer && !hasReachedMaxPlayers && (
+                      <div
+                        className="relative"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">₹</span>
+                        <Input
+                          type="number"
+                          min={minBidForTeam}
+                          max={maxAllowedBid}
+                          step={auctionData.tournament?.settings.minBidIncrement || 25000}
+                          value={customAmount}
+                          onChange={(e) => {
+                            const value = parseInt(e.target.value) || minBidForTeam;
+                            setCustomBidAmount(team._id, value);
+                          }}
+                          className={`pl-6 pr-2 py-1 h-8 text-xs bg-slate-900 border-slate-600 text-white w-full ${exceedsMaxAllowed ? 'border-red-500' : ''}`}
+                          disabled={!currentPlayer || hasReachedMaxPlayers}
+                        />
+                      </div>
+                    )}
 
-                {/* Validation Messages - Only shown to admins */}
-                {isAdmin && currentPlayer && !hasReachedMaxPlayers && customAmount > 0 && (
-                  <div className="mt-1">
-                    {customAmount < minBidForTeam && (
-                      <p className="text-[10px] text-red-400">Min: {formatCurrency(minBidForTeam)}</p>
+                    {/* Validation Messages - Only shown to admins */}
+                    {isAdmin && currentPlayer && !hasReachedMaxPlayers && customAmount > 0 && (
+                      <div className="mt-1">
+                        {customAmount < minBidForTeam && (
+                          <p className="text-[10px] text-red-400">Min: {formatCurrency(minBidForTeam)}</p>
+                        )}
+                        {exceedsMaxAllowed && team.playersNeeded && team.playersNeeded > 1 && (
+                          <p className="text-[10px] text-red-400">Max: {formatCurrency(maxAllowedBid)} (need {team.playersNeeded} players)</p>
+                        )}
+                        {!exceedsMaxAllowed && customAmount > team.purseRemaining && (
+                          <p className="text-[10px] text-red-400">Exceeds purse limit</p>
+                        )}
+                      </div>
                     )}
-                    {exceedsMaxAllowed && team.playersNeeded && team.playersNeeded > 1 && (
-                      <p className="text-[10px] text-red-400">Max: {formatCurrency(maxAllowedBid)} (need {team.playersNeeded} players)</p>
-                    )}
-                    {!exceedsMaxAllowed && customAmount > team.purseRemaining && (
-                      <p className="text-[10px] text-red-400">Exceeds purse limit</p>
-                    )}
-                  </div>
-                )}
-              </motion.div>
+                  </motion.div>
                 );
               })}
             </div>
@@ -898,9 +912,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             <div className="flex justify-center mb-4 sm:mb-6 lg:mb-8">
               <div className="relative w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32">
                 {/* Glow effect */}
-                <div className={`absolute inset-0 rounded-full blur-xl transition-colors ${
-                  displayTimeLeft <= 10 ? 'bg-red-500/30' : 'bg-orange-500/20'
-                }`} />
+                <div className={`absolute inset-0 rounded-full blur-xl transition-colors ${displayTimeLeft <= 10 ? 'bg-red-500/30' : 'bg-orange-500/20'
+                  }`} />
                 <svg className="w-full h-full transform -rotate-90 relative z-10" viewBox="0 0 100 100">
                   {/* Background circle - cricket ball red */}
                   <circle
@@ -929,10 +942,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center z-20">
                   <div className="text-center">
-                    <motion.div 
-                      className={`text-3xl sm:text-4xl lg:text-5xl font-bold ${
-                        displayTimeLeft <= 10 ? 'text-red-500' : 'text-orange-400'
-                      }`}
+                    <motion.div
+                      className={`text-3xl sm:text-4xl lg:text-5xl font-bold ${displayTimeLeft <= 10 ? 'text-red-500' : 'text-orange-400'
+                        }`}
                       animate={{ scale: displayTimeLeft <= 5 && displayTimeLeft > 0 ? [1, 1.1, 1] : 1 }}
                       transition={{ repeat: displayTimeLeft <= 5 && displayTimeLeft > 0 ? Infinity : 0, duration: 1 }}
                     >
@@ -955,13 +967,13 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   className="bg-linear-to-br from-slate-800 to-slate-900 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-700 shadow-2xl"
                 >
                   <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 mb-4 sm:mb-6">
-                    <PlayerAvatar 
-                      name={currentPlayer.name} 
-                      photoUrl={currentPlayer.photoUrl} 
+                    <PlayerAvatar
+                      name={currentPlayer.name}
+                      photoUrl={currentPlayer.photoUrl}
                       size="2xl"
                       className="rounded-xl sm:rounded-2xl mx-auto sm:mx-0"
                     />
-                    
+
                     <div className="flex-1 text-center sm:text-left">
                       <div className="flex items-center justify-center sm:justify-start gap-3 mb-2 sm:mb-3">
                         {currentPlayer.playerNumber && (
@@ -973,7 +985,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                           {currentPlayer.name}
                         </h2>
                       </div>
-                      
+
                       <div className="flex flex-wrap justify-center sm:justify-start gap-2 mb-3 sm:mb-4">
                         <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-purple-600 rounded-full text-xs sm:text-sm font-semibold">
                           {currentPlayer.role}
@@ -989,7 +1001,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   </div>
 
                   {/* Current Bid Display */}
-                  <motion.div 
+                  <motion.div
                     className="bg-linear-to-r from-yellow-600 to-orange-600 rounded-xl p-4 sm:p-5 lg:p-6 text-center"
                     animate={{ scale: [1, 1.02, 1] }}
                     transition={{ repeat: Infinity, duration: 2 }}
@@ -997,7 +1009,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     <div className="text-xs sm:text-sm font-semibold mb-1 sm:mb-2 opacity-90">
                       {isFirstBid ? "STARTING PRICE" : "CURRENT BID"}
                     </div>
-                    <motion.div 
+                    <motion.div
                       className="text-3xl sm:text-4xl lg:text-6xl font-bold mb-1 sm:mb-2"
                       key={currentBid}
                       initial={{ scale: 1.2 }}
@@ -1076,7 +1088,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   ))}
                 </AnimatePresence>
               )}
-              
+
             </div>
 
             {/* Quick Stats */}
@@ -1279,20 +1291,20 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 {auctionData?.teams?.map((team) => {
                   const teamPlayers = soldPlayers?.filter(p => p.teamId === team._id) || [];
                   return (
-                    <div 
+                    <div
                       key={`${loopIndex}-${team._id}`}
                       className="flex items-center gap-2 bg-slate-800/50 rounded-full px-4 py-1.5 border border-slate-700 shrink-0"
                     >
                       {team.logoUrl ? (
-                        <Image 
-                          src={team.logoUrl} 
-                          alt={team.name} 
+                        <Image
+                          src={team.logoUrl}
+                          alt={team.name}
                           width={24}
                           height={24}
                           className="w-6 h-6 rounded-full object-cover shrink-0"
                         />
                       ) : (
-                        <div 
+                        <div
                           className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
                           style={{ backgroundColor: team.colorPrimary || '#6366f1' }}
                         >
@@ -1321,6 +1333,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       <div className="fixed bottom-14 left-1/2 -translate-x-1/2 text-center text-[20px] sm:text-xs text-slate-200 pointer-events-none select-none z-50 whitespace-nowrap">
         Developed by Kavil Dani • +91-7406486484 • Instagram: kavil.jain
       </div>
+
+      {/* Admin Player Manager Modal */}
+      {showPlayerManager && auctionData.tournament && (
+        <AdminPlayerManager
+          tournamentId={auctionData.tournament._id}
+          onClose={() => setShowPlayerManager(false)}
+        />
+      )}
     </div>
   );
 }
