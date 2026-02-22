@@ -22,6 +22,7 @@ interface TournamentSettingsModalProps {
       minBidIncrement: number;
       bidTimerSeconds?: number;
       maxPlayersPerTeam: number;
+      basePrice?: number;
     };
   };
   onClose: () => void;
@@ -44,6 +45,7 @@ export function TournamentSettingsModal({
     minBidIncrement: currentSettings.settings.minBidIncrement,
     bidTimerSeconds: currentSettings.settings.bidTimerSeconds || 30,
     maxPlayersPerTeam: currentSettings.settings.maxPlayersPerTeam,
+    basePrice: currentSettings.settings.basePrice || 100000,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -61,6 +63,7 @@ export function TournamentSettingsModal({
           minBidIncrement: formData.minBidIncrement,
           bidTimerSeconds: formData.bidTimerSeconds,
           maxPlayersPerTeam: formData.maxPlayersPerTeam,
+          basePrice: formData.basePrice,
         },
       });
 
@@ -228,6 +231,23 @@ export function TournamentSettingsModal({
                 />
                 <p className="text-xs text-slate-400 mt-1">
                   ₹{(formData.minBidIncrement / 1000).toFixed(0)}K increment
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="basePrice">Base Player Price (₹) *</Label>
+                <Input
+                  id="basePrice"
+                  type="number"
+                  required
+                  min="50000"
+                  step="25000"
+                  value={formData.basePrice}
+                  onChange={(e) => setFormData({ ...formData, basePrice: parseInt(e.target.value) })}
+                  className="mt-2"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  Default: ₹{(formData.basePrice / 100000).toFixed(1)}L
                 </p>
               </div>
 

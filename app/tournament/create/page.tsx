@@ -25,6 +25,7 @@ export default function CreateTournamentPage() {
     minBidIncrement: 25000,
     bidTimerSeconds: 30,
     maxPlayersPerTeam: 15,
+    basePrice: 100000,
   });
 
   const [loading, setLoading] = useState(false);
@@ -57,6 +58,13 @@ export default function CreateTournamentPage() {
       newErrors.minBidIncrement = 'Bid increment cannot exceed 10% of base purse';
     }
 
+    // Base price validation
+    if (!formData.basePrice || formData.basePrice < 50000) {
+      newErrors.basePrice = 'Base price must be at least ₹50,000';
+    } else if (formData.basePrice > formData.basePurse / 2) {
+      newErrors.basePrice = 'Base price cannot exceed 50% of base purse';
+    }
+
     // Bid timer validation
     if (!formData.bidTimerSeconds || formData.bidTimerSeconds < 10) {
       newErrors.bidTimerSeconds = 'Bid timer must be at least 10 seconds';
@@ -84,7 +92,7 @@ export default function CreateTournamentPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -101,6 +109,7 @@ export default function CreateTournamentPage() {
           minBidIncrement: formData.minBidIncrement,
           bidTimerSeconds: formData.bidTimerSeconds,
           maxPlayersPerTeam: formData.maxPlayersPerTeam,
+          basePrice: formData.basePrice,
         },
       });
 
@@ -140,7 +149,7 @@ export default function CreateTournamentPage() {
           {/* Basic Information */}
           <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-6">
             <h2 className="text-lg sm:text-xl font-bold mb-4 sm:mb-6">Basic Information</h2>
-            
+
             <div className="space-y-4">
               <div>
                 <Label htmlFor="name">Tournament Name *</Label>
@@ -186,7 +195,7 @@ export default function CreateTournamentPage() {
           {/* Auction Settings */}
           <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-6">
             <h2 className="text-lg sm:text-xl font-bold mb-4 sm:mb-6">Auction Settings</h2>
-            
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div>
                 <Label htmlFor="basePurse">Base Purse per Team (₹) *</Label>
@@ -228,6 +237,28 @@ export default function CreateTournamentPage() {
                 ) : (
                   <p className="text-xs text-slate-400 mt-1">
                     Current: ₹{(formData.minBidIncrement / 1000).toFixed(0)}K
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="basePrice">Base Player Price (₹) *</Label>
+                <Input
+                  id="basePrice"
+                  type="number"
+                  required
+                  value={formData.basePrice}
+                  onChange={(e) => {
+                    setFormData({ ...formData, basePrice: parseInt(e.target.value) || 0 });
+                    if (errors.basePrice) setErrors({ ...errors, basePrice: '' });
+                  }}
+                  className={`mt-2 min-h-11 ${errors.basePrice ? 'border-red-500' : ''}`}
+                />
+                {errors.basePrice ? (
+                  <p className="text-red-400 text-xs mt-1">{errors.basePrice}</p>
+                ) : (
+                  <p className="text-xs text-slate-400 mt-1">
+                    Default: ₹{(formData.basePrice / 100000).toFixed(1)} Lakhs
                   </p>
                 )}
               </div>

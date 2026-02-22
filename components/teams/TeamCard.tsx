@@ -26,7 +26,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
-  const players = useQuery(api.players.listByTournament, { 
+  const players = useQuery(api.players.listByTournament, {
     tournamentId,
   });
   const deleteTeam = useMutation(api.teams.deleteTeam);
@@ -87,123 +87,127 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
   };
 
   return (
-   <> 
-    <motion.div
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
-      onClick={() => setShowDetails(true)}
-      className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6 hover:border-blue-500 transition relative cursor-pointer"
-    >
-      {canModify && (
+    <>
+      <motion.div
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={() => setShowDetails(true)}
+        className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6 hover:border-blue-500 transition relative cursor-pointer"
+      >
+        {(canModify || tournament?.status === "completed") && (
           <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex gap-1.5 sm:gap-2">
             <button
               onClick={(e) => { e.stopPropagation(); handleDownloadPdf(); }}
               className="p-2 sm:p-2.5 bg-green-600 hover:bg-green-700 rounded-lg transition touch-target"
               title="Download PDF"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-6 h-4" />
             </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowEdit(true); }}
-              className="p-2 sm:p-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition touch-target"
-              title="Edit Team"
-            >
-              <Edit className="w-4 h-4" />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); handleDelete(); }}
-              disabled={deleting}
-              className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 touch-target"
-              title="Delete Team"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-      {/* Team Header */}
-      <div className="flex items-start justify-between mb-3 sm:mb-4">
-        <div className="flex items-center gap-2.5 sm:gap-3 flex-1 pr-24 sm:pr-32">
-          {/* Team Logo */}
-          <TeamLogo
-            name={team.name}
-            logoUrl={team.logoUrl}
-            primaryColor={team.colorPrimary}
-            size="md"
-          />
-          <div className="min-w-0">
-            <h3 className="text-lg sm:text-xl font-bold truncate">{team.name}</h3>
-            <p className="text-xs sm:text-sm text-slate-400 truncate">Owner: {team.ownerName}</p>
-            {team.sponsorName && (
-              <p className="text-xs text-slate-500 truncate">Sponsor: {team.sponsorName}</p>
+            {canModify && (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowEdit(true); }}
+                  className="p-2 sm:p-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition touch-target"
+                  title="Edit Team"
+                >
+                  <Edit className="w-6 h-4" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+                  disabled={deleting}
+                  className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 touch-target"
+                  title="Delete Team"
+                >
+                  <Trash2 className="w-6 h-4" />
+                </button>
+              </>
             )}
           </div>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="space-y-3 sm:space-y-4 mb-3 sm:mb-4">
-        {/* Purse */}
-        <div>
-          <div className="flex justify-between text-xs sm:text-sm mb-2">
-            <span className="text-slate-400">Purse Remaining</span>
-            <span className="font-semibold text-green-400">
-              {formatCurrency(team.purseRemaining)}
-            </span>
-          </div>
-          <div className="w-full bg-slate-700 rounded-full h-2 sm:h-2.5">
-            <motion.div
-              className="h-2 sm:h-2.5 rounded-full"
-              style={{ backgroundColor: team.colorPrimary }}
-              initial={{ width: 0 }}
-              animate={{ width: `${pursePercentage}%` }}
-              transition={{ duration: 0.5 }}
+        )}
+        {/* Team Header */}
+        <div className="flex items-start justify-between mb-3 sm:mb-4">
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-1 pr-24 sm:pr-32">
+            {/* Team Logo */}
+            <TeamLogo
+              name={team.name}
+              logoUrl={team.logoUrl}
+              primaryColor={team.colorPrimary}
+              size="md"
             />
-          </div>
-          <div className="flex justify-between text-xs text-slate-500 mt-1">
-            <span>Spent: {formatCurrency(team.purseSpent)}</span>
-            <span>{pursePercentage.toFixed(0)}%</span>
-          </div>
-        </div>
-
-        {/* Players Count */}
-        <div className="flex items-center justify-between py-2.5 sm:py-3 px-3 sm:px-4 bg-slate-900/50 rounded-lg">
-          <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-blue-400" />
-            <span className="text-xs sm:text-sm text-slate-400">Players</span>
-          </div>
-          <span className="font-semibold text-sm sm:text-base">{teamPlayers.length}</span>
-        </div>
-
-        {/* Top Players */}
-        {teamPlayers.length > 0 && (
-          <div>
-            <div className="text-xs text-slate-400 mb-2">Top Purchases</div>
-            <div className="space-y-1.5">
-              {teamPlayers
-                .sort((a, b) => (b.soldPrice || 0) - (a.soldPrice || 0))
-                .slice(0, 3)
-                .map((player) => (
-                  <div 
-                    key={player._id}
-                    className="flex justify-between text-xs sm:text-sm py-1"
-                  >
-                    <span className="text-slate-300 truncate mr-2">{player.name}</span>
-                    <span className="text-yellow-400 font-semibold whitespace-nowrap">
-                      {formatCurrency(player.soldPrice || 0)}
-                    </span>
-                  </div>
-                ))}
+            <div className="min-w-0">
+              <h3 className="text-lg sm:text-xl font-bold truncate">{team.name}</h3>
+              <p className="text-xs sm:text-sm text-slate-400 truncate">Owner: {team.ownerName}</p>
+              {team.sponsorName && (
+                <p className="text-xs text-slate-500 truncate">Sponsor: {team.sponsorName}</p>
+              )}
             </div>
           </div>
-        )}
-      </div>
+        </div>
 
-      {/* Footer */}
-      <div className="pt-3 sm:pt-4 border-t border-slate-700 flex items-center justify-between text-xs text-slate-400">
-        <span>Updated {new Date(team.updatedAt).toLocaleDateString()}</span>
-      </div>
-    </motion.div>
-    {/* Modals */}
+        {/* Stats */}
+        <div className="space-y-3 sm:space-y-4 mb-3 sm:mb-4">
+          {/* Purse */}
+          <div>
+            <div className="flex justify-between text-xs sm:text-sm mb-2">
+              <span className="text-slate-400">Purse Remaining</span>
+              <span className="font-semibold text-green-400">
+                {formatCurrency(team.purseRemaining)}
+              </span>
+            </div>
+            <div className="w-full bg-slate-700 rounded-full h-2 sm:h-2.5">
+              <motion.div
+                className="h-2 sm:h-2.5 rounded-full"
+                style={{ backgroundColor: team.colorPrimary }}
+                initial={{ width: 0 }}
+                animate={{ width: `${pursePercentage}%` }}
+                transition={{ duration: 0.5 }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-slate-500 mt-1">
+              <span>Spent: {formatCurrency(team.purseSpent)}</span>
+              <span>{pursePercentage.toFixed(0)}%</span>
+            </div>
+          </div>
+
+          {/* Players Count */}
+          <div className="flex items-center justify-between py-2.5 sm:py-3 px-3 sm:px-4 bg-slate-900/50 rounded-lg">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-blue-400" />
+              <span className="text-xs sm:text-sm text-slate-400">Players</span>
+            </div>
+            <span className="font-semibold text-sm sm:text-base">{teamPlayers.length}</span>
+          </div>
+
+          {/* Top Players */}
+          {teamPlayers.length > 0 && (
+            <div>
+              <div className="text-xs text-slate-400 mb-2">Top Purchases</div>
+              <div className="space-y-1.5">
+                {teamPlayers
+                  .sort((a, b) => (b.soldPrice || 0) - (a.soldPrice || 0))
+                  .slice(0, 3)
+                  .map((player) => (
+                    <div
+                      key={player._id}
+                      className="flex justify-between text-xs sm:text-sm py-1"
+                    >
+                      <span className="text-slate-300 truncate mr-2">{player.name}</span>
+                      <span className="text-yellow-400 font-semibold whitespace-nowrap">
+                        {formatCurrency(player.soldPrice || 0)}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="pt-3 sm:pt-4 border-t border-slate-700 flex items-center justify-between text-xs text-slate-400">
+          <span>Updated {new Date(team.updatedAt).toLocaleDateString()}</span>
+        </div>
+      </motion.div>
+      {/* Modals */}
       {showEdit && (
         <TeamEditForm
           team={team}

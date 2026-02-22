@@ -1099,13 +1099,13 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <div className="flex justify-between text-xs sm:text-sm">
                     <span className="text-slate-400">Base Price</span>
                     <span className="font-semibold">
-                      {formatCurrency(currentPlayer.basePrice)}
+                      {formatCurrency(currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000)}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs sm:text-sm">
                     <span className="text-slate-400">Next Bid</span>
                     <span className="font-semibold text-green-400">
-                      {formatCurrency(isFirstBid ? currentPlayer.basePrice : minNextBid)}
+                      {formatCurrency(isFirstBid ? (currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000) : minNextBid)}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs sm:text-sm">
@@ -1259,7 +1259,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 <div className="px-6 sm:px-8 py-3 sm:py-4 bg-linear-to-r from-yellow-500 to-orange-500 rounded-xl shadow-lg shadow-orange-500/30">
                   <div className="text-xs sm:text-sm font-semibold text-white/80 mb-1">BASE PRICE</div>
                   <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">
-                    {formatCurrency(currentPlayer.basePrice)}
+                    {formatCurrency(currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000)}
                   </div>
                 </div>
               </motion.div>

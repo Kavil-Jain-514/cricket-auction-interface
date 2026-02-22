@@ -271,7 +271,7 @@ export function AdminPlayerManager({ tournamentId, onClose }: AdminPlayerManager
                                                         <button
                                                             onClick={() => startEdit(player._id, 'status', {
                                                                 newStatus: 'sold',
-                                                                newPrice: player.basePrice,
+                                                                newPrice: player.basePrice ?? 100000,
                                                             })}
                                                             className="p-1.5 rounded-lg bg-green-600/10 text-green-400 hover:bg-green-600/20 transition"
                                                             title="Mark as Sold"

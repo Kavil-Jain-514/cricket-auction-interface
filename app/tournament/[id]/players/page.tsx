@@ -24,7 +24,7 @@ import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import { getPlayerInitials } from '@/lib/utils';
 import { useUserRole } from '@/hooks/useUserRole';
-import {formatCurrency} from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 
 export default function PlayersPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -49,10 +49,11 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
     return teams.find(t => t._id === teamId)?.name;
   }, [teams]);
 
-  const players = allPlayers?.filter(p => 
-    {const statusMatch = filterStatus === 'all' || p.auctionStatus === filterStatus;
+  const players = allPlayers?.filter(p => {
+    const statusMatch = filterStatus === 'all' || p.auctionStatus === filterStatus;
     const roleMatch = filterRole === 'all' || p.role === filterRole;
-    return statusMatch && roleMatch;}
+    return statusMatch && roleMatch;
+  }
   );
 
   const stats = useMemo(() => ({
@@ -81,7 +82,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
     try {
       // Pre-load all player images
       const imageCache: Record<string, string> = {};
-      
+
       const loadImage = (url: string): Promise<string | null> => {
         return new Promise((resolve) => {
           const img = new Image();
@@ -119,7 +120,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             }
           }
         });
-      
+
       await Promise.all(imagePromises);
 
       const pdf = new jsPDF({
@@ -147,9 +148,9 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
         // Role color stripe on left
         const roleColor = player.role === 'Batter' ? [59, 130, 246] : // blue
-                          player.role === 'Bowler' ? [249, 115, 22] : // orange
-                          player.role.includes('All') ? [147, 51, 234] : // purple
-                          [34, 197, 94]; // green
+          player.role === 'Bowler' ? [249, 115, 22] : // orange
+            player.role.includes('All') ? [147, 51, 234] : // purple
+              [34, 197, 94]; // green
         pdf.setFillColor(roleColor[0], roleColor[1], roleColor[2]);
         pdf.roundedRect(x, y, 4, cardHeight, 3, 0, 'F');
         pdf.rect(x + 2, y, 2, cardHeight, 'F');
@@ -157,7 +158,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         // Player photo or initials
         const photoX = x + 7;
         const photoY = y + 4;
-        
+
         if (imageCache[player._id]) {
           // Draw the photo
           try {
@@ -176,7 +177,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           // Gradient background for initials
           pdf.setFillColor(59, 130, 246); // blue-600
           pdf.roundedRect(px, py, photoSize, photoSize, 2, 2, 'F');
-          
+
           // Initials text
           pdf.setTextColor(255, 255, 255);
           pdf.setFontSize(10);
@@ -207,9 +208,9 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
         //Status badge
         const statusColor = player.auctionStatus === 'sold' ? [34, 197, 94] : // green
-                            player.auctionStatus === 'unsold' ? [239, 68, 68] : // red
-                            player.auctionStatus === 'in_auction' ? [234, 179, 8] : // yellow
-                            [100, 116, 139]; // slate
+          player.auctionStatus === 'unsold' ? [239, 68, 68] : // red
+            player.auctionStatus === 'in_auction' ? [234, 179, 8] : // yellow
+              [100, 116, 139]; // slate
         pdf.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
         const statusText = statusLabels[player.auctionStatus] || player.auctionStatus;
         const statusWidth = pdf.getTextWidth(statusText) + 4;
@@ -230,7 +231,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         pdf.setTextColor(148, 163, 184);
         pdf.text('Base:', x + 8, detailY);
         pdf.setTextColor(34, 197, 94); // green
-        pdf.text(formatCurrency(player.basePrice), x + 18, detailY);
+        pdf.setFont(undefined, 'normal');
+        pdf.text(formatCurrency(player.basePrice ?? 100000), x + 18, detailY);
 
         if (player.soldPrice) {
           pdf.setTextColor(148, 163, 184);
@@ -284,7 +286,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
       // Draw each page
       const totalPages = Math.ceil(allPlayers.length / cardsPerPage);
-      
+
       for (let page = 0; page < totalPages; page++) {
         if (page > 0) {
           pdf.addPage();
@@ -326,16 +328,16 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         // Draw player cards
         const startIdx = page * cardsPerPage;
         const endIdx = Math.min(startIdx + cardsPerPage, allPlayers.length);
-        
+
         for (let i = startIdx; i < endIdx; i++) {
           const player = allPlayers[i];
           const cardIndex = i - startIdx;
           const col = cardIndex % 2;
           const row = Math.floor(cardIndex / 2);
-          
+
           const x = margin + col * (cardWidth + 10);
           const y = 40 + row * (cardHeight + 8);
-          
+
           drawPlayerCard(player, x, y);
         }
       }
@@ -344,10 +346,10 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       pdf.setFontSize(8);
       pdf.setTextColor(100, 116, 139);
       pdf.text(
-        `Generated on ${new Date().toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric' 
+        `Generated on ${new Date().toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
         })}`,
         pageWidth / 2,
         pageHeight - 14,
@@ -392,11 +394,11 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                   <span className="text-sm text-slate-300">Viewer Mode</span>
                 </div>
               )}
-              
+
               {stats.total > 0 && isAdmin && (
                 <>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={handleDownloadAllPlayers}
                     disabled={isGeneratingPDF}
                     className="border-green-500/50 text-green-400 hover:bg-green-500/10 hover:text-green-300 h-11 px-3 sm:px-4 text-sm disabled:opacity-50"
@@ -413,8 +415,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                       </>
                     )}
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => setShowDeleteConfirm(true)}
                     className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300 h-11 px-3 sm:px-4 text-sm"
                   >
@@ -459,58 +461,53 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           </div>
         </div> */}
 
-      {/* Stats - Status Based */}
+        {/* Stats - Status Based */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-6 overflow-x-auto pb-2 ipad-scroll">
           {/* Status Filters */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <span className="text-xs sm:text-sm text-slate-400 mr-1">Status:</span>
             <button
               onClick={() => setFilterStatus('all')}
-              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
-                filterStatus === 'all' 
-                  ? 'bg-blue-600 text-white' 
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterStatus === 'all'
+                  ? 'bg-blue-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
+                }`}
             >
               All ({stats.total})
             </button>
             <button
               onClick={() => setFilterStatus('pending')}
-              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
-                filterStatus === 'pending' 
-                  ? 'bg-slate-600 text-white' 
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterStatus === 'pending'
+                  ? 'bg-slate-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
+                }`}
             >
               Pending ({stats.pending})
             </button>
             <button
               onClick={() => setFilterStatus('in_auction')}
-              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
-                filterStatus === 'in_auction' 
-                  ? 'bg-yellow-600 text-white' 
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterStatus === 'in_auction'
+                  ? 'bg-yellow-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
+                }`}
             >
               In Auction ({stats.inAuction})
             </button>
             <button
               onClick={() => setFilterStatus('sold')}
-              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
-                filterStatus === 'sold' 
-                  ? 'bg-green-600 text-white' 
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterStatus === 'sold'
+                  ? 'bg-green-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
+                }`}
             >
               Sold ({stats.sold})
             </button>
             <button
               onClick={() => setFilterStatus('unsold')}
-              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
-                filterStatus === 'unsold' 
-                  ? 'bg-red-600 text-white' 
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterStatus === 'unsold'
+                  ? 'bg-red-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
+                }`}
             >
               Unsold ({stats.unsold})
             </button>
@@ -523,11 +520,10 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <span className="text-xs sm:text-sm text-slate-400 mr-1">Role:</span>
             <button
               onClick={() => setFilterRole(filterRole === 'all' ? 'all' : 'all')}
-              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
-                filterRole === 'all' 
-                  ? 'bg-blue-600 text-white' 
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterRole === 'all'
+                  ? 'bg-blue-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
+                }`}
               // Hide this if already showing all
               style={{ display: filterRole === 'all' ? 'none' : 'block' }}
             >
@@ -535,31 +531,28 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             </button>
             <button
               onClick={() => setFilterRole(filterRole === 'Batter' ? 'all' : 'Batter')}
-              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
-                filterRole === 'Batter' 
-                  ? 'bg-blue-600 text-white' 
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterRole === 'Batter'
+                  ? 'bg-blue-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
+                }`}
             >
               Batters ({stats.batters})
             </button>
             <button
               onClick={() => setFilterRole(filterRole === 'Bowler' ? 'all' : 'Bowler')}
-              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
-                filterRole === 'Bowler' 
-                  ? 'bg-red-600 text-white' 
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterRole === 'Bowler'
+                  ? 'bg-red-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
+                }`}
             >
               Bowlers ({stats.bowlers})
             </button>
             <button
               onClick={() => setFilterRole(filterRole === 'All-Rounder' ? 'all' : 'All-Rounder')}
-              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${
-                filterRole === 'All-Rounder' 
-                  ? 'bg-purple-600 text-white' 
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterRole === 'All-Rounder'
+                  ? 'bg-purple-600 text-white'
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
+                }`}
             >
               All-Rounders ({stats.allRounders})
             </button>
@@ -592,7 +585,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <Users className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 text-slate-700" />
             <h3 className="text-lg sm:text-xl font-semibold mb-2">No players yet</h3>
             <p className="text-slate-400 mb-6 text-sm sm:text-base px-4">
-              {filterRole === 'all' 
+              {filterRole === 'all'
                 ? 'Add players or import from Excel to get started'
                 : `No ${filterRole}s found. Try a different filter.`
               }
@@ -613,9 +606,9 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-5">
             {players.map((player) => (
-              <PlayerCard 
-                key={player._id} 
-                player={player} 
+              <PlayerCard
+                key={player._id}
+                player={player}
                 onClick={() => setSelectedPlayer(player)}
               />
             ))}
@@ -698,26 +691,26 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
               </div>
 
               <div className="flex gap-3">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   className="flex-1"
                   onClick={() => setShowDeleteConfirm(false)}
                   disabled={isDeleting}
                 >
                   Cancel
                 </Button>
-                <Button 
+                <Button
                   className="flex-1 bg-red-600 hover:bg-red-700"
                   disabled={isDeleting}
                   onClick={async () => {
                     setIsDeleting(true);
                     try {
-                      const result = await deleteAllPlayers({ 
+                      const result = await deleteAllPlayers({
                         tournamentId,
                         includesSold: false,
                       });
                       toast.success(`Deleted ${result.deletedCount} players`, {
-                        description: result.skippedCount > 0 
+                        description: result.skippedCount > 0
                           ? `${result.skippedCount} players were skipped (sold/in auction)`
                           : undefined,
                       });

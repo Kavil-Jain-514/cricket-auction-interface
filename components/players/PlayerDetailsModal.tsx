@@ -3,11 +3,11 @@
 import { Doc } from '@/convex/_generated/dataModel';
 import { formatCurrency } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  X, 
-  User, 
-  Shirt, 
-  Phone, 
+import {
+  X,
+  User,
+  Shirt,
+  Phone,
   IndianRupee,
   Trophy
 } from 'lucide-react';
@@ -34,10 +34,10 @@ const statusConfig: Record<string, { bg: string; text: string; label: string }> 
   'unsold': { bg: 'bg-red-600/20', text: 'text-red-400', label: 'Unsold' },
 };
 
-export function PlayerDetailsModal({ 
-  player, 
+export function PlayerDetailsModal({
+  player,
   teamName,
-  onClose 
+  onClose
 }: PlayerDetailsModalProps) {
   const roleStyle = roleColors[player.role] || roleColors['Batter'];
   const statusStyle = statusConfig[player.auctionStatus] || statusConfig['pending'];
@@ -60,12 +60,11 @@ export function PlayerDetailsModal({
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header with gradient */}
-          <div className={`relative h-28 sm:h-32 bg-linear-to-br ${
-            player.role === 'Batter' ? 'from-blue-600 to-blue-800' :
-            player.role === 'Bowler' ? 'from-orange-600 to-orange-800' :
-            player.role.includes('All') ? 'from-purple-600 to-purple-800' :
-            'from-green-600 to-green-800'
-          }`}>
+          <div className={`relative h-28 sm:h-32 bg-linear-to-br ${player.role === 'Batter' ? 'from-blue-600 to-blue-800' :
+              player.role === 'Bowler' ? 'from-orange-600 to-orange-800' :
+                player.role.includes('All') ? 'from-purple-600 to-purple-800' :
+                  'from-green-600 to-green-800'
+            }`}>
             {/* Close button */}
             <button
               onClick={onClose}
@@ -77,9 +76,9 @@ export function PlayerDetailsModal({
             {/* Player avatar positioned at bottom of header */}
             <div className="absolute -bottom-12 left-1/2 -translate-x-1/2">
               <div className="p-1.5 bg-slate-900 rounded-2xl">
-                <PlayerAvatar 
-                  name={player.name} 
-                  photoUrl={player.photoUrl} 
+                <PlayerAvatar
+                  name={player.name}
+                  photoUrl={player.photoUrl}
                   size="2xl"
                   className="w-24! h-24! sm:w-28! sm:h-28!"
                 />
@@ -151,11 +150,11 @@ export function PlayerDetailsModal({
                   Auction Details
                 </h3>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <span className="text-slate-500">Base Price</span>
-                    <p className="font-semibold text-green-400 text-lg">
-                      {formatCurrency(player.basePrice)}
-                    </p>
+                  <div className="flex justify-between py-2 border-b border-slate-700">
+                    <span className="text-slate-400">Base Price</span>
+                    <span className="font-semibold text-white">
+                      {formatCurrency(player.basePrice ?? 100000)}
+                    </span>
                   </div>
                   {player.soldPrice && (
                     <div>
