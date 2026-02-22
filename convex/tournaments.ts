@@ -247,9 +247,8 @@ export const canModify = query({
     const tournament = await ctx.db.get(args.id);
     if (!tournament) return { canEdit: false, canDelete: false };
 
-    const canEdit =
-      tournament.status !== "active" && tournament.status !== "completed";
-    const canDelete = tournament.status !== "active";
+    const canEdit = tournament.status !== "completed";
+    const canDelete = true;
 
     return { canEdit, canDelete };
   },

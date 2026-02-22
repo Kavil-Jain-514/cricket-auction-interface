@@ -20,7 +20,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const tournamentId = id as Id<"tournaments">;
   const [showSettings, setShowSettings] = useState(false);
   const { isAdmin } = useUserRole();
-  
+
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
   const players = useQuery(api.players.listByTournament, { tournamentId });
@@ -33,28 +33,27 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const [restarting, setRestarting] = useState(false);
   const auctionRooms = useQuery(api.auctions.getAuctionRooms, { tournamentId });
 
-  const canResumeAuction = () => 
-    {
-      if (!tournament || !players) return false;
-    
-      // Check if tournament is active or has pending players
-      const hasPendingPlayers = players.some(p => p.auctionStatus === 'pending');
-      const isActive = tournament.status === 'active';
-    
-      return (isActive || hasPendingPlayers) && auctionRooms && auctionRooms.length > 0;
+  const canResumeAuction = () => {
+    if (!tournament || !players) return false;
+
+    // Check if tournament is active or has pending players
+    const hasPendingPlayers = players.some(p => p.auctionStatus === 'pending');
+    const isActive = tournament.status === 'active';
+
+    return (isActive || hasPendingPlayers) && auctionRooms && auctionRooms.length > 0;
   };
 
   // Add this function to handle resume
   const handleResumeAuction = () => {
-  if (!auctionRooms || auctionRooms.length === 0) {
-    toast.error('No auction room found');
-    return;
-  }
-  
-  const activeRoom = auctionRooms[0];
-  router.push(`/auction/${activeRoom._id}`);
-};
-  
+    if (!auctionRooms || auctionRooms.length === 0) {
+      toast.error('No auction room found');
+      return;
+    }
+
+    const activeRoom = auctionRooms[0];
+    router.push(`/auction/${activeRoom._id}`);
+  };
+
   const handleStartAuction = async () => {
     if (!teams || teams.length < 2) {
       toast.error('You need at least 2 teams to start an auction');
@@ -145,8 +144,8 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               {/* Tournament Logo */}
               {tournament.logoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img 
-                  src={tournament.logoUrl} 
+                <img
+                  src={tournament.logoUrl}
                   alt={`${tournament.name} logo`}
                   className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover border border-slate-600 shrink-0"
                 />
@@ -158,12 +157,11 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                   <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold">{tournament.name}</h1>
-                  <span className={`px-3 py-1 rounded-full text-xs sm:text-sm font-semibold ${
-                    tournament.status === 'active' ? 'bg-green-600' :
-                    tournament.status === 'setup' ? 'bg-blue-600' :
-                    tournament.status === 'completed' ? 'bg-purple-600' :
-                    'bg-slate-600'
-                  }`}>
+                  <span className={`px-3 py-1 rounded-full text-xs sm:text-sm font-semibold ${tournament.status === 'active' ? 'bg-green-600' :
+                      tournament.status === 'setup' ? 'bg-blue-600' :
+                        tournament.status === 'completed' ? 'bg-purple-600' :
+                          'bg-slate-600'
+                    }`}>
                     {tournament.status}
                   </span>
                 </div>
@@ -181,18 +179,18 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                   <span className="text-sm text-slate-300">Viewer Mode</span>
                 </div>
               )}
-              
+
               {/* Admin-only controls */}
               {isAdmin && canModify?.canEdit && (
-              <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} className="h-11 px-4 text-sm">
-                <Settings className="w-4 h-4 mr-2" />
-                Settings
-              </Button>
+                <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} className="h-11 px-4 text-sm">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Settings
+                </Button>
               )}
 
               {isAdmin && canModify?.canDelete && (
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={handleDelete}
                   disabled={deleting}
@@ -204,19 +202,19 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               )}
 
               {isAdmin && (
-              <Button 
-                onClick={handleStartAuction}
-                disabled={tournament.status === 'active' || tournament.status === 'completed'}
-                className="h-11 px-4 sm:px-5 text-sm"
-              >
-                <Play className="w-4 h-4 mr-2" />
-                Start Auction
-              </Button>
+                <Button
+                  onClick={handleStartAuction}
+                  disabled={tournament.status === 'active' || tournament.status === 'completed'}
+                  className="h-11 px-4 sm:px-5 text-sm"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Start Auction
+                </Button>
               )}
-              
+
               {/* View Auction Button - visible to ALL users when auction exists */}
               {!isAdmin && auctionRooms && auctionRooms.length > 0 && (tournament.status === 'active') && (
-                <Button 
+                <Button
                   onClick={handleResumeAuction}
                   className="bg-blue-600 hover:bg-blue-700 h-11 px-4 sm:px-5 text-sm"
                 >
@@ -224,9 +222,9 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                   View Live Auction
                 </Button>
               )}
-              
+
               {isAdmin && canResumeAuction() && (
-                <Button 
+                <Button
                   onClick={handleResumeAuction}
                   className="bg-green-600 hover:bg-green-700 h-11 px-4 sm:px-5 text-sm"
                 >
@@ -237,7 +235,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
 
               {/* Restart Auction Button - show when auction exists (active or completed) */}
               {isAdmin && auctionRooms && auctionRooms.length > 0 && (tournament.status === 'active' || tournament.status === 'completed') && (
-                <Button 
+                <Button
                   onClick={handleRestartAuction}
                   disabled={restarting}
                   variant="outline"
@@ -251,14 +249,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
           </div>
         </div>
 
-        {/* Warning Messages */}
-        {tournament.status === 'active' && (
-          <div className="mt-4 mb-4 bg-yellow-600/10 border border-yellow-600/30 rounded-lg p-4 ">
-            <p className="text-sm text-yellow-400">
-              ⚠️ Tournament is active. Editing and deletion are disabled during auction.
-            </p>
-          </div>
-        )}
+
 
         {tournament.status === 'completed' && (
           <div className="mt-4 mb-4 bg-purple-600/10 border border-purple-600/30 rounded-lg p-4">
@@ -353,8 +344,8 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
           </Link>
 
 
-        {/* Uncomment and use if you want the stats card */}
-        {/*
+          {/* Uncomment and use if you want the stats card */}
+          {/*
         <Link href={`/tournament/${tournamentId}/stats`}>
           <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 hover:border-purple-500 transition cursor-pointer group">
             <Trophy className="w-12 h-12 text-purple-500 mb-4 group-hover:scale-110 transition" />

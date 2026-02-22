@@ -788,7 +788,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 const teamPlayerCount = team.playerCount ?? (soldPlayers?.filter(p => p.teamId === team._id).length || 0);
                 const maxPlayersPerTeam = auctionData.tournament?.settings.maxPlayersPerTeam || 15;
                 const hasReachedMaxPlayers = teamPlayerCount >= maxPlayersPerTeam;
-                const minBidForTeam = isFirstBid ? (currentPlayer?.basePrice || 0) : minNextBid;
+                const minBidForTeam = isFirstBid ? (currentPlayer?.basePrice ?? auctionData.tournament?.settings.basePrice ?? 100000) : minNextBid;
                 const customAmount = getCustomBidAmount(team._id, minBidForTeam);
                 const hasSufficientPurse = team.purseRemaining >= customAmount;
 
