@@ -160,7 +160,7 @@ export const listByTournament = query({
   },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) return [];
 
     const query = ctx.db
       .query("players")
