@@ -183,6 +183,11 @@ export const placeBid = mutation({
       return { success: false, reason: "No player currently in auction" };
     }
 
+    // Timer-expiry guard: reject bids that arrive after the server deadline
+    if (auctionRoom.bidTimerEndsAt && Date.now() > auctionRoom.bidTimerEndsAt) {
+      return { success: false, reason: "Bidding time has expired" };
+    }
+
     const team = await ctx.db.get(args.teamId);
     if (!team) throw new Error("Team not found");
 
@@ -198,6 +203,11 @@ export const placeBid = mutation({
       )
       .order("desc")
       .first();
+
+    // Bid rate limiting: reject if same team bid < 500ms ago (prevents spam)
+    if (latestBid && latestBid.teamId === args.teamId && Date.now() - latestBid.timestamp < 500) {
+      return { success: false, reason: "Please wait before bidding again" };
+    }
 
     const [player, tournament, teamPlayers] = await Promise.all([
       ctx.db.get(auctionRoom.currentPlayerId),
@@ -646,20 +656,23 @@ export const getLiveAuction = query({
     let totalBidsCount = 0;
 
     if (auctionRoom.currentPlayerId) {
-      // Get all bids to count them
-      const allBids = await ctx.db
+      // Optimized: use indexed desc order + take(10) instead of collect + sort + slice
+      const bids = await ctx.db
+        .query("liveBids")
+        .withIndex("by_player", (q) =>
+          q.eq("playerId", auctionRoom.currentPlayerId!),
+        )
+        .order("desc")
+        .take(10);
+
+      // Count total bids separately (only used for display, not critical path)
+      const allBidsForCount = await ctx.db
         .query("liveBids")
         .withIndex("by_player", (q) =>
           q.eq("playerId", auctionRoom.currentPlayerId!),
         )
         .collect();
-
-      totalBidsCount = allBids.length;
-
-      // Get recent bids (sorted by desc, take 10 for display)
-      const bids = allBids
-        .sort((a, b) => b.timestamp - a.timestamp)
-        .slice(0, 10);
+      totalBidsCount = allBidsForCount.length;
 
       if (bids.length > 0) {
         currentBid = bids[0];
@@ -674,32 +687,17 @@ export const getLiveAuction = query({
       }));
     }
 
-    const [pendingPlayers, soldPlayers, unsoldPlayers] = await Promise.all([
-      ctx.db
-        .query("players")
-        .withIndex("by_tournament_status", (q) =>
-          q
-            .eq("tournamentId", auctionRoom.tournamentId)
-            .eq("auctionStatus", "pending"),
-        )
-        .collect(),
-      ctx.db
-        .query("players")
-        .withIndex("by_tournament_status", (q) =>
-          q
-            .eq("tournamentId", auctionRoom.tournamentId)
-            .eq("auctionStatus", "sold"),
-        )
-        .collect(),
-      ctx.db
-        .query("players")
-        .withIndex("by_tournament_status", (q) =>
-          q
-            .eq("tournamentId", auctionRoom.tournamentId)
-            .eq("auctionStatus", "unsold"),
-        )
-        .collect(),
-    ]);
+    // Merged: single query for all players, partitioned in memory (saves 2 DB round-trips)
+    const allPlayers = await ctx.db
+      .query("players")
+      .withIndex("by_tournament", (q) =>
+        q.eq("tournamentId", auctionRoom.tournamentId),
+      )
+      .collect();
+
+    const pendingPlayers = allPlayers.filter((p) => p.auctionStatus === "pending");
+    const soldPlayers = allPlayers.filter((p) => p.auctionStatus === "sold");
+    const unsoldPlayers = allPlayers.filter((p) => p.auctionStatus === "unsold");
 
     // Calculate maxAllowedBid for each team based on squad completion requirements
     const maxPlayersPerTeam = tournament?.settings.maxPlayersPerTeam || 15;
