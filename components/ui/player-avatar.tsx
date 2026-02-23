@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { getPlayerInitials } from '@/lib/utils';
+import { getPlayerInitials, optimizeImageUrl } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
 interface PlayerAvatarProps {
@@ -20,6 +20,14 @@ const sizeClasses = {
   '2xl': 'w-48 h-48 text-6xl',
 };
 
+const sizeWidths = {
+  sm: 64,
+  md: 96,
+  lg: 128,
+  xl: 192,
+  '2xl': 384,
+};
+
 const borderSizeClasses = {
   sm: 'border',
   md: 'border-2',
@@ -28,19 +36,20 @@ const borderSizeClasses = {
   '2xl': 'border-4',
 };
 
-export function PlayerAvatar({ 
-  name, 
-  photoUrl, 
-  size = 'md', 
+export function PlayerAvatar({
+  name,
+  photoUrl,
+  size = 'md',
   className,
   showBorder = true,
 }: PlayerAvatarProps) {
   const [imageError, setImageError] = useState(false);
   const initials = getPlayerInitials(name);
-  const hasValidPhoto = photoUrl && !imageError;
+  const optimizedUrl = optimizeImageUrl(photoUrl, sizeWidths[size]);
+  const hasValidPhoto = optimizedUrl && !imageError;
 
   return (
-    <div 
+    <div
       className={cn(
         'relative rounded-lg overflow-hidden shrink-0',
         sizeClasses[size],
@@ -52,7 +61,7 @@ export function PlayerAvatar({
       {hasValidPhoto ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={photoUrl}
+          src={optimizedUrl}
           alt={name}
           className="w-full h-full object-cover"
           referrerPolicy="no-referrer"
@@ -68,19 +77,20 @@ export function PlayerAvatar({
 }
 
 // Circular variant for different contexts
-export function PlayerAvatarCircle({ 
-  name, 
-  photoUrl, 
-  size = 'md', 
+export function PlayerAvatarCircle({
+  name,
+  photoUrl,
+  size = 'md',
   className,
   showBorder = true,
 }: PlayerAvatarProps) {
   const [imageError, setImageError] = useState(false);
   const initials = getPlayerInitials(name);
-  const hasValidPhoto = photoUrl && !imageError;
+  const optimizedUrl = optimizeImageUrl(photoUrl, sizeWidths[size]);
+  const hasValidPhoto = optimizedUrl && !imageError;
 
   return (
-    <div 
+    <div
       className={cn(
         'relative rounded-full overflow-hidden shrink-0',
         sizeClasses[size],
@@ -92,7 +102,7 @@ export function PlayerAvatarCircle({
       {hasValidPhoto ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={photoUrl}
+          src={optimizedUrl}
           alt={name}
           className="w-full h-full object-cover"
           referrerPolicy="no-referrer"

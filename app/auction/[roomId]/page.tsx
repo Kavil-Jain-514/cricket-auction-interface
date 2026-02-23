@@ -61,6 +61,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const [showPlayerManager, setShowPlayerManager] = useState(false);
   const lastPlayerIdRef = useRef<string | null>(null);
   const introTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const finalizingRef = useRef(false);
 
   // Viewer mode status flash notifications
   const [statusFlash, setStatusFlash] = useState<{
@@ -160,11 +161,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       setTimeLeft((prev) => (prev !== remaining ? remaining : prev));
 
       // Auto-finalize when timer reaches 0 AND auction is still live
+      // Guard with finalizingRef to prevent double-finalize from rapid re-renders
       if (remaining === 0 &&
         auctionData.auctionRoom.status === 'live' &&
         auctionData.auctionRoom.currentPlayerId &&
-        !showResult) {
-        handleFinalize();
+        !showResult &&
+        !finalizingRef.current) {
+        finalizingRef.current = true;
+        handleFinalize().finally(() => { finalizingRef.current = false; });
       }
 
       // Play timer warning sound at 10 seconds

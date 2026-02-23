@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { cn } from '@/lib/utils';
+import { cn, optimizeImageUrl } from '@/lib/utils';
 
 interface TeamLogoProps {
   name: string;
@@ -20,6 +20,13 @@ const sizeClasses = {
   xl: 'w-24 h-24 text-4xl',
 };
 
+const sizeWidths = {
+  sm: 64,
+  md: 96,
+  lg: 128,
+  xl: 192,
+};
+
 const borderSizeClasses = {
   sm: 'border',
   md: 'border-2',
@@ -34,21 +41,22 @@ const roundedClasses = {
   full: 'rounded-full',
 };
 
-export function TeamLogo({ 
-  name, 
-  logoUrl, 
+export function TeamLogo({
+  name,
+  logoUrl,
   primaryColor = '#3B82F6',
-  size = 'md', 
+  size = 'md',
   className,
   showBorder = true,
   rounded = 'lg',
 }: TeamLogoProps) {
   const [imageError, setImageError] = useState(false);
-  const hasValidLogo = logoUrl && !imageError;
+  const optimizedUrl = optimizeImageUrl(logoUrl, sizeWidths[size]);
+  const hasValidLogo = optimizedUrl && !imageError;
   const initial = name.charAt(0).toUpperCase();
 
   return (
-    <div 
+    <div
       className={cn(
         'relative overflow-hidden shrink-0 flex items-center justify-center',
         sizeClasses[size],
@@ -62,7 +70,7 @@ export function TeamLogo({
       {hasValidLogo ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={logoUrl}
+          src={optimizedUrl}
           alt={`${name} logo`}
           className="w-full h-full object-cover"
           referrerPolicy="no-referrer"

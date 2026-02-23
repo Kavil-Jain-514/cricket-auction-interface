@@ -760,6 +760,8 @@ export const getLiveAuction = query({
         unsold: unsoldPlayers.length,
         inAuction: currentPlayer ? 1 : 0,
       },
+      // Server timestamp for client clock-skew correction
+      serverTime: Date.now(),
     };
   },
 });

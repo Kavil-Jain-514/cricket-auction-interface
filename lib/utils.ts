@@ -46,3 +46,16 @@ export function getErrorMessage(error: unknown, fallback = "Something went wrong
 
   return message || fallback;
 }
+
+/**
+ * Optimize Cloudinary image URLs by injecting format, quality, and width transforms.
+ * Non-Cloudinary URLs are returned unchanged.
+ */
+export function optimizeImageUrl(url: string | undefined | null, width = 200): string | undefined {
+  if (!url) return undefined;
+  if (!url.includes("res.cloudinary.com")) return url;
+  // Avoid double-transforming
+  if (url.includes("/f_auto")) return url;
+  return url.replace("/upload/", `/upload/f_auto,q_auto,w_${width}/`);
+}
+
