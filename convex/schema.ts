@@ -43,6 +43,7 @@ export default defineSchema({
       minBidIncrement: v.number(),
       bidTimerSeconds: v.optional(v.number()),
       maxPlayersPerTeam: v.number(),
+      basePrice: v.optional(v.number()), // Default base price for players, if not provided it's 1,00,000 for legacy reasons
     }),
     logoUrl: v.optional(v.string()),
     startDate: v.optional(v.number()),
@@ -119,7 +120,7 @@ export default defineSchema({
         dates: v.optional(v.array(v.string())),
       }),
     ),
-    basePrice: v.number(), // Starting bid price
+    basePrice: v.optional(v.number()), // Starting bid price, if undefined inherits from tournament
     soldPrice: v.optional(v.number()),
     teamId: v.optional(v.id("teams")), // null if unsold
     auctionStatus: v.union(

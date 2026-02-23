@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { X } from 'lucide-react';
@@ -35,9 +35,11 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     battingBowlingHand: 'Right-handed' as 'Right-handed' | 'Left-handed',
     tshirtSize: 'L' as 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
     jerseyNumber: undefined as number | undefined,
-    basePrice: 100000,
+    basePrice: undefined as number | undefined,
     photoUrl: '',
   });
+
+  const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -65,11 +67,13 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
       newErrors.phoneNumber = 'Phone number must be 10 digits';
     }
 
-    // Base price validation
-    if (!formData.basePrice || formData.basePrice < 50000) {
-      newErrors.basePrice = 'Base price must be at least ₹50,000';
-    } else if (formData.basePrice > 50000000) {
-      newErrors.basePrice = 'Base price cannot exceed ₹5 Crore';
+    // Base price validation (optional)
+    if (formData.basePrice !== undefined) {
+      if (formData.basePrice < 50000) {
+        newErrors.basePrice = 'Base price must be at least ₹50,000';
+      } else if (formData.basePrice > 50000000) {
+        newErrors.basePrice = 'Base price cannot exceed ₹5 Crore';
+      }
     }
 
     // Jersey number validation (optional)
@@ -80,7 +84,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     }
 
     setErrors(newErrors);
-    
+
     // Show first error as toast
     const firstError = Object.values(newErrors)[0];
     if (firstError) {
@@ -92,7 +96,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -251,9 +255,9 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 max="99"
                 value={formData.jerseyNumber || ''}
                 onChange={(e) => {
-                  setFormData({ 
-                    ...formData, 
-                    jerseyNumber: e.target.value ? parseInt(e.target.value) : undefined 
+                  setFormData({
+                    ...formData,
+                    jerseyNumber: e.target.value ? parseInt(e.target.value) : undefined
                   });
                   if (errors.jerseyNumber) setErrors({ ...errors, jerseyNumber: '' });
                 }}
@@ -268,16 +272,16 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
             <div className="space-y-4">
               <div>
-                <Label htmlFor="basePrice">Base Price (₹) *</Label>
+                <Label htmlFor="basePrice">Base Price Override (₹)</Label>
                 <Input
                   id="basePrice"
                   type="number"
-                  required
                   min="50000"
                   step="25000"
-                  value={formData.basePrice}
+                  value={formData.basePrice || ''}
+                  placeholder={`Default: ₹${((tournament?.settings?.basePrice ?? 100000) / 100000).toFixed(1)}L`}
                   onChange={(e) => {
-                    setFormData({ ...formData, basePrice: parseInt(e.target.value) || 0 });
+                    setFormData({ ...formData, basePrice: e.target.value ? parseInt(e.target.value) : undefined });
                     if (errors.basePrice) setErrors({ ...errors, basePrice: '' });
                   }}
                   className={`mt-2 h-11 sm:h-12 text-base ${errors.basePrice ? 'border-red-500' : ''}`}
@@ -286,7 +290,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                   <p className="text-red-400 text-xs mt-1">{errors.basePrice}</p>
                 ) : (
                   <p className="text-xs text-slate-400 mt-1">
-                    Current: ₹{(formData.basePrice / 100000).toFixed(2)}L
+                    {formData.basePrice ? `Overridden: ₹${(formData.basePrice / 100000).toFixed(2)}L` : 'Leave empty to inherit from tournament'}
                   </p>
                 )}
               </div>

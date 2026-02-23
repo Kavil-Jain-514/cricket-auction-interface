@@ -66,30 +66,10 @@ export function Navbar() {
             </div>
           </Link>
 
-          {/* Desktop/Tablet Navigation */}
-          <nav className="hidden md:flex items-center gap-4 lg:gap-6">
-            {isSignedIn ? (
-              <>
-                <Link href="/dashboard" className="text-slate-300 hover:text-white transition px-3 py-2 rounded-lg hover:bg-slate-800/50 touch-target">
-                  Dashboard
-                </Link>
-              </>
-            ) : (
-              <>
-                <Link href="/#features" className="text-slate-300 hover:text-white transition px-3 py-2 rounded-lg hover:bg-slate-800/50 touch-target">
-                  Features
-                </Link>
-                <Link href="/#pricing" className="text-slate-300 hover:text-white transition px-3 py-2 rounded-lg hover:bg-slate-800/50 touch-target">
-                  Pricing
-                </Link>
-              </>
-            )}
-          </nav>
-
           {/* Auth Section */}
           <div className="flex items-center gap-3 sm:gap-4">
             {isSignedIn ? (
-              <UserButton 
+              <UserButton
                 afterSignOutUrl="/"
                 appearance={{
                   elements: {
@@ -109,46 +89,29 @@ export function Navbar() {
             )}
 
             {/* Mobile Menu Button */}
-            <button
-              className="md:hidden p-2.5 rounded-lg hover:bg-slate-800 transition touch-target"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-            >
-              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
+            {!isSignedIn && (
+              <button
+                className="md:hidden p-2.5 rounded-lg hover:bg-slate-800 transition touch-target"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+              >
+                {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              </button>
+            )}
           </div>
         </div>
 
         {/* Mobile Menu */}
-        {mobileMenuOpen && (
+        {mobileMenuOpen && !isSignedIn && (
           <div className="md:hidden pt-4 pb-3 space-y-2 border-t border-slate-800 mt-3">
-            {isSignedIn ? (
-              <>
-                <Link 
-                  href="/dashboard" 
-                  className="flex items-center text-slate-300 hover:text-white hover:bg-slate-800/50 transition px-3 py-3 rounded-lg touch-target"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  Dashboard
-                </Link>
-                <Link 
-                  href="/tournaments" 
-                  className="flex items-center text-slate-300 hover:text-white hover:bg-slate-800/50 transition px-3 py-3 rounded-lg touch-target"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  Tournaments
-                </Link>
-              </>
-            ) : (
-              <div className="space-y-2 pt-2">
-                <Link href="/sign-in" className="block">
-                  <Button variant="ghost" className="w-full h-12 text-base">Sign In</Button>
-                </Link>
-                <Link href="/sign-up" className="block">
-                  <Button className="w-full h-12 text-base">Get Started</Button>
-                </Link>
-              </div>
-            )}
+            <div className="space-y-2 pt-2">
+              <Link href="/sign-in" className="block">
+                <Button variant="ghost" className="w-full h-12 text-base">Sign In</Button>
+              </Link>
+              <Link href="/sign-up" className="block">
+                <Button className="w-full h-12 text-base">Get Started</Button>
+              </Link>
+            </div>
           </div>
         )}
       </div>

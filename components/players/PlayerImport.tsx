@@ -23,21 +23,21 @@ interface ParsedPlayer {
   battingBowlingHand: string;
   tshirtSize?: string;
   jerseyNumber?: number;
-  basePrice: number;
+  basePrice?: number;
   photoUrl?: string;
 }
 
 // Convert Google Drive sharing link to direct image URL
 function parseGoogleDriveUrl(url: string | undefined): string | undefined {
   if (!url || typeof url !== 'string') return undefined;
-  
+
   const trimmedUrl = url.trim();
   if (!trimmedUrl) return undefined;
 
   // Pattern 1: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
   // Pattern 2: https://drive.google.com/open?id=FILE_ID
   // Pattern 3: https://drive.google.com/uc?id=FILE_ID
-  
+
   let fileId: string | null = null;
 
   // Extract file ID from various Google Drive URL formats
@@ -73,33 +73,33 @@ function parseGoogleDriveUrl(url: string | undefined): string | undefined {
 function parseTshirtSize(size: string): 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL' | undefined {
   const normalized = size.toUpperCase().trim();
   const validSizes: ('S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL')[] = ['S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'];
-  
+
   if (validSizes.includes(normalized as typeof validSizes[number])) {
     return normalized as typeof validSizes[number];
   }
-  
+
   // Handle variations like "2XL" -> "XXL", "XXXL" -> "3XL"
   if (normalized === '2XL') return 'XXL';
   if (normalized === 'XXXL') return '3XL';
   if (normalized === 'XXXXL') return '4XL';
-  
+
   return undefined;
 }
 
 // Helper to get column value with flexible matching (case-insensitive and partial match)
 function getColumnValue(row: Record<string, unknown>, ...possibleNames: string[]): unknown {
   const keys = Object.keys(row);
-  
+
   for (const name of possibleNames) {
     // Try exact match first
     if (row[name] !== undefined) return row[name];
-    
+
     // Try case-insensitive exact match
     const lowerName = name.toLowerCase();
     for (const key of keys) {
       if (key.toLowerCase() === lowerName) return row[key];
     }
-    
+
     // Try partial match (column contains the search term)
     for (const key of keys) {
       if (key.toLowerCase().includes(lowerName) || lowerName.includes(key.toLowerCase())) {
@@ -115,12 +115,12 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState<ParsedPlayer[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
-  
+
   const importPlayers = useMutation(api.players.bulkImport);
   const existingPlayers = useQuery(api.players.listByTournament, { tournamentId });
-  
+
   // Get the starting player number for new imports
-  const startingPlayerNumber = (existingPlayers?.reduce((max, p) => 
+  const startingPlayerNumber = (existingPlayers?.reduce((max, p) =>
     Math.max(max, p.playerNumber || 0), 0) || 0) + 1;
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -160,7 +160,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             battingBowlingHand: String(getColumnValue(row, 'Batting/Bowling Hand', 'Hand', 'Batting Hand', 'batting/bowling hand') || '').includes('Left') ? 'Left-handed' : 'Right-handed',
             tshirtSize: parseTshirtSize(String(getColumnValue(row, 'T-Shirt Size', 'T Shirt Size', 'TShirt Size', 'Tshirt', 'T-Shirt', 'T shirt', 'tshirt size', 'Shirt Size', 'shirt') || '')),
             jerseyNumber: getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey') ? parseInt(String(getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey'))) : undefined,
-            basePrice: parseInt(String(getColumnValue(row, 'Base Price', 'base price', 'Price'))) || 100000,
+            basePrice: getColumnValue(row, 'Base Price', 'base price', 'Price') ? (parseInt(String(getColumnValue(row, 'Base Price', 'base price', 'Price'))) || undefined) : undefined,
             photoUrl: parseGoogleDriveUrl(getColumnValue(row, 'Profile Photo', 'Photo', 'profile photo', 'Image') as string | undefined),
           };
 
@@ -187,7 +187,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             validationErrors.push(`Row ${idx + 2}: Invalid role "${player.role}" for "${player.name}". Use: Batter, Bowler, or All-Rounder`);
             return;
           }
-          if (player.basePrice < 50000) {
+          if (player.basePrice !== undefined && player.basePrice < 50000) {
             validationErrors.push(`Row ${idx + 2}: Base price must be at least ₹50,000 for "${player.name}"`);
             return;
           }
@@ -205,9 +205,9 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       if (validationErrors.length > 0) {
         setErrors(validationErrors);
       }
-      
+
       setParsed(players);
-      
+
       if (players.length > 0 && validationErrors.length === 0) {
         toast.success(`Successfully parsed ${players.length} players`);
       } else if (validationErrors.length > 0) {
@@ -340,8 +340,8 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                         {player.photoUrl ? (
                           <div className="relative w-10 h-10">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img 
-                              src={player.photoUrl} 
+                            <img
+                              src={player.photoUrl}
                               alt={player.name}
                               className="w-10 h-10 rounded-full object-cover border border-slate-600"
                               referrerPolicy="no-referrer"
@@ -355,7 +355,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                                 if (fallback) fallback.style.display = 'flex';
                               }}
                             />
-                            <div 
+                            <div
                               className="w-10 h-10 rounded-full bg-linear-to-br from-blue-500 to-purple-600 items-center justify-center text-white text-xs font-bold absolute inset-0"
                               style={{ display: 'none' }}
                             >
@@ -379,7 +379,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                       <td className="px-4 py-3 text-sm">{player.jerseyNumber || '-'}</td>
                       <td className="px-4 py-3 text-sm">{player.tshirtSize || '-'}</td>
                       <td className="px-4 py-3 text-sm font-semibold">
-                        ₹{(player.basePrice / 100000).toFixed(1)}L
+                        {player.basePrice ? `₹${(player.basePrice / 100000).toFixed(1)}L` : 'Default'}
                       </td>
                     </tr>
                   ))}

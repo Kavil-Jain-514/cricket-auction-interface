@@ -17,7 +17,7 @@ export const create = mutation({
       v.literal("Right-handed"),
       v.literal("Left-handed"),
     ),
-    basePrice: v.number(),
+    basePrice: v.optional(v.number()),
     jerseyNumber: v.optional(v.number()),
     phoneNumber: v.optional(v.string()),
     tshirtSize: v.optional(
@@ -47,11 +47,13 @@ export const create = mutation({
     if (args.age < 15 || args.age > 65) {
       throw new Error("Player age must be between 15 and 65");
     }
-    if (args.basePrice < 50000) {
-      throw new Error("Base price must be at least ₹50,000");
-    }
-    if (args.basePrice > 50000000) {
-      throw new Error("Base price cannot exceed ₹5 Crore");
+    if (args.basePrice !== undefined) {
+      if (args.basePrice < 50000) {
+        throw new Error("Base price must be at least ₹50,000");
+      }
+      if (args.basePrice > 50000000) {
+        throw new Error("Base price cannot exceed ₹5 Crore");
+      }
     }
     if (
       args.jerseyNumber !== undefined &&
@@ -157,6 +159,9 @@ export const listByTournament = query({
     status: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) return [];
+
     const query = ctx.db
       .query("players")
       .withIndex("by_tournament", (q) =>
@@ -165,11 +170,17 @@ export const listByTournament = query({
 
     const players = await query.collect();
 
+    // Map players to resolve basePrice fallback
+    const resolvedPlayers = players.map(p => ({
+      ...p,
+      basePrice: p.basePrice ?? tournament.settings?.basePrice ?? 100000,
+    }));
+
     if (args.status) {
-      return players.filter((p) => p.auctionStatus === args.status);
+      return resolvedPlayers.filter((p) => p.auctionStatus === args.status);
     }
 
-    return players;
+    return resolvedPlayers;
   },
 });
 
@@ -210,6 +221,15 @@ export const update = mutation({
 
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
+    
+    if (args.basePrice !== undefined) {
+      if (args.basePrice < 50000) {
+        throw new Error("Base price must be at least ₹50,000");
+      }
+      if (args.basePrice > 50000000) {
+        throw new Error("Base price cannot exceed ₹5 Crore");
+      }
+    }
 
     // Check if player is already sold
     if (player.auctionStatus === "sold") {

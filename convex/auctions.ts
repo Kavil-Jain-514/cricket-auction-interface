@@ -228,11 +228,13 @@ export const placeBid = mutation({
       )
       .collect();
 
+    const tournamentBasePrice = tournament.settings.basePrice ?? 100000;
+
     // Use the minimum base price among pending players, or the current player's base price as fallback
     const minBasePrice =
       pendingPlayers.length > 0
-        ? Math.min(...pendingPlayers.map((p) => p.basePrice))
-        : player.basePrice;
+        ? Math.min(...pendingPlayers.map((p) => p.basePrice ?? tournamentBasePrice))
+        : (player.basePrice ?? tournamentBasePrice);
 
     // Calculate max allowed bid to ensure squad can be completed
     // If team needs more players after this one, reserve purse for them
@@ -249,11 +251,12 @@ export const placeBid = mutation({
       }
     }
 
-    const currentBid = latestBid?.amount || player.basePrice;
+    const playerBasePrice = player.basePrice ?? tournamentBasePrice;
+    const currentBid = latestBid?.amount || playerBasePrice;
     const minBidIncrement = tournament.settings.minBidIncrement;
 
     if (!latestBid) {
-      if (args.amount < player.basePrice) {
+      if (args.amount < playerBasePrice) {
         return {
           success: false,
           reason: "First bid must be at least base price",
@@ -319,12 +322,17 @@ export const finalizePlayerSale = mutation({
 
     const player = await ctx.db.get(currentPlayerId);
     if (!player) throw new Error("Player not found");
+    
+    const tournament = await ctx.db.get(auctionRoom.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+    
+    const playerBasePrice = player.basePrice ?? tournament.settings.basePrice ?? 100000;
 
     const now = Date.now();
     const result = {
       playerName: player.name,
       teamName: null as string | null,
-      amount: winningBid?.amount || player.basePrice,
+      amount: winningBid?.amount || playerBasePrice,
       sold: false,
     };
 
@@ -530,7 +538,7 @@ export const startNextPlayer = mutation({
         data: {
           playerId: nextPlayer._id,
           playerName: nextPlayer.name,
-          basePrice: nextPlayer.basePrice,
+          basePrice: nextPlayer.basePrice ?? tournament.settings.basePrice ?? 100000,
         },
         timestamp: now,
       }),
@@ -708,10 +716,11 @@ export const getLiveAuction = query({
 
     // Calculate maxAllowedBid for each team based on squad completion requirements
     const maxPlayersPerTeam = tournament?.settings.maxPlayersPerTeam || 15;
+    const tournamentBasePrice = tournament?.settings.basePrice ?? 100000;
     const minBasePrice =
       pendingPlayers.length > 0
-        ? Math.min(...pendingPlayers.map((p) => p.basePrice))
-        : currentPlayer?.basePrice || 100000;
+        ? Math.min(...pendingPlayers.map((p) => p.basePrice ?? tournamentBasePrice))
+        : (currentPlayer ? (currentPlayer.basePrice ?? tournamentBasePrice) : 100000);
 
     // Get player counts per team and calculate max allowed bids
     const teamsWithMaxBid = await Promise.all(
@@ -743,7 +752,7 @@ export const getLiveAuction = query({
     return {
       auctionRoom: {
         ...auctionRoom,
-        currentBidAmount: currentBid?.amount || currentPlayer?.basePrice,
+        currentBidAmount: currentBid?.amount || (currentPlayer ? (currentPlayer.basePrice ?? tournamentBasePrice) : undefined),
         currentBidTeamId: currentBid?.teamId,
       },
       currentPlayer,

@@ -12,6 +12,7 @@ export const create = mutation({
       minBidIncrement: v.number(),
       bidTimerSeconds: v.number(),
       maxPlayersPerTeam: v.number(),
+      basePrice: v.optional(v.number()),
     }),
   },
   handler: async (ctx, args) => {
@@ -36,6 +37,9 @@ export const create = mutation({
     }
     if (args.settings.minBidIncrement > args.settings.basePurse / 10) {
       throw new Error("Bid increment cannot exceed 10% of base purse");
+    }
+    if (args.settings.basePrice !== undefined && args.settings.basePrice < 50000) {
+      throw new Error("Base price must be at least ₹50,000");
     }
     if (
       args.settings.bidTimerSeconds < 10 ||
@@ -148,6 +152,7 @@ export const update = mutation({
         minBidIncrement: v.number(),
         bidTimerSeconds: v.number(),
         maxPlayersPerTeam: v.number(),
+        basePrice: v.optional(v.number()),
       }),
     ),
   },
@@ -161,6 +166,9 @@ export const update = mutation({
     // Cannot edit completed tournaments
     if (tournament.status === "completed") {
       throw new Error("Cannot edit tournament after it is completed");
+    }
+    if (args.settings?.basePrice !== undefined && args.settings.basePrice < 50000) {
+      throw new Error("Base price must be at least ₹50,000");
     }
     const { id, ...updates } = args;
 
@@ -239,9 +247,8 @@ export const canModify = query({
     const tournament = await ctx.db.get(args.id);
     if (!tournament) return { canEdit: false, canDelete: false };
 
-    const canEdit =
-      tournament.status !== "active" && tournament.status !== "completed";
-    const canDelete = tournament.status !== "active";
+    const canEdit = tournament.status !== "completed";
+    const canDelete = true;
 
     return { canEdit, canDelete };
   },

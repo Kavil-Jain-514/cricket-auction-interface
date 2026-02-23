@@ -52,7 +52,7 @@ export default function HomePage() {
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         {/* Cricket field gradient at bottom */}
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-linear-to-t from-green-900/20 to-transparent" />
-        
+
         {/* Floating cricket balls */}
         <div className="absolute top-20 left-10 animate-bounce" style={{ animationDuration: '3s' }}>
           <CricketBall className="w-8 h-8 opacity-20" />
@@ -63,7 +63,7 @@ export default function HomePage() {
         <div className="absolute bottom-40 left-1/4 animate-bounce" style={{ animationDuration: '3.5s', animationDelay: '0.5s' }}>
           <CricketBall className="w-6 h-6 opacity-10" />
         </div>
-        
+
         {/* Stadium light effects */}
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-yellow-500/5 rounded-full blur-3xl" />
         <div className="absolute top-0 right-1/4 w-96 h-96 bg-yellow-500/5 rounded-full blur-3xl" />
@@ -111,7 +111,7 @@ export default function HomePage() {
             The Ultimate Cricket Auction Experience
           </span>
         </div>
-        
+
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-bold mb-6">
           <span className="bg-clip-text text-transparent bg-linear-to-r from-red-500 via-orange-400 to-yellow-400">
             Bid11Pro
@@ -119,9 +119,9 @@ export default function HomePage() {
           <br />
           <span className="text-white">Run IPL-Style Auctions</span>
         </h1>
-        
+
         <p className="text-xl text-slate-300 mb-10 max-w-2xl mx-auto">
-          Create thrilling cricket auctions with real-time bidding, team management, 
+          Create thrilling cricket auctions with real-time bidding, team management,
           and live statistics. Experience the excitement of professional player auctions!
         </p>
 
@@ -242,7 +242,7 @@ export default function HomePage() {
           <div className="absolute bottom-4 right-4 opacity-20">
             <CricketStumps className="w-12 h-20" />
           </div>
-          
+
           <h2 className="text-4xl font-bold mb-4 relative z-10">
             Ready to Host Your Auction?
           </h2>
@@ -268,8 +268,8 @@ export default function HomePage() {
                 Bid11Pro
               </span>
             </div>
-            <p className="text-slate-400 text-center">
-              © 2026 Bid11Pro. The Ultimate Cricket Auction Platform. All rights reserved.
+            <p className="text-slate-400 text-sm text-center">
+              © 2026 Bid11Pro. Developed by <a href="https://linkedin.com/in/kaviljain/" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">Kavil Jain</a>.
             </p>
           </div>
         </div>
