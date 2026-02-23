@@ -231,7 +231,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         pdf.setTextColor(148, 163, 184);
         pdf.text('Base:', x + 8, detailY);
         pdf.setTextColor(34, 197, 94); // green
-        pdf.setFont(undefined, 'normal');
+        pdf.setFont('helvetica', 'normal');
         pdf.text(formatCurrency(player.basePrice ?? 100000), x + 18, detailY);
 
         if (player.soldPrice) {
@@ -469,8 +469,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <button
               onClick={() => setFilterStatus('all')}
               className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterStatus === 'all'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
             >
               All ({stats.total})
@@ -478,8 +478,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <button
               onClick={() => setFilterStatus('pending')}
               className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterStatus === 'pending'
-                  ? 'bg-slate-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                ? 'bg-slate-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
             >
               Pending ({stats.pending})
@@ -487,8 +487,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <button
               onClick={() => setFilterStatus('in_auction')}
               className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterStatus === 'in_auction'
-                  ? 'bg-yellow-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                ? 'bg-yellow-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
             >
               In Auction ({stats.inAuction})
@@ -496,8 +496,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <button
               onClick={() => setFilterStatus('sold')}
               className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterStatus === 'sold'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                ? 'bg-green-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
             >
               Sold ({stats.sold})
@@ -505,8 +505,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <button
               onClick={() => setFilterStatus('unsold')}
               className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterStatus === 'unsold'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                ? 'bg-red-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
             >
               Unsold ({stats.unsold})
@@ -521,8 +521,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <button
               onClick={() => setFilterRole(filterRole === 'all' ? 'all' : 'all')}
               className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterRole === 'all'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
               // Hide this if already showing all
               style={{ display: filterRole === 'all' ? 'none' : 'block' }}
@@ -532,8 +532,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <button
               onClick={() => setFilterRole(filterRole === 'Batter' ? 'all' : 'Batter')}
               className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterRole === 'Batter'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
             >
               Batters ({stats.batters})
@@ -541,8 +541,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <button
               onClick={() => setFilterRole(filterRole === 'Bowler' ? 'all' : 'Bowler')}
               className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterRole === 'Bowler'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                ? 'bg-red-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
             >
               Bowlers ({stats.bowlers})
@@ -550,8 +550,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <button
               onClick={() => setFilterRole(filterRole === 'All-Rounder' ? 'all' : 'All-Rounder')}
               className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterRole === 'All-Rounder'
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                ? 'bg-purple-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
             >
               All-Rounders ({stats.allRounders})
