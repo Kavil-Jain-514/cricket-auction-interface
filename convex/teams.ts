@@ -91,6 +91,9 @@ export const create = mutation({
 export const listByTournament = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) return [];
+
     return await ctx.db
       .query("teams")
       .withIndex("by_tournament", (q) =>

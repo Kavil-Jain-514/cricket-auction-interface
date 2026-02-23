@@ -246,6 +246,17 @@ export const ensureUser = mutation({
     const userCount = await ctx.db.query("users").collect();
     const isFirstUser = userCount.length === 0;
 
+    // Race condition guard: if two requests arrive simultaneously,
+    // the second insert may conflict on the by_email unique index.
+    // Re-check after collecting user count.
+    const raceCheck = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", identity.email!))
+      .first();
+    if (raceCheck) {
+      return raceCheck._id;
+    }
+
     const userId = await ctx.db.insert("users", {
       email: identity.email,
       name: identity.name,

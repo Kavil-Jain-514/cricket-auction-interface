@@ -7,7 +7,7 @@ import { Id } from '@/convex/_generated/dataModel';
 import { X, Search, UserCheck, UserX, ArrowRightLeft, DollarSign, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getErrorMessage } from '@/lib/utils';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TeamLogo } from '@/components/ui/team-logo';
@@ -113,7 +113,7 @@ export function AdminPlayerManager({ tournamentId, onClose }: AdminPlayerManager
 
             setEditState(null);
         } catch (error) {
-            toast.error((error as Error)?.message || 'Failed to update player');
+            toast.error(getErrorMessage(error, 'Failed to update player'));
         } finally {
             setSaving(false);
         }
@@ -318,83 +318,156 @@ export function AdminPlayerManager({ tournamentId, onClose }: AdminPlayerManager
                                                     )}
 
                                                     {/* Mark as sold: team + price */}
-                                                    {editState.action === 'status' && editState.newStatus === 'sold' && (
-                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                            <div>
-                                                                <label className="text-xs text-slate-400 mb-1 block">Assign to Team</label>
-                                                                <select
-                                                                    value={editState.newTeamId || ''}
-                                                                    onChange={(e) => setEditState({ ...editState, newTeamId: e.target.value as Id<"teams"> })}
-                                                                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
-                                                                >
-                                                                    <option value="">Select team...</option>
-                                                                    {teams?.map(t => (
-                                                                        <option key={t._id} value={t._id}>
-                                                                            {t.name} (₹{(t.purseRemaining / 100000).toFixed(1)}L left)
-                                                                        </option>
-                                                                    ))}
-                                                                </select>
+                                                    {editState.action === 'status' && editState.newStatus === 'sold' && (() => {
+                                                        const selectedTeam = editState.newTeamId ? teams?.find(t => t._id === editState.newTeamId) : null;
+                                                        const maxPlayers = 15; // fallback; actual check is on backend
+                                                        const teamPlayerCount = selectedTeam ? (players?.filter(p => p.teamId === selectedTeam._id && p.auctionStatus === 'sold').length || 0) : 0;
+                                                        const slotsNeeded = maxPlayers - teamPlayerCount - 1; // -1 for this player
+                                                        const purseAfter = selectedTeam ? selectedTeam.purseRemaining - (editState.newPrice || 0) : 0;
+                                                        const basePrice = 100000; // conservative estimate
+                                                        const canFillSquad = !selectedTeam || slotsNeeded <= 0 || purseAfter >= slotsNeeded * basePrice;
+                                                        const insufficientPurse = selectedTeam && (editState.newPrice || 0) > selectedTeam.purseRemaining;
+
+                                                        return (
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                                <div>
+                                                                    <label className="text-xs text-slate-400 mb-1 block">Assign to Team</label>
+                                                                    <select
+                                                                        value={editState.newTeamId || ''}
+                                                                        onChange={(e) => setEditState({ ...editState, newTeamId: e.target.value as Id<"teams"> })}
+                                                                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+                                                                    >
+                                                                        <option value="">Select team...</option>
+                                                                        {teams?.map(t => (
+                                                                            <option key={t._id} value={t._id}>
+                                                                                {t.name} (₹{(t.purseRemaining / 100000).toFixed(1)}L left)
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="text-xs text-slate-400 mb-1 block">Sold Price (₹)</label>
+                                                                    <Input
+                                                                        type="number"
+                                                                        value={editState.newPrice || ''}
+                                                                        onChange={(e) => setEditState({ ...editState, newPrice: parseInt(e.target.value) || 0 })}
+                                                                        className={`bg-slate-800 border-slate-600 ${insufficientPurse ? 'border-red-500' : ''}`}
+                                                                        min={0}
+                                                                        step={5000}
+                                                                    />
+                                                                </div>
+                                                                {insufficientPurse && (
+                                                                    <p className="text-xs text-red-400 col-span-full">
+                                                                        ⛔ Team only has {formatCurrency(selectedTeam!.purseRemaining)} remaining — insufficient for this price.
+                                                                    </p>
+                                                                )}
+                                                                {!insufficientPurse && selectedTeam && !canFillSquad && (
+                                                                    <p className="text-xs text-amber-400 col-span-full">
+                                                                        ⚠️ After this, {selectedTeam.name} will have {formatCurrency(purseAfter)} left but needs {formatCurrency(slotsNeeded * basePrice)} to fill {slotsNeeded} more slot(s) at base price.
+                                                                    </p>
+                                                                )}
                                                             </div>
-                                                            <div>
-                                                                <label className="text-xs text-slate-400 mb-1 block">Sold Price (₹)</label>
-                                                                <Input
-                                                                    type="number"
-                                                                    value={editState.newPrice || ''}
-                                                                    onChange={(e) => setEditState({ ...editState, newPrice: parseInt(e.target.value) || 0 })}
-                                                                    className="bg-slate-800 border-slate-600"
-                                                                    min={0}
-                                                                    step={5000}
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                    )}
+                                                        );
+                                                    })()}
 
                                                     {/* Reassign: new team + optional new price */}
-                                                    {editState.action === 'reassign' && (
-                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                            <div>
-                                                                <label className="text-xs text-slate-400 mb-1 block">New Team</label>
-                                                                <select
-                                                                    value={editState.newTeamId || ''}
-                                                                    onChange={(e) => setEditState({ ...editState, newTeamId: e.target.value as Id<"teams"> })}
-                                                                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
-                                                                >
-                                                                    <option value="">Select team...</option>
-                                                                    {teams?.filter(t => t._id !== player.teamId).map(t => (
-                                                                        <option key={t._id} value={t._id}>
-                                                                            {t.name} (₹{(t.purseRemaining / 100000).toFixed(1)}L left)
-                                                                        </option>
-                                                                    ))}
-                                                                </select>
+                                                    {editState.action === 'reassign' && (() => {
+                                                        const selectedTeam = editState.newTeamId ? teams?.find(t => t._id === editState.newTeamId) : null;
+                                                        const maxPlayers = 15;
+                                                        const teamPlayerCount = selectedTeam ? (players?.filter(p => p.teamId === selectedTeam._id && p.auctionStatus === 'sold').length || 0) : 0;
+                                                        const slotsNeeded = maxPlayers - teamPlayerCount - 1;
+                                                        const purseAfter = selectedTeam ? selectedTeam.purseRemaining - (editState.newPrice || 0) : 0;
+                                                        const basePrice = 100000;
+                                                        const canFillSquad = !selectedTeam || slotsNeeded <= 0 || purseAfter >= slotsNeeded * basePrice;
+                                                        const insufficientPurse = selectedTeam && (editState.newPrice || 0) > selectedTeam.purseRemaining;
+
+                                                        return (
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                                <div>
+                                                                    <label className="text-xs text-slate-400 mb-1 block">New Team</label>
+                                                                    <select
+                                                                        value={editState.newTeamId || ''}
+                                                                        onChange={(e) => setEditState({ ...editState, newTeamId: e.target.value as Id<"teams"> })}
+                                                                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+                                                                    >
+                                                                        <option value="">Select team...</option>
+                                                                        {teams?.filter(t => t._id !== player.teamId).map(t => (
+                                                                            <option key={t._id} value={t._id}>
+                                                                                {t.name} (₹{(t.purseRemaining / 100000).toFixed(1)}L left)
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="text-xs text-slate-400 mb-1 block">Sold Price (₹)</label>
+                                                                    <Input
+                                                                        type="number"
+                                                                        value={editState.newPrice || ''}
+                                                                        onChange={(e) => setEditState({ ...editState, newPrice: parseInt(e.target.value) || 0 })}
+                                                                        className={`bg-slate-800 border-slate-600 ${insufficientPurse ? 'border-red-500' : ''}`}
+                                                                        min={0}
+                                                                        step={5000}
+                                                                    />
+                                                                </div>
+                                                                {insufficientPurse && (
+                                                                    <p className="text-xs text-red-400 col-span-full">
+                                                                        ⛔ Team only has {formatCurrency(selectedTeam!.purseRemaining)} remaining — insufficient for this price.
+                                                                    </p>
+                                                                )}
+                                                                {!insufficientPurse && selectedTeam && !canFillSquad && (
+                                                                    <p className="text-xs text-amber-400 col-span-full">
+                                                                        ⚠️ After this, {selectedTeam.name} will have {formatCurrency(purseAfter)} left but needs {formatCurrency(slotsNeeded * basePrice)} to fill {slotsNeeded} more slot(s) at base price.
+                                                                    </p>
+                                                                )}
                                                             </div>
-                                                            <div>
-                                                                <label className="text-xs text-slate-400 mb-1 block">Sold Price (₹)</label>
-                                                                <Input
-                                                                    type="number"
-                                                                    value={editState.newPrice || ''}
-                                                                    onChange={(e) => setEditState({ ...editState, newPrice: parseInt(e.target.value) || 0 })}
-                                                                    className="bg-slate-800 border-slate-600"
-                                                                    min={0}
-                                                                    step={5000}
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                    )}
+                                                        );
+                                                    })()}
 
                                                     {/* Change price only */}
-                                                    {editState.action === 'price' && (
-                                                        <div className="max-w-xs">
-                                                            <label className="text-xs text-slate-400 mb-1 block">New Sold Price (₹)</label>
-                                                            <Input
-                                                                type="number"
-                                                                value={editState.newPrice || ''}
-                                                                onChange={(e) => setEditState({ ...editState, newPrice: parseInt(e.target.value) || 0 })}
-                                                                className="bg-slate-800 border-slate-600"
-                                                                min={0}
-                                                                step={5000}
-                                                            />
-                                                        </div>
-                                                    )}
+                                                    {editState.action === 'price' && (() => {
+                                                        const currentPlayer = players?.find(p => p._id === editState.playerId);
+                                                        const team = currentPlayer?.teamId ? teams?.find(t => t._id === currentPlayer.teamId) : null;
+                                                        const oldPrice = currentPlayer?.soldPrice || 0;
+                                                        const priceDiff = (editState.newPrice || 0) - oldPrice;
+                                                        const maxPlayers = 15;
+                                                        const teamPlayerCount = team ? (players?.filter(p => p.teamId === team._id && p.auctionStatus === 'sold').length || 0) : 0;
+                                                        const slotsNeeded = maxPlayers - teamPlayerCount;
+                                                        const purseAfter = team ? team.purseRemaining - priceDiff : 0;
+                                                        const basePrice = 100000;
+                                                        const canFillSquad = !team || slotsNeeded <= 0 || purseAfter >= slotsNeeded * basePrice;
+                                                        const insufficientPurse = team && priceDiff > 0 && priceDiff > team.purseRemaining;
+
+                                                        return (
+                                                            <div className="max-w-xs space-y-2">
+                                                                <div>
+                                                                    <label className="text-xs text-slate-400 mb-1 block">New Sold Price (₹)</label>
+                                                                    <Input
+                                                                        type="number"
+                                                                        value={editState.newPrice || ''}
+                                                                        onChange={(e) => setEditState({ ...editState, newPrice: parseInt(e.target.value) || 0 })}
+                                                                        className={`bg-slate-800 border-slate-600 ${insufficientPurse ? 'border-red-500' : ''}`}
+                                                                        min={0}
+                                                                        step={5000}
+                                                                    />
+                                                                </div>
+                                                                {priceDiff !== 0 && team && (
+                                                                    <p className="text-xs text-slate-400">
+                                                                        {priceDiff > 0 ? `+${formatCurrency(priceDiff)}` : formatCurrency(priceDiff)} → Purse will be {formatCurrency(purseAfter)}
+                                                                    </p>
+                                                                )}
+                                                                {insufficientPurse && (
+                                                                    <p className="text-xs text-red-400">
+                                                                        ⛔ Team only has {formatCurrency(team!.purseRemaining)} remaining.
+                                                                    </p>
+                                                                )}
+                                                                {!insufficientPurse && team && !canFillSquad && (
+                                                                    <p className="text-xs text-amber-400">
+                                                                        ⚠️ After this, team will have {formatCurrency(purseAfter)} left but needs {formatCurrency(slotsNeeded * basePrice)} to fill {slotsNeeded} slot(s).
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
 
                                                     {/* Action buttons */}
                                                     <div className="flex gap-2">

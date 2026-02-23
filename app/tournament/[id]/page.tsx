@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getErrorMessage } from '@/lib/utils';
 import { TournamentSettingsModal } from '@/components/tournament/TournamentSettingsModal';
 import { useUserRole } from '@/hooks/useUserRole';
 
@@ -71,7 +71,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
       });
       router.push(`/auction/create?tournamentId=${tournamentId}`);
     } catch (error) {
-      toast.error('Failed to start auction', { description: (error as Error).message });
+      toast.error('Failed to start auction', { description: getErrorMessage(error) });
     }
   };
 
@@ -86,7 +86,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
       toast.success('Tournament deleted successfully');
       router.push('/dashboard');
     } catch (error) {
-      toast.error((error as Error)?.message || 'Failed to delete tournament');
+      toast.error(getErrorMessage(error, 'Failed to delete tournament'));
       setDeleting(false);
     }
   };
@@ -107,7 +107,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
       await restartAuction({ auctionRoomId: activeRoom._id });
       toast.success('Auction restarted successfully! All players and teams have been reset.');
     } catch (error) {
-      toast.error((error as Error)?.message || 'Failed to restart auction');
+      toast.error(getErrorMessage(error, 'Failed to restart auction'));
     } finally {
       setRestarting(false);
     }
@@ -158,9 +158,9 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                   <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold">{tournament.name}</h1>
                   <span className={`px-3 py-1 rounded-full text-xs sm:text-sm font-semibold ${tournament.status === 'active' ? 'bg-green-600' :
-                      tournament.status === 'setup' ? 'bg-blue-600' :
-                        tournament.status === 'completed' ? 'bg-purple-600' :
-                          'bg-slate-600'
+                    tournament.status === 'setup' ? 'bg-blue-600' :
+                      tournament.status === 'completed' ? 'bg-purple-600' :
+                        'bg-slate-600'
                     }`}>
                     {tournament.status}
                   </span>

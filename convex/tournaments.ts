@@ -128,6 +128,8 @@ export const listAll = query({
 export const getById = query({
   args: { id: v.id("tournaments") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
     return await ctx.db.get(args.id);
   },
 });

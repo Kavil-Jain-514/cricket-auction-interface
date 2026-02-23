@@ -1,7 +1,7 @@
 // app/auction/[roomId]/page.tsx
 "use client";
 
-import { use, useRef } from 'react';
+import React, { use, useRef, useMemo } from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -15,15 +15,18 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getErrorMessage } from '@/lib/utils';
 import { useSound } from '@/hooks/useSound';
-import { PlayerResultPopup } from '@/components/auction/PlayerResultPopup';
-import { AuctionCompleteScreen } from '@/components/auction/AuctionCompleteScreen';
-import { AdminPlayerManager } from '@/components/auction/AdminPlayerManager';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { useUserRole } from '@/hooks/useUserRole';
 import Image from 'next/image';
+import dynamic from 'next/dynamic';
+
+// Lazy-load heavy components that are only used conditionally
+const PlayerResultPopup = dynamic(() => import('@/components/auction/PlayerResultPopup').then(m => ({ default: m.PlayerResultPopup })), { ssr: false });
+const AuctionCompleteScreen = dynamic(() => import('@/components/auction/AuctionCompleteScreen').then(m => ({ default: m.AuctionCompleteScreen })), { ssr: false });
+const AdminPlayerManager = dynamic(() => import('@/components/auction/AdminPlayerManager').then(m => ({ default: m.AdminPlayerManager })), { ssr: false });
 
 interface AuctionPageProps {
   params: Promise<{ roomId: string }>;
@@ -129,7 +132,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         play('unsold', 0.5);
       }
     } catch (error) {
-      toast.error((error as Error)?.message || "Failed to finalize");
+      toast.error(getErrorMessage(error, "Failed to finalize"));
     }
   }, [isAdmin, showResult, finalizePlayer, auctionRoomId, auctionData, play]);
 
@@ -381,7 +384,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         }
       }
     } catch (error) {
-      toast.error((error as Error).message || "Failed to place bid");
+      toast.error(getErrorMessage(error, "Failed to place bid"));
     }
   }, [bidding, auctionData?.auctionRoom?.status, placeBid, auctionRoomId, play]);
 
@@ -397,7 +400,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         toast.success("Next player loaded!");
       }
     } catch (error) {
-      toast.error((error as Error).message || "Failed to load next player");
+      toast.error(getErrorMessage(error, "Failed to load next player"));
     }
   }, [startNext, auctionRoomId, play]);
 
@@ -408,7 +411,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       await revertBid({ auctionRoomId });
       toast.success("Last bid reverted successfully");
     } catch (error) {
-      toast.error((error as Error).message || "Failed to revert bid");
+      toast.error(getErrorMessage(error, "Failed to revert bid"));
     }
   }, [revertBid, auctionRoomId]);
 
@@ -563,7 +566,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       await restartCurrentPlayer({ auctionRoomId });
                       toast.success('Player bidding restarted!');
                     } catch (error) {
-                      toast.error((error as Error).message || 'Failed to restart player');
+                      toast.error(getErrorMessage(error, 'Failed to restart player'));
                     }
                   }}
                   disabled={!currentPlayer || auctionRoom.status !== 'live'}
@@ -641,7 +644,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       await restartAuction({ auctionRoomId });
                       toast.success('Auction has been reset!');
                     } catch (error) {
-                      toast.error((error as Error).message || 'Failed to restart auction');
+                      toast.error(getErrorMessage(error, 'Failed to restart auction'));
                     }
                   }}
                   variant="outline"
@@ -1268,69 +1271,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         )}
       </AnimatePresence>
 
-      {/* Live Stats Crawler/Ticker */}
-      <div className="fixed bottom-0 left-0 right-0 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 border-t border-slate-700 py-2 z-40 overflow-hidden">
-        <div className="relative flex items-center">
-          <div className="absolute left-0 w-16 h-full bg-linear-to-r from-slate-900 to-transparent z-10" />
-          <div className="absolute right-0 w-16 h-full bg-linear-to-l from-slate-900 to-transparent z-10" />
-          <motion.div
-            className="flex gap-8 px-8 whitespace-nowrap"
-            animate={{ x: ["0%", "-50%"] }}
-            transition={{
-              x: {
-                repeat: Infinity,
-                repeatType: "loop",
-                duration: 20,
-                ease: "linear",
-              },
-            }}
-          >
-            {/* Duplicate content for seamless loop */}
-            {[...Array(2)].map((_, loopIndex) => (
-              <div key={loopIndex} className="flex gap-8">
-                {auctionData?.teams?.map((team) => {
-                  const teamPlayers = soldPlayers?.filter(p => p.teamId === team._id) || [];
-                  return (
-                    <div
-                      key={`${loopIndex}-${team._id}`}
-                      className="flex items-center gap-2 bg-slate-800/50 rounded-full px-4 py-1.5 border border-slate-700 shrink-0"
-                    >
-                      {team.logoUrl ? (
-                        <Image
-                          src={team.logoUrl}
-                          alt={team.name}
-                          width={24}
-                          height={24}
-                          className="w-6 h-6 rounded-full object-cover shrink-0"
-                        />
-                      ) : (
-                        <div
-                          className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                          style={{ backgroundColor: team.colorPrimary || '#6366f1' }}
-                        >
-                          {team.name.charAt(0)}
-                        </div>
-                      )}
-                      <span className="font-medium text-white text-sm">{team.name}</span>
-                      <span className="text-slate-500">•</span>
-                      <span className="text-emerald-400 font-semibold text-sm">
-                        {formatCurrency(team.purseRemaining || 0)}
-                      </span>
-                      <span className="text-slate-500">•</span>
-                      <span className={`text-sm font-medium ${teamPlayers.length >= (auctionData.tournament?.settings.maxPlayersPerTeam || 15) ? 'text-red-400' : 'text-sky-400'}`}>
-                        {teamPlayers.length}/{auctionData.tournament?.settings.maxPlayersPerTeam || 15}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </motion.div>
-        </div>
-      </div>
+      {/* Live Stats Crawler/Ticker — memoized to avoid re-renders on timer/bid changes */}
+      <TickerBar teams={teams} soldPlayers={soldPlayers} maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15} />
 
       {/* Watermark */}
-      <div className="fixed bottom-14 left-1/2 -translate-x-1/2 text-center text-[20px] sm:text-xs text-slate-200 pointer-events-none select-none z-50 whitespace-nowrap">
+      <div className="fixed bottom-10 sm:bottom-12 left-1/2 -translate-x-1/2 text-center text-[8px] sm:text-[10px] md:text-xs text-slate-200/70 pointer-events-none select-none z-50 whitespace-nowrap">
         Developed by Kavil Dani • +91-7406486484 • Instagram: kavil.jain
       </div>
 
@@ -1344,3 +1289,84 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     </div>
   );
 }
+
+// Memoized Ticker Bar — only re-renders when teams or soldPlayers change, not on timer/bid updates
+interface TickerBarProps {
+  teams: Array<{
+    _id: string;
+    name: string;
+    logoUrl?: string;
+    colorPrimary: string;
+    purseRemaining: number;
+    [key: string]: unknown;
+  }>;
+  soldPlayers: Array<{ teamId?: string;[key: string]: unknown }> | undefined;
+  maxPlayersPerTeam: number;
+}
+
+const TickerBar = React.memo(function TickerBar({ teams, soldPlayers, maxPlayersPerTeam }: TickerBarProps) {
+  const tickerContent = useMemo(() => {
+    return teams?.map((team) => {
+      const teamPlayerCount = soldPlayers?.filter(p => p.teamId === team._id).length || 0;
+      return { ...team, teamPlayerCount };
+    }) || [];
+  }, [teams, soldPlayers]);
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 border-t border-slate-700 py-1.5 sm:py-2 z-40 overflow-hidden">
+      <div className="relative flex items-center">
+        <div className="absolute left-0 w-8 sm:w-16 h-full bg-linear-to-r from-slate-900 to-transparent z-10" />
+        <div className="absolute right-0 w-8 sm:w-16 h-full bg-linear-to-l from-slate-900 to-transparent z-10" />
+        <motion.div
+          className="flex gap-3 sm:gap-6 md:gap-8 px-4 sm:px-8 whitespace-nowrap"
+          animate={{ x: ["0%", "-50%"] }}
+          transition={{
+            x: {
+              repeat: Infinity,
+              repeatType: "loop",
+              duration: 20,
+              ease: "linear",
+            },
+          }}
+        >
+          {[...Array(2)].map((_, loopIndex) => (
+            <div key={loopIndex} className="flex gap-3 sm:gap-6 md:gap-8">
+              {tickerContent.map((team) => (
+                <div
+                  key={`${loopIndex}-${team._id}`}
+                  className="flex items-center gap-1.5 sm:gap-2 bg-slate-800/50 rounded-full px-2.5 sm:px-4 py-1 sm:py-1.5 border border-slate-700 shrink-0"
+                >
+                  {team.logoUrl ? (
+                    <Image
+                      src={team.logoUrl}
+                      alt={team.name}
+                      width={24}
+                      height={24}
+                      className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 rounded-full object-cover shrink-0"
+                    />
+                  ) : (
+                    <div
+                      className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold text-white shrink-0"
+                      style={{ backgroundColor: team.colorPrimary || '#6366f1' }}
+                    >
+                      {team.name.charAt(0)}
+                    </div>
+                  )}
+                  <span className="font-medium text-white text-[11px] sm:text-xs md:text-sm">{team.name}</span>
+                  <span className="text-slate-500 text-[10px] sm:text-sm">•</span>
+                  <span className="text-emerald-400 font-semibold text-[11px] sm:text-xs md:text-sm">
+                    {formatCurrency(team.purseRemaining || 0)}
+                  </span>
+                  <span className="text-slate-500 text-[10px] sm:text-sm">•</span>
+                  <span className={`text-[11px] sm:text-xs md:text-sm font-medium ${team.teamPlayerCount >= maxPlayersPerTeam ? 'text-red-400' : 'text-sky-400'}`}>
+                    {team.teamPlayerCount}/{maxPlayersPerTeam}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </motion.div>
+      </div>
+    </div>
+  );
+});

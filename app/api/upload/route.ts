@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from "cloudinary";
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 
 // Configure Cloudinary
 cloudinary.config({
@@ -8,11 +9,24 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// Sanitize folder name — only allow alphanumeric, hyphens, underscores
+function sanitizeFolder(folder: string): string {
+  const sanitized = folder.replace(/[^a-zA-Z0-9_-]/g, "");
+  // Always prefix with our app namespace to prevent writing to arbitrary Cloudinary paths
+  return `cricket-auction/${sanitized || "uploads"}`;
+}
+
 export async function POST(request: NextRequest) {
   try {
+    // Authentication check
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const formData = await request.formData();
     const file = formData.get("file") as File;
-    const folder = (formData.get("folder") as string) || "cricket-auction";
+    const rawFolder = (formData.get("folder") as string) || "general";
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -40,6 +54,9 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+
+    // Sanitize folder path
+    const folder = sanitizeFolder(rawFolder);
 
     // Convert file to base64
     const bytes = await file.arrayBuffer();
@@ -72,11 +89,25 @@ export async function POST(request: NextRequest) {
 // Delete an image from Cloudinary
 export async function DELETE(request: NextRequest) {
   try {
+    // Authentication check
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { publicId } = await request.json();
 
     if (!publicId) {
       return NextResponse.json(
         { error: "No public ID provided" },
+        { status: 400 },
+      );
+    }
+
+    // Validate publicId starts with our namespace to prevent deleting other assets
+    if (!publicId.startsWith("cricket-auction/")) {
+      return NextResponse.json(
+        { error: "Invalid public ID" },
         { status: 400 },
       );
     }

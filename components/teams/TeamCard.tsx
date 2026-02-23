@@ -5,7 +5,7 @@ import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Users, Download } from 'lucide-react';
 import { useState } from 'react';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getErrorMessage } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { Trash2, Edit } from 'lucide-react';
 import { TeamEditForm } from './TeamEditForm';
@@ -58,7 +58,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
           soldPrice: p.soldPrice,
           jerseyNumber: p.jerseyNumber,
           battingBowlingHand: p.battingBowlingHand,
-          phoneNumber: p.phoneNumber,
+          phoneNumber: (p as Record<string, unknown>).phoneNumber as string | undefined,
           tshirtSize: p.tshirtSize,
         })),
         tournamentName: tournament?.name,
@@ -66,7 +66,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
       });
       toast.success('PDF downloaded successfully');
     } catch (error) {
-      toast.error((error as Error)?.message || 'Failed to generate PDF');
+      toast.error(getErrorMessage(error, 'Failed to generate PDF'));
     }
   };
 
@@ -80,7 +80,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
       await deleteTeam({ id: team._id });
       toast.success('Team deleted successfully');
     } catch (error) {
-      toast.error((error as Error)?.message || 'Failed to delete team');
+      toast.error(getErrorMessage(error, 'Failed to delete team'));
     } finally {
       setDeleting(false);
     }

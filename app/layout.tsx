@@ -4,12 +4,12 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { Toaster } from 'sonner';
 
-const inter = Inter({ 
+const inter = Inter({
   subsets: ['latin'],
   variable: '--font-sans',
 });
 
-const poppins = Poppins({ 
+const poppins = Poppins({
   weight: ['400', '600', '700', '800'],
   subsets: ['latin'],
   variable: '--font-display',
@@ -28,15 +28,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <Providers>
     <html lang="en">
       <body
         className={`${inter.variable} ${poppins.variable} font-sans antialiased`}
       >
-        {children}
+        <Providers>
+          {children}
+        </Providers>
         <Toaster position="top-right" richColors />
       </body>
     </html>
-    </Providers>
   );
 }

@@ -170,11 +170,25 @@ export const listByTournament = query({
 
     const players = await query.collect();
 
-    // Map players to resolve basePrice fallback
-    const resolvedPlayers = players.map(p => ({
-      ...p,
-      basePrice: p.basePrice ?? tournament.settings?.basePrice ?? 100000,
-    }));
+    // Check if the current user is an admin to determine PII visibility
+    const identity = await ctx.auth.getUserIdentity();
+    let isAdminUser = false;
+    if (identity?.email) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", identity.email!))
+        .first();
+      isAdminUser = user?.role === "admin";
+    }
+
+    // Map players to resolve basePrice fallback and strip PII for non-admins
+    const resolvedPlayers = players.map(p => {
+      const { phoneNumber, ...publicFields } = p;
+      return {
+        ...(isAdminUser ? p : publicFields),
+        basePrice: p.basePrice ?? tournament.settings?.basePrice ?? 100000,
+      };
+    });
 
     if (args.status) {
       return resolvedPlayers.filter((p) => p.auctionStatus === args.status);

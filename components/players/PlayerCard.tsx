@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { toast } from 'sonner';
+import { getErrorMessage } from '@/lib/utils';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { useUserRole } from '@/hooks/useUserRole';
 
@@ -52,7 +53,7 @@ export function PlayerCard({ player, onClick }: PlayerCardProps) {
       await deletePlayer({ id: player._id });
       toast.success('Player deleted successfully');
     } catch (error) {
-      toast.error((error as Error)?.message || 'Failed to delete player');
+      toast.error(getErrorMessage(error, 'Failed to delete player'));
     } finally {
       setDeleting(false);
     }

@@ -218,23 +218,10 @@ export const placeBid = mutation({
     const currentTeamPlayerCount = teamPlayers.length;
     const playersNeeded = maxPlayersPerTeam - currentTeamPlayerCount;
 
-    // Get the minimum base price in the tournament for remaining calculations
-    const pendingPlayers = await ctx.db
-      .query("players")
-      .withIndex("by_tournament_status", (q) =>
-        q
-          .eq("tournamentId", auctionRoom.tournamentId)
-          .eq("auctionStatus", "pending"),
-      )
-      .collect();
-
+    // Use tournament base price as the minimum for squad completion calculations.
+    // This is a conservative estimate that avoids scanning all pending players on every bid.
     const tournamentBasePrice = tournament.settings.basePrice ?? 100000;
-
-    // Use the minimum base price among pending players, or the current player's base price as fallback
-    const minBasePrice =
-      pendingPlayers.length > 0
-        ? Math.min(...pendingPlayers.map((p) => p.basePrice ?? tournamentBasePrice))
-        : (player.basePrice ?? tournamentBasePrice);
+    const minBasePrice = player.basePrice ?? tournamentBasePrice;
 
     // Calculate max allowed bid to ensure squad can be completed
     // If team needs more players after this one, reserve purse for them
@@ -722,32 +709,33 @@ export const getLiveAuction = query({
         ? Math.min(...pendingPlayers.map((p) => p.basePrice ?? tournamentBasePrice))
         : (currentPlayer ? (currentPlayer.basePrice ?? tournamentBasePrice) : 100000);
 
-    // Get player counts per team and calculate max allowed bids
-    const teamsWithMaxBid = await Promise.all(
-      teams.map(async (team) => {
-        const teamPlayers = await ctx.db
-          .query("players")
-          .withIndex("by_team", (q) => q.eq("teamId", team._id))
-          .collect();
+    // Build team player counts from soldPlayers already fetched above — avoids N+1 per-team queries
+    const teamPlayerCounts = new Map<string, number>();
+    for (const p of soldPlayers) {
+      if (p.teamId) {
+        teamPlayerCounts.set(p.teamId, (teamPlayerCounts.get(p.teamId) || 0) + 1);
+      }
+    }
 
-        const currentTeamPlayerCount = teamPlayers.length;
-        const playersNeeded = maxPlayersPerTeam - currentTeamPlayerCount;
+    // Calculate max allowed bids without extra DB queries
+    const teamsWithMaxBid = teams.map((team) => {
+      const currentTeamPlayerCount = teamPlayerCounts.get(team._id) || 0;
+      const playersNeeded = maxPlayersPerTeam - currentTeamPlayerCount;
 
-        // Calculate max allowed bid
-        let maxAllowedBid = team.purseRemaining;
-        if (playersNeeded > 1) {
-          const reserveForRemainingPlayers = (playersNeeded - 1) * minBasePrice;
-          maxAllowedBid = team.purseRemaining - reserveForRemainingPlayers;
-        }
+      // Calculate max allowed bid
+      let maxAllowedBid = team.purseRemaining;
+      if (playersNeeded > 1) {
+        const reserveForRemainingPlayers = (playersNeeded - 1) * minBasePrice;
+        maxAllowedBid = team.purseRemaining - reserveForRemainingPlayers;
+      }
 
-        return {
-          ...team,
-          playerCount: currentTeamPlayerCount,
-          playersNeeded,
-          maxAllowedBid: Math.max(0, maxAllowedBid),
-        };
-      }),
-    );
+      return {
+        ...team,
+        playerCount: currentTeamPlayerCount,
+        playersNeeded,
+        maxAllowedBid: Math.max(0, maxAllowedBid),
+      };
+    });
 
     return {
       auctionRoom: {

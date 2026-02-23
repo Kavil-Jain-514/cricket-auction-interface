@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { getErrorMessage } from '@/lib/utils';
 import { ImageUpload } from '@/components/ui/image-upload';
 import {
   Select,
@@ -70,7 +71,7 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
       onSuccess();
       onClose();
     } catch (error) {
-      toast.error((error as Error)?.message || 'Failed to update player');
+      toast.error(getErrorMessage(error, 'Failed to update player'));
       console.error(error);
     } finally {
       setLoading(false);

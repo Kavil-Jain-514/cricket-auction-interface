@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { getErrorMessage } from '@/lib/utils';
 
 interface TeamEditFormProps {
   team: Doc<"teams">;
@@ -79,7 +80,7 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
       onSuccess();
       onClose();
     } catch (error) {
-      toast.error((error as Error)?.message || 'Failed to update team');
+      toast.error(getErrorMessage(error, 'Failed to update team'));
       console.error(error);
     } finally {
       setLoading(false);
@@ -163,8 +164,8 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
                       colorSecondary: color.secondary,
                     })}
                     className={`p-3 rounded-lg border-2 transition ${formData.colorPrimary === color.primary
-                        ? 'border-white'
-                        : 'border-transparent hover:border-slate-600'
+                      ? 'border-white'
+                      : 'border-transparent hover:border-slate-600'
                       }`}
                     style={{
                       background: `linear-gradient(135deg, ${color.primary}, ${color.secondary})`
