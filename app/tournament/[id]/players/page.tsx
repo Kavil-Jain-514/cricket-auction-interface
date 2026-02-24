@@ -146,7 +146,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       const pageHeight = pdf.internal.pageSize.getHeight();
       const margin = 8;
       const contentWidth = pageWidth - 2 * margin;
-      const colGap = 3;
+      const colGap = 2;
       const rowGap = 2;
 
       // Card dimensions - 3 columns × 9 rows = 27 players per page
@@ -154,9 +154,9 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       const rows = 9;
       const cardsPerPage = cols * rows; // 27
       const cardWidth = (contentWidth - (cols - 1) * colGap) / cols;
-      const headerHeight = 22; // Space for tournament header
-      const footerHeight = 8;
-      const gridHeight = pageHeight - headerHeight - footerHeight - margin;
+      console.log(cardWidth, 'cardWidth')
+      const headerHeight = 32; // Space for tournament header
+      const gridHeight = pageHeight - headerHeight - margin;
       const cardHeight = (gridHeight - (rows - 1) * rowGap) / rows;
       const photoWidth = 25; // Photo width in mm
       const photoHeight = cardHeight - 7; // Photo takes most of card height (leaving room for player number)
@@ -172,7 +172,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         pdf.rect(0, 0, pageWidth, 3, 'F');
 
         // Tournament logo
-        const logoSize = 14;
+        const logoSize = 20;
         let textStartX = pageWidth / 2;
 
         if (tournamentLogoBase64) {
@@ -190,7 +190,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         // Tournament name
         if (tournament?.name) {
           pdf.setTextColor(255, 255, 255);
-          pdf.setFontSize(14);
+          pdf.setFontSize(20);
           pdf.setFont('helvetica', 'bold');
           pdf.text(tournament.name.toUpperCase(), textStartX, 13, { align: 'center' });
         }
@@ -253,8 +253,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
         // Text content - right of photo
         const textX = photoX + actualPhotoWidth + 2.5;
-        const textMaxWidth = cardWidth - actualPhotoWidth - 9;
-
+        const textMaxWidth = cardWidth - actualPhotoWidth;
         // Player name - big bold font
         pdf.setTextColor(255, 255, 255);
         pdf.setFontSize(7.5);
@@ -263,31 +262,31 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         const truncatedName = player.name.length > maxChars
           ? player.name.substring(0, maxChars - 1) + '..'
           : player.name;
-        pdf.text(truncatedName, textX, y + 10);
+        pdf.text(truncatedName, textX, y + 6);
 
         // Age & Phone number side by side, below name
-        pdf.setFontSize(5.5);
+        pdf.setFontSize(6);
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(148, 163, 184); // slate-400
         const ageText = `${player.age} yrs`;
         const phoneText = player.phoneNumber || '';
         const separator = phoneText ? '  |  ' : '';
-        pdf.text(`${ageText}${separator}${phoneText}`, textX, y + 14.5);
+        pdf.text(`${ageText}${separator}${phoneText}`, textX, y + 8.5);
 
         // Player type - smallest font, below age
-        pdf.setFontSize(5);
+        pdf.setFontSize(6);
         pdf.setFillColor(roleColor[0], roleColor[1], roleColor[2], roleColor[3]);
         const roleDisplayText = getRoleDisplay(player.role);
-        const roleBadgeWidth = pdf.getTextWidth(roleDisplayText) + 3;
-        const roleBadgeY = y + 16;
-        pdf.roundedRect(textX, roleBadgeY, roleBadgeWidth, 3.5, 0.8, 0.8, 'F');
+        const roleBadgeWidth = pdf.getTextWidth(roleDisplayText) + 4;
+        const roleBadgeY = y + 12;
+        pdf.roundedRect(textX, roleBadgeY, roleBadgeWidth, 4, 0.8, 0.8, 'F');
         pdf.setTextColor(255, 255, 255);
         pdf.setFont('helvetica', 'bold');
-        pdf.text(roleDisplayText, textX + 1.5, roleBadgeY + 2.6);
+        pdf.text(roleDisplayText, textX + 2, roleBadgeY + 3);
 
         // Player Batting/Bowling Hand
-        pdf.setFontSize(5);
-        pdf.text(`${player.battingBowlingHand}`, textX, y + 25);
+        pdf.setFontSize(6);
+        pdf.text(`${player.battingBowlingHand}`, textX, y + 20);
 
       };
 
