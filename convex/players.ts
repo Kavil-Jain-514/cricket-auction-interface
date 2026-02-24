@@ -179,8 +179,8 @@ export const listByTournament = query({
     }
 
     // Map players to resolve basePrice fallback and strip PII for non-admins
-    const resolvedPlayers = players.map(p => {
-      const { phoneNumber, ...publicFields } = p;
+    const resolvedPlayers = players.map((p) => {
+      const { ...publicFields } = p;
       return {
         ...(isAdminUser ? p : publicFields),
         basePrice: p.basePrice ?? tournament.settings?.basePrice ?? 100000,
@@ -227,7 +227,7 @@ export const update = mutation({
 
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
-    
+
     if (args.basePrice !== undefined) {
       if (args.basePrice < 50000) {
         throw new Error("Base price must be at least ₹50,000");

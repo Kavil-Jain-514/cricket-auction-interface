@@ -159,7 +159,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       const gridHeight = pageHeight - headerHeight - margin;
       const cardHeight = (gridHeight - (rows - 1) * rowGap) / rows;
       const photoWidth = 25; // Photo width in mm
-      const photoHeight = cardHeight - 7; // Photo takes most of card height (leaving room for player number)
+
 
       // Helper to draw tournament header
       const drawHeader = (page: number, totalPages: number) => {
@@ -170,15 +170,12 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         // Header accent bar
         pdf.setFillColor(59, 130, 246); // blue-500
         pdf.rect(0, 0, pageWidth, 3, 'F');
-
-        // Add Bid11Pro Text with logo on left header
-
         // Bid11Pro Text (simulating gradient with orange to yellow)
         pdf.setFontSize(14);
         pdf.setFont("helvetica", "bold");
         pdf.setTextColor(249, 115, 22); // orange-500
-        pdf.text("Bid11", margin + 11, 15);
-        const nextX = margin + 11 + pdf.getTextWidth("Bid11");
+        pdf.text("Bid11", margin + 20, 15);
+        const nextX = margin + 20 + pdf.getTextWidth("Bid11");
         pdf.setTextColor(234, 179, 8); // yellow-500
         pdf.text("Pro", nextX, 15);
 
@@ -186,7 +183,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         pdf.setFontSize(5);
         pdf.setFont("helvetica", "normal");
         pdf.setTextColor(148, 163, 184); // slate-400
-        pdf.text("Cricket Auction Platform", margin + 11, 17.5);
+        pdf.text("Cricket Auction Platform", margin + 20, 17.5);
 
         // Center Tournament Logo and Name
         const logoSize = 18;
@@ -244,7 +241,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         pdf.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'FD');
 
         // Watermark (Bid11Pro)
-        pdf.setTextColor(220, 38, 38, 0.5); // red-600 with low opacity look
+        pdf.setTextColor(220, 38, 38, 0.08); // red-600 with lower opacity for lighter watermark
         pdf.setFontSize(14);
         pdf.setFont("helvetica", "bold");
         pdf.text("Bid11Pro", x + cardWidth / 2 + 6, y + cardHeight / 2 + 2, { align: "center", angle: 30 });
@@ -372,6 +369,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       setIsGeneratingPDF(false);
     }
   }, [allPlayers, tournament]);
+
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">

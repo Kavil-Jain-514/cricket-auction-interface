@@ -1,7 +1,7 @@
 "use client";
 
 import { Doc } from '@/convex/_generated/dataModel';
-import { formatCurrency, getRoles, getRoleDisplay } from '@/lib/utils';
+import { formatCurrency, getRoles } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
@@ -42,7 +42,7 @@ export function PlayerDetailsModal({
 }: PlayerDetailsModalProps) {
   const roles = getRoles(player.role);
   const primaryRole = roles[0];
-  const roleStyle = roleColors[primaryRole] || roleColors['Batter'];
+  // const roleStyle = roleColors[primaryRole] || roleColors['Batter'];
   const statusStyle = statusConfig[player.auctionStatus] || statusConfig['pending'];
 
   // Gradient based on primary role
