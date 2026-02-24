@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 
 // Cricket Ball SVG Icon Component
-function CricketBallIcon({ className }: { className?: string }) {
+export function CricketBallIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 100 100" className={className} fill="currentColor">
       <circle cx="50" cy="50" r="45" fill="#DC2626" />

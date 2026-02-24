@@ -171,28 +171,55 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         pdf.setFillColor(59, 130, 246); // blue-500
         pdf.rect(0, 0, pageWidth, 3, 'F');
 
-        // Tournament logo
-        const logoSize = 20;
-        let textStartX = pageWidth / 2;
+        // Add Bid11Pro Text with logo on left header
 
-        if (tournamentLogoBase64) {
+        // Bid11Pro Text (simulating gradient with orange to yellow)
+        pdf.setFontSize(14);
+        pdf.setFont("helvetica", "bold");
+        pdf.setTextColor(249, 115, 22); // orange-500
+        pdf.text("Bid11", margin + 11, 15);
+        const nextX = margin + 11 + pdf.getTextWidth("Bid11");
+        pdf.setTextColor(234, 179, 8); // yellow-500
+        pdf.text("Pro", nextX, 15);
+
+        // Subtitle
+        pdf.setFontSize(5);
+        pdf.setFont("helvetica", "normal");
+        pdf.setTextColor(148, 163, 184); // slate-400
+        pdf.text("Cricket Auction Platform", margin + 11, 17.5);
+
+        // Center Tournament Logo and Name
+        const logoSize = 18;
+        if (tournament?.name) {
+          pdf.setFontSize(20);
+          pdf.setFont('helvetica', 'bold');
+          const titleWidth = pdf.getTextWidth(tournament.name.toUpperCase());
+          let contentWidth = titleWidth;
+          if (tournamentLogoBase64) {
+            contentWidth += logoSize + 4;
+          }
+
+          let startX = (pageWidth - contentWidth) / 2;
+
+          if (tournamentLogoBase64) {
+            try {
+              const logoFormat = tournamentLogoBase64.includes('image/png') ? 'PNG' : 'JPEG';
+              pdf.addImage(tournamentLogoBase64, logoFormat, startX, 6, logoSize, logoSize);
+              startX += logoSize + 4;
+            } catch (e) {
+              console.error('[PDF] Logo addImage error:', e);
+            }
+          }
+
+          pdf.setTextColor(255, 255, 255);
+          pdf.text(tournament.name.toUpperCase(), startX + titleWidth / 2, 19, { align: 'center' });
+        } else if (tournamentLogoBase64) {
           try {
-            const logoX = margin + 2;
-            const logoY = 4;
             const logoFormat = tournamentLogoBase64.includes('image/png') ? 'PNG' : 'JPEG';
-            pdf.addImage(tournamentLogoBase64, logoFormat, logoX, logoY, logoSize, logoSize);
-            textStartX = logoX + logoSize + 4 + (pageWidth - logoX - logoSize - 4 - margin) / 2;
+            pdf.addImage(tournamentLogoBase64, logoFormat, (pageWidth - logoSize) / 2, 6, logoSize, logoSize);
           } catch (e) {
             console.error('[PDF] Logo addImage error:', e);
           }
-        }
-
-        // Tournament name
-        if (tournament?.name) {
-          pdf.setTextColor(255, 255, 255);
-          pdf.setFontSize(20);
-          pdf.setFont('helvetica', 'bold');
-          pdf.text(tournament.name.toUpperCase(), textStartX, 13, { align: 'center' });
         }
 
         // Page number (right side of header)
@@ -203,17 +230,24 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
       // Helper to draw a player card
       const drawPlayerCard = (player: Doc<"players">, x: number, y: number) => {
-        // Card background
-        pdf.setFillColor(30, 41, 59); // slate-800
-        pdf.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'F');
-
-        // Role color accent stripe on left
         const primaryRole = getRoles(player.role)[0];
         const roleColor = primaryRole === 'Batter' ? [59, 130, 246] : // blue
           primaryRole === 'Bowler' ? [249, 115, 22] : // orange
             primaryRole?.includes('All') ? [147, 51, 234] : // purple
               primaryRole === 'Wicket Keeper' ? [16, 185, 129] : // emerald
                 [34, 197, 94]; // green
+
+        // Card background and border
+        pdf.setDrawColor(roleColor[0], roleColor[1], roleColor[2]);
+        pdf.setLineWidth(0.6);
+        pdf.setFillColor(30, 41, 59); // slate-800
+        pdf.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'FD');
+
+        // Watermark (Bid11Pro)
+        pdf.setTextColor(220, 38, 38, 0.5); // red-600 with low opacity look
+        pdf.setFontSize(14);
+        pdf.setFont("helvetica", "bold");
+        pdf.text("Bid11Pro", x + cardWidth / 2 + 6, y + cardHeight / 2 + 2, { align: "center", angle: 30 });
         // pdf.setFillColor(roleColor[0], roleColor[1], roleColor[2]);
         // pdf.roundedRect(x, y, 2.5, cardHeight, 2, 0, 'F');
         // pdf.rect(x + 1.5, y, 1, cardHeight, 'F');
@@ -229,6 +263,11 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             const imgFormat = imgData.includes('image/png') ? 'PNG' : 'JPEG';
             console.log('[PDF] Adding image for', player.name, 'format:', imgFormat);
             pdf.addImage(imgData, imgFormat, photoX, photoY, actualPhotoWidth, actualPhotoHeight);
+
+            // Add border to photo
+            pdf.setDrawColor(100, 116, 139); // slate-500
+            pdf.setLineWidth(0.4);
+            pdf.rect(photoX, photoY, actualPhotoWidth, actualPhotoHeight, 'S');
           } catch (e) {
             console.error('[PDF] addImage error for', player.name, ':', e);
           }
@@ -246,7 +285,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           // Dark badge background
           pdf.setFillColor(15, 23, 42); // slate-900
           pdf.roundedRect(photoX, photoY, numWidth, numHeight, 1.5, 1.5, 'F');
-          pdf.setTextColor(roleColor[0], roleColor[1], roleColor[2], roleColor[3]);
+          pdf.setTextColor(roleColor[0], roleColor[1], roleColor[2]);
           pdf.text(numberText, photoX + 1.5, photoY + 3.3);
         }
 
@@ -254,15 +293,19 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         // Text content - right of photo
         const textX = photoX + actualPhotoWidth + 2.5;
         const textMaxWidth = cardWidth - actualPhotoWidth;
-        // Player name - big bold font
+        // Player name - big bold font wrapped
         pdf.setTextColor(255, 255, 255);
         pdf.setFontSize(7.5);
         pdf.setFont('helvetica', 'bold');
-        const maxChars = Math.floor(textMaxWidth / 1.6);
-        const truncatedName = player.name.length > maxChars
-          ? player.name.substring(0, maxChars - 1) + '..'
-          : player.name;
-        pdf.text(truncatedName, textX, y + 6);
+
+        const nameLines = pdf.splitTextToSize(player.name.toUpperCase(), textMaxWidth - 1);
+        if (nameLines.length > 2) {
+          nameLines.length = 2;
+          nameLines[1] = nameLines[1].substring(0, nameLines[1].length - 2) + '..';
+        }
+        pdf.text(nameLines, textX, y + 6);
+
+        const linesOffset = nameLines.length > 1 ? 3 : 0;
 
         // Age & Phone number side by side, below name
         pdf.setFontSize(6);
@@ -271,14 +314,14 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         const ageText = `${player.age} yrs`;
         const phoneText = player.phoneNumber || '';
         const separator = phoneText ? '  |  ' : '';
-        pdf.text(`${ageText}${separator}${phoneText}`, textX, y + 8.5);
+        pdf.text(`${ageText}${separator}${phoneText}`, textX, y + 9 + linesOffset);
 
         // Player type - smallest font, below age
         pdf.setFontSize(6);
-        pdf.setFillColor(roleColor[0], roleColor[1], roleColor[2], roleColor[3]);
+        pdf.setFillColor(roleColor[0], roleColor[1], roleColor[2]);
         const roleDisplayText = getRoleDisplay(player.role);
         const roleBadgeWidth = pdf.getTextWidth(roleDisplayText) + 4;
-        const roleBadgeY = y + 12;
+        const roleBadgeY = y + 11.5 + linesOffset;
         pdf.roundedRect(textX, roleBadgeY, roleBadgeWidth, 4, 0.8, 0.8, 'F');
         pdf.setTextColor(255, 255, 255);
         pdf.setFont('helvetica', 'bold');
@@ -286,7 +329,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
         // Player Batting/Bowling Hand
         pdf.setFontSize(6);
-        pdf.text(`${player.battingBowlingHand}`, textX, y + 20);
+        pdf.setTextColor(148, 163, 184); // slate-400
+        pdf.text(`${player.battingBowlingHand}`, textX, y + 18.5 + linesOffset);
 
       };
 
