@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { getErrorMessage } from '@/lib/utils';
+import { getErrorMessage, getRoles, PLAYER_ROLES } from '@/lib/utils';
 import { ImageUpload } from '@/components/ui/image-upload';
 import {
   Select,
@@ -33,7 +33,7 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
     name: player.name,
     phoneNumber: player.phoneNumber || '',
     age: player.age,
-    role: player.role,
+    role: getRoles(player.role),
     battingBowlingHand: player.battingBowlingHand,
     tshirtSize: player.tshirtSize || 'L',
     jerseyNumber: player.jerseyNumber,
@@ -44,9 +44,6 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-
-    // Normalize role to handle legacy data
-    const normalizedRole = formData.role === 'All Rounder' ? 'All-Rounder' : formData.role;
 
     // Normalize hand to handle legacy data
     let normalizedHand = formData.battingBowlingHand;
@@ -59,9 +56,9 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
         name: formData.name,
         phoneNumber: formData.phoneNumber || undefined,
         age: formData.age,
-        role: normalizedRole as 'Batter' | 'Bowler' | 'All-Rounder',
+        role: formData.role,
         battingBowlingHand: normalizedHand as 'Right-handed' | 'Left-handed',
-        tshirtSize: formData.tshirtSize as 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
+        tshirtSize: formData.tshirtSize as 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
         jerseyNumber: formData.jerseyNumber,
         basePrice: formData.basePrice,
         photoUrl: formData.photoUrl || undefined,
@@ -132,20 +129,30 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
             </div>
 
             <div>
-              <Label htmlFor="role">Role *</Label>
-              <Select
-                value={formData.role}
-                onValueChange={(value) => setFormData({ ...formData, role: value as 'Batter' | 'Bowler' | 'All-Rounder' })}
-              >
-                <SelectTrigger className="mt-2 h-11 sm:h-12 text-base">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Batter" className="py-3">Batter</SelectItem>
-                  <SelectItem value="Bowler" className="py-3">Bowler</SelectItem>
-                  <SelectItem value="All-Rounder" className="py-3">All-Rounder</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>Role(s) *</Label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {PLAYER_ROLES.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        role: prev.role.includes(r)
+                          ? prev.role.filter(x => x !== r)
+                          : [...prev.role, r],
+                      }));
+                    }}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition border ${formData.role.includes(r)
+                      ? 'bg-blue-600 border-blue-500 text-white'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                      }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              {formData.role.length === 0 && <p className="text-red-400 text-xs mt-1">Select at least one role</p>}
             </div>
 
             <div className="col-span-2 sm:col-span-1">

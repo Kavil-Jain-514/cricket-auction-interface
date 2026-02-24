@@ -59,3 +59,35 @@ export function optimizeImageUrl(url: string | undefined | null, width = 200): s
   return url.replace("/upload/", `/upload/f_auto,q_auto,w_${width}/`);
 }
 
+/** Valid player roles */
+export const PLAYER_ROLES = ["Batter", "Bowler", "All-Rounder", "Wicket Keeper"] as const;
+export type PlayerRole = (typeof PLAYER_ROLES)[number];
+
+/**
+ * Normalize player role to an array. Handles both legacy single string
+ * ("Batter") and new array format (["Batter", "Wicket Keeper"]).
+ */
+export function getRoles(role: string | string[]): string[] {
+  if (Array.isArray(role)) return role;
+  if (role === "All Rounder") return ["All-Rounder"];
+  return [role];
+}
+
+/**
+ * Display-friendly string for player roles, e.g. "Batter / Wicket Keeper"
+ */
+export function getRoleDisplay(role: string | string[]): string {
+  return getRoles(role).join(" / ");
+}
+
+/**
+ * Get the primary role color CSS classes for a player (based on first role).
+ */
+export function getRoleColor(role: string | string[]): string {
+  const primary = getRoles(role)[0];
+  if (primary === "Batter") return "bg-blue-500/20 text-blue-400";
+  if (primary === "Bowler") return "bg-orange-500/20 text-orange-400";
+  if (primary === "Wicket Keeper") return "bg-emerald-500/20 text-emerald-400";
+  if (primary?.includes("All")) return "bg-purple-500/20 text-purple-400";
+  return "bg-slate-500/20 text-slate-400";
+}

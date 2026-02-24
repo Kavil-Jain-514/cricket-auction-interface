@@ -1,13 +1,6 @@
 
 "use client";
 
-const statusLabels: Record<string, string> = {
-  sold: "Sold",
-  unsold: "Unsold",
-  in_auction: "In Auction",
-  pending: "Pending",
-};
-
 import { use, useCallback, useMemo, useState } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -21,10 +14,11 @@ import { PlayerImport } from '@/components/players/PlayerImport';
 import { PlayerForm } from '@/components/players/PlayerForm';
 import { PlayerDetailsModal } from '@/components/players/PlayerDetailsModal';
 import { toast } from 'sonner';
+import { getRoles, getRoleDisplay } from '@/lib/utils';
 import jsPDF from 'jspdf';
-import { getPlayerInitials } from '@/lib/utils';
+
 import { useUserRole } from '@/hooks/useUserRole';
-import { formatCurrency } from '@/lib/utils';
+
 
 export default function PlayersPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -51,7 +45,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
   const players = allPlayers?.filter(p => {
     const statusMatch = filterStatus === 'all' || p.auctionStatus === filterStatus;
-    const roleMatch = filterRole === 'all' || p.role === filterRole;
+    const roleMatch = filterRole === 'all' || getRoles(p.role).includes(filterRole);
     return statusMatch && roleMatch;
   }
   );
@@ -62,9 +56,10 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
     inAuction: allPlayers?.filter(p => p.auctionStatus === 'in_auction').length || 0,
     sold: allPlayers?.filter(p => p.auctionStatus === 'sold').length || 0,
     unsold: allPlayers?.filter(p => p.auctionStatus === 'unsold').length || 0,
-    batters: allPlayers?.filter(p => p.role === 'Batter').length || 0,
-    bowlers: allPlayers?.filter(p => p.role === 'Bowler').length || 0,
-    allRounders: allPlayers?.filter(p => p.role === 'All-Rounder').length || 0,
+    batters: allPlayers?.filter(p => getRoles(p.role).includes('Batter')).length || 0,
+    bowlers: allPlayers?.filter(p => getRoles(p.role).includes('Bowler')).length || 0,
+    allRounders: allPlayers?.filter(p => getRoles(p.role).includes('All-Rounder')).length || 0,
+    wicketKeepers: allPlayers?.filter(p => getRoles(p.role).includes('Wicket Keeper')).length || 0,
   }), [allPlayers]);
 
   // Download all players as PDF
@@ -80,36 +75,53 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
     toast.info('Generating PDF with player photos...');
 
     try {
-      // Pre-load all player images
+      // Pre-load all player images + tournament logo
       const imageCache: Record<string, string> = {};
+      let tournamentLogoBase64: string | null = null;
 
-      const loadImage = (url: string): Promise<string | null> => {
-        return new Promise((resolve) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => {
-            try {
-              const canvas = document.createElement('canvas');
-              canvas.width = img.width;
-              canvas.height = img.height;
-              const ctx = canvas.getContext('2d');
-              if (ctx) {
-                ctx.drawImage(img, 0, 0);
-                resolve(canvas.toDataURL('image/jpeg', 0.8));
-              } else {
-                resolve(null);
-              }
-            } catch {
-              resolve(null);
-            }
-          };
-          img.onerror = () => resolve(null);
-          // Add timestamp to bypass cache issues
-          img.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
-        });
+      // Force Cloudinary URLs to serve JPEG (jsPDF doesn't support WebP)
+      const forceJpegUrl = (url: string): string => {
+        if (url.includes('res.cloudinary.com') && url.includes('/upload/')) {
+          let modified = url.replace('/upload/', '/upload/f_jpg,q_80/');
+          if (url.includes('/upload/f_auto')) {
+            modified = url.replace('f_auto', 'f_jpg');
+          }
+          return modified;
+        }
+        return url;
       };
 
-      // Load all images in parallel
+      const loadImage = async (url: string): Promise<string | null> => {
+        try {
+          const processedUrl = forceJpegUrl(url);
+          console.log('[PDF] Loading image via proxy:', processedUrl);
+
+          // Use server-side proxy to bypass CORS (Google Drive, etc.)
+          const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(processedUrl)}`;
+          const response = await fetch(proxyUrl);
+          if (!response.ok) {
+            console.warn('[PDF] Proxy fetch failed:', response.status);
+            return null;
+          }
+          const data = await response.json();
+          if (data.dataUrl) {
+            console.log('[PDF] Image loaded, prefix:', data.dataUrl.substring(0, 40));
+            return data.dataUrl;
+          }
+          console.warn('[PDF] No dataUrl in response');
+          return null;
+        } catch (err) {
+          console.error('[PDF] Image load error:', err);
+          return null;
+        }
+      };
+
+      // Load tournament logo
+      if (tournament?.logoUrl) {
+        tournamentLogoBase64 = await loadImage(tournament.logoUrl);
+      }
+
+      // Load all player images in parallel
       const imagePromises = allPlayers
         .filter(p => p.photoUrl)
         .map(async (p) => {
@@ -122,6 +134,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         });
 
       await Promise.all(imagePromises);
+      console.log('[PDF] Image cache size:', Object.keys(imageCache).length, '/', allPlayers.filter(p => p.photoUrl).length);
 
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -131,157 +144,151 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 15;
+      const margin = 8;
       const contentWidth = pageWidth - 2 * margin;
+      const colGap = 3;
+      const rowGap = 2;
 
-      // Card dimensions - 2 players per row
-      const cardWidth = (contentWidth - 10) / 2; // 10mm gap between cards
-      const cardHeight = 55;
-      const cardsPerPage = 8; // 2 columns x 4 rows
-      const photoSize = 18; // Photo size in mm
+      // Card dimensions - 3 columns × 9 rows = 27 players per page
+      const cols = 3;
+      const rows = 9;
+      const cardsPerPage = cols * rows; // 27
+      const cardWidth = (contentWidth - (cols - 1) * colGap) / cols;
+      const headerHeight = 22; // Space for tournament header
+      const footerHeight = 8;
+      const gridHeight = pageHeight - headerHeight - footerHeight - margin;
+      const cardHeight = (gridHeight - (rows - 1) * rowGap) / rows;
+      const photoWidth = 25; // Photo width in mm
+      const photoHeight = cardHeight - 7; // Photo takes most of card height (leaving room for player number)
+
+      // Helper to draw tournament header
+      const drawHeader = (page: number, totalPages: number) => {
+        // Page background
+        pdf.setFillColor(15, 23, 42); // slate-900
+        pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+
+        // Header accent bar
+        pdf.setFillColor(59, 130, 246); // blue-500
+        pdf.rect(0, 0, pageWidth, 3, 'F');
+
+        // Tournament logo
+        const logoSize = 14;
+        let textStartX = pageWidth / 2;
+
+        if (tournamentLogoBase64) {
+          try {
+            const logoX = margin + 2;
+            const logoY = 4;
+            const logoFormat = tournamentLogoBase64.includes('image/png') ? 'PNG' : 'JPEG';
+            pdf.addImage(tournamentLogoBase64, logoFormat, logoX, logoY, logoSize, logoSize);
+            textStartX = logoX + logoSize + 4 + (pageWidth - logoX - logoSize - 4 - margin) / 2;
+          } catch (e) {
+            console.error('[PDF] Logo addImage error:', e);
+          }
+        }
+
+        // Tournament name
+        if (tournament?.name) {
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFontSize(14);
+          pdf.setFont('helvetica', 'bold');
+          pdf.text(tournament.name.toUpperCase(), textStartX, 13, { align: 'center' });
+        }
+
+        // Page number (right side of header)
+        pdf.setFontSize(7);
+        pdf.setTextColor(100, 116, 139);
+        pdf.text(`Page ${page + 1} / ${totalPages}`, pageWidth - margin - 2, 12, { align: 'right' });
+      };
 
       // Helper to draw a player card
       const drawPlayerCard = (player: Doc<"players">, x: number, y: number) => {
         // Card background
         pdf.setFillColor(30, 41, 59); // slate-800
-        pdf.roundedRect(x, y, cardWidth, cardHeight, 3, 3, 'F');
+        pdf.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'F');
 
-        // Role color stripe on left
-        const roleColor = player.role === 'Batter' ? [59, 130, 246] : // blue
-          player.role === 'Bowler' ? [249, 115, 22] : // orange
-            player.role.includes('All') ? [147, 51, 234] : // purple
-              [34, 197, 94]; // green
-        pdf.setFillColor(roleColor[0], roleColor[1], roleColor[2]);
-        pdf.roundedRect(x, y, 4, cardHeight, 3, 0, 'F');
-        pdf.rect(x + 2, y, 2, cardHeight, 'F');
-
-        // Player photo or initials
-        const photoX = x + 7;
-        const photoY = y + 4;
+        // Role color accent stripe on left
+        const primaryRole = getRoles(player.role)[0];
+        const roleColor = primaryRole === 'Batter' ? [59, 130, 246] : // blue
+          primaryRole === 'Bowler' ? [249, 115, 22] : // orange
+            primaryRole?.includes('All') ? [147, 51, 234] : // purple
+              primaryRole === 'Wicket Keeper' ? [16, 185, 129] : // emerald
+                [34, 197, 94]; // green
+        // pdf.setFillColor(roleColor[0], roleColor[1], roleColor[2]);
+        // pdf.roundedRect(x, y, 2.5, cardHeight, 2, 0, 'F');
+        // pdf.rect(x + 1.5, y, 1, cardHeight, 'F');
+        // Player photo - left side, takes full card height
+        const photoX = x;
+        const photoY = y;
+        const actualPhotoWidth = photoWidth;
+        const actualPhotoHeight = cardHeight;
 
         if (imageCache[player._id]) {
-          // Draw the photo
           try {
-            pdf.addImage(imageCache[player._id], 'JPEG', photoX, photoY, photoSize, photoSize);
-          } catch {
-            // If image fails, draw initials
-            drawInitials(player, photoX, photoY);
+            const imgData = imageCache[player._id];
+            const imgFormat = imgData.includes('image/png') ? 'PNG' : 'JPEG';
+            console.log('[PDF] Adding image for', player.name, 'format:', imgFormat);
+            pdf.addImage(imgData, imgFormat, photoX, photoY, actualPhotoWidth, actualPhotoHeight);
+          } catch (e) {
+            console.error('[PDF] addImage error for', player.name, ':', e);
           }
         } else {
-          // Draw initials placeholder
-          drawInitials(player, photoX, photoY);
+          console.warn('[PDF] No image in cache for', player.name, 'photoUrl:', player.photoUrl);
         }
 
-        // Helper function to draw initials
-        function drawInitials(p: Doc<"players">, px: number, py: number) {
-          // Gradient background for initials
-          pdf.setFillColor(59, 130, 246); // blue-600
-          pdf.roundedRect(px, py, photoSize, photoSize, 2, 2, 'F');
-
-          // Initials text
-          pdf.setTextColor(255, 255, 255);
-          pdf.setFontSize(10);
+        // Player number overlapping photo and card border (top-left badge)
+        if (player.playerNumber) {
+          const numberText = `${player.playerNumber}`;
+          pdf.setFontSize(6.5);
           pdf.setFont('helvetica', 'bold');
-          const initials = getPlayerInitials(p.name);
-          pdf.text(initials, px + photoSize / 2, py + photoSize / 2 + 3, { align: 'center' });
+          const numWidth = pdf.getTextWidth(numberText) + 3;
+          const numHeight = 4.5;
+          // Dark badge background
+          pdf.setFillColor(15, 23, 42); // slate-900
+          pdf.roundedRect(photoX, photoY, numWidth, numHeight, 1.5, 1.5, 'F');
+          pdf.setTextColor(roleColor[0], roleColor[1], roleColor[2], roleColor[3]);
+          pdf.text(numberText, photoX + 1.5, photoY + 3.3);
         }
 
-        // Text content starts after the photo
-        const textX = x + 7 + photoSize + 4;
-        const textWidth = cardWidth - photoSize - 15;
 
-        // Player name
+        // Text content - right of photo
+        const textX = photoX + actualPhotoWidth + 2.5;
+        const textMaxWidth = cardWidth - actualPhotoWidth - 9;
+
+        // Player name - big bold font
         pdf.setTextColor(255, 255, 255);
-        pdf.setFontSize(10);
+        pdf.setFontSize(7.5);
         pdf.setFont('helvetica', 'bold');
-        const maxNameLength = Math.floor(textWidth / 2);
-        const truncatedName = player.name.length > maxNameLength ? player.name.substring(0, maxNameLength - 2) + '...' : player.name;
-        pdf.text(truncatedName, textX, y + 8);
+        const maxChars = Math.floor(textMaxWidth / 1.6);
+        const truncatedName = player.name.length > maxChars
+          ? player.name.substring(0, maxChars - 1) + '..'
+          : player.name;
+        pdf.text(truncatedName, textX, y + 10);
 
-        // Role badge
-        pdf.setFillColor(roleColor[0], roleColor[1], roleColor[2]);
-        pdf.setFontSize(6);
-        const roleWidth = pdf.getTextWidth(player.role) + 4;
-        pdf.roundedRect(textX, y + 10, roleWidth, 4, 1, 1, 'F');
+        // Age & Phone number side by side, below name
+        pdf.setFontSize(5.5);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(148, 163, 184); // slate-400
+        const ageText = `${player.age} yrs`;
+        const phoneText = player.phoneNumber || '';
+        const separator = phoneText ? '  |  ' : '';
+        pdf.text(`${ageText}${separator}${phoneText}`, textX, y + 14.5);
+
+        // Player type - smallest font, below age
+        pdf.setFontSize(5);
+        pdf.setFillColor(roleColor[0], roleColor[1], roleColor[2], roleColor[3]);
+        const roleDisplayText = getRoleDisplay(player.role);
+        const roleBadgeWidth = pdf.getTextWidth(roleDisplayText) + 3;
+        const roleBadgeY = y + 16;
+        pdf.roundedRect(textX, roleBadgeY, roleBadgeWidth, 3.5, 0.8, 0.8, 'F');
         pdf.setTextColor(255, 255, 255);
-        pdf.text(player.role, textX + 2, y + 13);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(roleDisplayText, textX + 1.5, roleBadgeY + 2.6);
 
-        //Status badge
-        const statusColor = player.auctionStatus === 'sold' ? [34, 197, 94] : // green
-          player.auctionStatus === 'unsold' ? [239, 68, 68] : // red
-            player.auctionStatus === 'in_auction' ? [234, 179, 8] : // yellow
-              [100, 116, 139]; // slate
-        pdf.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
-        const statusText = statusLabels[player.auctionStatus] || player.auctionStatus;
-        const statusWidth = pdf.getTextWidth(statusText) + 4;
-        pdf.roundedRect(textX + roleWidth + 2, y + 10, statusWidth, 4, 1, 1, 'F');
-        pdf.text(statusText, textX + roleWidth + 4, y + 13);
+        // Player Batting/Bowling Hand
+        pdf.setFontSize(5);
+        pdf.text(`${player.battingBowlingHand}`, textX, y + 25);
 
-        // Age on right side of photo area
-        pdf.setFontSize(7);
-        pdf.setTextColor(148, 163, 184);
-        pdf.text(`${player.age} yrs`, textX, y + 19);
-
-        // Details section below photo
-        pdf.setFontSize(7);
-        pdf.setFont('helvetica', 'normal');
-        let detailY = y + 26;
-
-        //Base Price & Sold Price
-        pdf.setTextColor(148, 163, 184);
-        pdf.text('Base:', x + 8, detailY);
-        pdf.setTextColor(34, 197, 94); // green
-        pdf.setFont('helvetica', 'normal');
-        pdf.text(formatCurrency(player.basePrice ?? 100000), x + 18, detailY);
-
-        if (player.soldPrice) {
-          pdf.setTextColor(148, 163, 184);
-          pdf.text('Sold:', x + cardWidth / 2, detailY);
-          pdf.setTextColor(234, 179, 8); // yellow
-          pdf.text(formatCurrency(player.soldPrice), x + cardWidth / 2 + 10, detailY);
-        } else {
-          // Style
-          pdf.setTextColor(148, 163, 184);
-          pdf.text('Style:', x + cardWidth / 2, detailY);
-          pdf.setTextColor(255, 255, 255);
-          const styleShort = player.battingBowlingHand.includes('Right') ? 'Right' : 'Left';
-          pdf.text(styleShort, x + cardWidth / 2 + 12, detailY);
-        }
-
-        detailY += 6;
-
-        // Team (if sold) or Phone
-        if (player.teamId) {
-          const teamName = getTeamName(player.teamId);
-          if (teamName) {
-            pdf.setTextColor(148, 163, 184);
-            pdf.text('Team:', x + 8, detailY);
-            pdf.setTextColor(59, 130, 246);
-            const truncatedTeam = teamName.length > 22 ? teamName.substring(0, 20) + '...' : teamName;
-            pdf.text(truncatedTeam, x + 18, detailY);
-          }
-        } else if (player.phoneNumber) {
-          pdf.setTextColor(148, 163, 184);
-          pdf.text('Phone:', x + 8, detailY);
-          pdf.setTextColor(255, 255, 255);
-          pdf.text(player.phoneNumber, x + 20, detailY);
-        }
-
-        detailY += 6;
-
-        // Jersey & T-Shirt
-        if (player.jerseyNumber) {
-          pdf.setTextColor(148, 163, 184);
-          pdf.text('Jersey:', x + 8, detailY);
-          pdf.setTextColor(255, 255, 255);
-          pdf.text(`#${player.jerseyNumber}`, x + 20, detailY);
-        }
-        if (player.tshirtSize) {
-          pdf.setTextColor(148, 163, 184);
-          pdf.text('Size:', x + cardWidth / 2, detailY);
-          pdf.setTextColor(255, 255, 255);
-          pdf.text(player.tshirtSize, x + cardWidth / 2 + 10, detailY);
-        }
       };
 
       // Draw each page
@@ -292,38 +299,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           pdf.addPage();
         }
 
-        // Page background
-        pdf.setFillColor(15, 23, 42); // slate-900
-        pdf.rect(0, 0, pageWidth, pageHeight, 'F');
-
-        // Header accent bar
-        pdf.setFillColor(59, 130, 246); // blue-500
-        pdf.rect(0, 0, pageWidth, 6, 'F');
-
-        // Title
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFontSize(18);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('ALL PLAYERS', pageWidth / 2, 18, { align: 'center' });
-
-        // Tournament name
-        if (tournament?.name) {
-          pdf.setFontSize(10);
-          pdf.setTextColor(148, 163, 184);
-          pdf.setFont('helvetica', 'normal');
-          pdf.text(tournament.name, pageWidth / 2, 25, { align: 'center' });
-        }
-
-        // Stats summary
-        pdf.setFontSize(8);
-        pdf.setTextColor(100, 116, 139);
-        pdf.text(
-          `Total: ${stats.total} | Batters: ${stats.batters} | Bowlers: ${stats.bowlers} | All-Rounders: ${stats.allRounders} | Sold: ${stats.sold} | Unsold: ${stats.unsold}`,
-          pageWidth / 2, 32, { align: 'center' }
-        );
-
-        // Page number
-        pdf.text(`Page ${page + 1} of ${totalPages}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
+        drawHeader(page, totalPages);
 
         // Draw player cards
         const startIdx = page * cardsPerPage;
@@ -332,29 +308,15 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         for (let i = startIdx; i < endIdx; i++) {
           const player = allPlayers[i];
           const cardIndex = i - startIdx;
-          const col = cardIndex % 2;
-          const row = Math.floor(cardIndex / 2);
+          const col = cardIndex % cols;
+          const row = Math.floor(cardIndex / cols);
 
-          const x = margin + col * (cardWidth + 10);
-          const y = 40 + row * (cardHeight + 8);
+          const x = margin + col * (cardWidth + colGap);
+          const y = headerHeight + row * (cardHeight + rowGap);
 
           drawPlayerCard(player, x, y);
         }
       }
-
-      // Footer on last page
-      pdf.setFontSize(8);
-      pdf.setTextColor(100, 116, 139);
-      pdf.text(
-        `Generated on ${new Date().toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        })}`,
-        pageWidth / 2,
-        pageHeight - 14,
-        { align: 'center' }
-      );
 
       // Save the PDF
       const fileName = `${tournament?.name?.replace(/\s+/g, '_') || 'Tournament'}_All_Players.pdf`;
@@ -366,7 +328,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
     } finally {
       setIsGeneratingPDF(false);
     }
-  }, [allPlayers, tournament, getTeamName, stats]);
+  }, [allPlayers, tournament]);
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
@@ -555,6 +517,15 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                 }`}
             >
               All-Rounders ({stats.allRounders})
+            </button>
+            <button
+              onClick={() => setFilterRole(filterRole === 'Wicket Keeper' ? 'all' : 'Wicket Keeper')}
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterRole === 'Wicket Keeper'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                }`}
+            >
+              WK ({stats.wicketKeepers})
             </button>
           </div>
 

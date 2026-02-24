@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { Trophy, Crown, Star, Medal, TrendingUp } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useEffect, useState } from 'react';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getRoleDisplay } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { TeamLogo } from '@/components/ui/team-logo';
@@ -13,7 +13,7 @@ import { PlayerAvatar } from '@/components/ui/player-avatar';
 interface SoldPlayer {
   _id: string;
   name: string;
-  role: string;
+  role: string | string[];
   soldPrice: number;
   teamId: string;
   photoUrl?: string;
@@ -123,8 +123,8 @@ export function AuctionCompleteScreen({
         >
           {tournamentLogoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img 
-              src={tournamentLogoUrl} 
+            <img
+              src={tournamentLogoUrl}
               alt={tournamentName}
               className="w-12 h-12 md:w-16 md:h-16 rounded-xl object-cover border-2 border-yellow-500/50"
             />
@@ -193,15 +193,15 @@ export function AuctionCompleteScreen({
                     >
                       <div className={`
                         w-8 h-8 rounded-full flex items-center justify-center font-bold
-                        ${index === 0 ? 'bg-yellow-500 text-black' : 
-                          index === 1 ? 'bg-slate-300 text-black' : 
-                          index === 2 ? 'bg-orange-600 text-white' : 
-                          'bg-slate-700 text-white'}
+                        ${index === 0 ? 'bg-yellow-500 text-black' :
+                          index === 1 ? 'bg-slate-300 text-black' :
+                            index === 2 ? 'bg-orange-600 text-white' :
+                              'bg-slate-700 text-white'}
                       `}>
                         {index + 1}
                       </div>
 
-                      <PlayerAvatar 
+                      <PlayerAvatar
                         name={player.name}
                         photoUrl={player.photoUrl}
                         size="sm"
@@ -209,14 +209,14 @@ export function AuctionCompleteScreen({
 
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold truncate">{player.name}</p>
-                        <p className="text-sm text-slate-400">{player.role}</p>
+                        <p className="text-sm text-slate-400">{getRoleDisplay(player.role)}</p>
                       </div>
 
                       <div className="text-right">
                         <p className="font-bold text-yellow-400">
                           {formatCurrency(player.soldPrice)}
                         </p>
-                        <p 
+                        <p
                           className="text-sm font-medium"
                           style={{ color: team?.colorPrimary || '#94a3b8' }}
                         >
