@@ -5,7 +5,7 @@ import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { X, Users, TrendingUp, Award, ShoppingBag, Crown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { formatCurrency, getPlayerInitials } from '@/lib/utils';
+import { formatCurrency, getPlayerInitials, getRoles, getRoleDisplay } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { PlayerAvatarCircle } from '@/components/ui/player-avatar';
 import { TeamLogo } from '@/components/ui/team-logo';
@@ -19,6 +19,7 @@ const roleColors: Record<string, string> = {
   'Batter': 'bg-blue-600',
   'Bowler': 'bg-red-600',
   'All-Rounder': 'bg-purple-600',
+  'Wicket Keeper': 'bg-emerald-600',
 };
 
 export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
@@ -37,9 +38,10 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
 
   // Calculate team composition
   const composition = {
-    batters: players.filter(p => p.role === 'Batter').length,
-    bowlers: players.filter(p => p.role === 'Bowler').length,
-    allRounders: players.filter(p => p.role === 'All-Rounder').length,
+    batters: players.filter(p => getRoles(p.role).includes('Batter')).length,
+    bowlers: players.filter(p => getRoles(p.role).includes('Bowler')).length,
+    allRounders: players.filter(p => getRoles(p.role).includes('All-Rounder')).length,
+    wicketKeepers: players.filter(p => getRoles(p.role).includes('Wicket Keeper')).length,
   };
 
   // Get top 3 most expensive players
@@ -174,7 +176,7 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
         {/* Team Composition */}
         <div className="mb-6">
           <h3 className="text-lg font-bold mb-3">Team Composition</h3>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="bg-blue-600/10 border border-blue-600/30 rounded-lg p-3 text-center">
               <div className="text-2xl font-bold text-blue-400">{composition.batters}</div>
               <div className="text-xs text-slate-400">Batters</div>
@@ -186,6 +188,10 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
             <div className="bg-purple-600/10 border border-purple-600/30 rounded-lg p-3 text-center">
               <div className="text-2xl font-bold text-purple-400">{composition.allRounders}</div>
               <div className="text-xs text-slate-400">All-Rounders</div>
+            </div>
+            <div className="bg-emerald-600/10 border border-emerald-600/30 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-emerald-400">{composition.wicketKeepers}</div>
+              <div className="text-xs text-slate-400">Wicket Keepers</div>
             </div>
           </div>
         </div>
@@ -206,7 +212,7 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
                     </div>
                     <div>
                       <div className="font-semibold">{player.name}</div>
-                      <div className="text-xs text-slate-400">{player.role}</div>
+                      <div className="text-xs text-slate-400">{getRoleDisplay(player.role)}</div>
                     </div>
                   </div>
                   <div className="text-right">
@@ -243,9 +249,11 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold truncate">{player.name}</div>
                       <div className="flex items-center gap-3 mt-1">
-                        <span className={`px-2 py-0.5 ${roleColors[player.role]} rounded text-xs font-semibold`}>
-                          {player.role}
-                        </span>
+                        {getRoles(player.role).map(r => (
+                          <span key={r} className={`px-2 py-0.5 ${roleColors[r] || 'bg-slate-600'} rounded text-xs font-semibold`}>
+                            {r}
+                          </span>
+                        ))}
                         <span className="text-xs text-slate-400">{player.age}y</span>
                         <span className="text-xs text-amber-400">{player.battingBowlingHand}</span>
                       </div>

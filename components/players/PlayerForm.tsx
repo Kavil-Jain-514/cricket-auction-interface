@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { PLAYER_ROLES } from '@/lib/utils';
 
 interface PlayerFormProps {
   tournamentId: Id<"tournaments">;
@@ -31,9 +32,9 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     name: '',
     phoneNumber: '',
     age: 24,
-    role: 'All-Rounder' as 'Batter' | 'Bowler' | 'All-Rounder',
+    role: ['All-Rounder'] as string[],
     battingBowlingHand: 'Right-handed' as 'Right-handed' | 'Left-handed',
-    tshirtSize: 'L' as 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
+    tshirtSize: 'L' as 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
     jerseyNumber: undefined as number | undefined,
     basePrice: undefined as number | undefined,
     photoUrl: '',
@@ -193,20 +194,30 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
             </div>
 
             <div>
-              <Label htmlFor="role">Role *</Label>
-              <Select
-                value={formData.role}
-                onValueChange={(value) => setFormData({ ...formData, role: value as 'Batter' | 'Bowler' | 'All-Rounder' })}
-              >
-                <SelectTrigger className="mt-2 h-11 sm:h-12 text-base">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Batter" className="py-3">Batter</SelectItem>
-                  <SelectItem value="Bowler" className="py-3">Bowler</SelectItem>
-                  <SelectItem value="All-Rounder" className="py-3">All-Rounder</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>Role(s) *</Label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {PLAYER_ROLES.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        role: prev.role.includes(r)
+                          ? prev.role.filter(x => x !== r)
+                          : [...prev.role, r],
+                      }));
+                    }}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition border ${formData.role.includes(r)
+                      ? 'bg-blue-600 border-blue-500 text-white'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                      }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              {formData.role.length === 0 && <p className="text-red-400 text-xs mt-1">Select at least one role</p>}
             </div>
 
             <div className="col-span-2 sm:col-span-1">

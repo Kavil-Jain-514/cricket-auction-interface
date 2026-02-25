@@ -1,7 +1,7 @@
 "use client";
 
 import { Doc } from '@/convex/_generated/dataModel';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getRoles } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
@@ -24,6 +24,7 @@ const roleColors: Record<string, { bg: string; text: string; border: string }> =
   'Bowler': { bg: 'bg-orange-600/20', text: 'text-orange-400', border: 'border-orange-500' },
   'All-Rounder': { bg: 'bg-purple-600/20', text: 'text-purple-400', border: 'border-purple-500' },
   'All Rounder': { bg: 'bg-purple-600/20', text: 'text-purple-400', border: 'border-purple-500' },
+  'Wicket Keeper': { bg: 'bg-emerald-600/20', text: 'text-emerald-400', border: 'border-emerald-500' },
   'Wicket-Keeper': { bg: 'bg-green-600/20', text: 'text-green-400', border: 'border-green-500' },
 };
 
@@ -39,8 +40,17 @@ export function PlayerDetailsModal({
   teamName,
   onClose
 }: PlayerDetailsModalProps) {
-  const roleStyle = roleColors[player.role] || roleColors['Batter'];
+  const roles = getRoles(player.role);
+  const primaryRole = roles[0];
+  // const roleStyle = roleColors[primaryRole] || roleColors['Batter'];
   const statusStyle = statusConfig[player.auctionStatus] || statusConfig['pending'];
+
+  // Gradient based on primary role
+  const gradientClass = primaryRole === 'Batter' ? 'from-blue-600 to-blue-800' :
+    primaryRole === 'Bowler' ? 'from-orange-600 to-orange-800' :
+      primaryRole?.includes('All') ? 'from-purple-600 to-purple-800' :
+        primaryRole === 'Wicket Keeper' ? 'from-emerald-600 to-emerald-800' :
+          'from-green-600 to-green-800';
 
   return (
     <AnimatePresence>
@@ -60,11 +70,7 @@ export function PlayerDetailsModal({
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header with gradient */}
-          <div className={`relative h-28 sm:h-32 bg-linear-to-br ${player.role === 'Batter' ? 'from-blue-600 to-blue-800' :
-              player.role === 'Bowler' ? 'from-orange-600 to-orange-800' :
-                player.role.includes('All') ? 'from-purple-600 to-purple-800' :
-                  'from-green-600 to-green-800'
-            }`}>
+          <div className={`relative h-28 sm:h-32 bg-linear-to-br ${gradientClass}`}>
             {/* Close button */}
             <button
               onClick={onClose}
@@ -92,9 +98,14 @@ export function PlayerDetailsModal({
             <div className="text-center mb-6">
               <h2 className="text-2xl sm:text-3xl font-bold mb-2">{player.name}</h2>
               <div className="flex items-center justify-center gap-2 flex-wrap">
-                <span className={`px-3 py-1 rounded-full text-sm font-semibold ${roleStyle.bg} ${roleStyle.text} border ${roleStyle.border}`}>
-                  {player.role}
-                </span>
+                {roles.map((r) => {
+                  const rs = roleColors[r] || roleColors['Batter'];
+                  return (
+                    <span key={r} className={`px-3 py-1 rounded-full text-sm font-semibold ${rs.bg} ${rs.text} border ${rs.border}`}>
+                      {r}
+                    </span>
+                  );
+                })}
                 <span className={`px-3 py-1 rounded-full text-sm font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
                   {statusStyle.label}
                 </span>

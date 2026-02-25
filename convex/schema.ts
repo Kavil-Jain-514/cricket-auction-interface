@@ -88,12 +88,8 @@ export default defineSchema({
     phoneNumber: v.optional(v.string()),
     age: v.number(),
     photoUrl: v.optional(v.string()),
-    role: v.union(
-      v.literal("Batter"),
-      v.literal("Bowler"),
-      v.literal("All-Rounder"),
-      v.literal("All Rounder"),
-    ),
+    // Supports both legacy single string ("Batter") and new array format (["Batter", "Wicket Keeper"])
+    role: v.union(v.string(), v.array(v.string())),
     battingBowlingHand: v.union(
       v.literal("Right-handed"),
       v.literal("Left-handed"),
@@ -102,6 +98,7 @@ export default defineSchema({
     ),
     tshirtSize: v.optional(
       v.union(
+        v.literal("XS"),
         v.literal("S"),
         v.literal("M"),
         v.literal("L"),

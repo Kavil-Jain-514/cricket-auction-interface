@@ -8,11 +8,7 @@ export const create = mutation({
     name: v.string(),
     age: v.number(),
     photoUrl: v.optional(v.string()),
-    role: v.union(
-      v.literal("Batter"),
-      v.literal("Bowler"),
-      v.literal("All-Rounder"),
-    ),
+    role: v.array(v.string()),
     battingBowlingHand: v.union(
       v.literal("Right-handed"),
       v.literal("Left-handed"),
@@ -22,6 +18,7 @@ export const create = mutation({
     phoneNumber: v.optional(v.string()),
     tshirtSize: v.optional(
       v.union(
+        v.literal("XS"),
         v.literal("S"),
         v.literal("M"),
         v.literal("L"),
@@ -182,8 +179,8 @@ export const listByTournament = query({
     }
 
     // Map players to resolve basePrice fallback and strip PII for non-admins
-    const resolvedPlayers = players.map(p => {
-      const { phoneNumber, ...publicFields } = p;
+    const resolvedPlayers = players.map((p) => {
+      const { ...publicFields } = p;
       return {
         ...(isAdminUser ? p : publicFields),
         basePrice: p.basePrice ?? tournament.settings?.basePrice ?? 100000,
@@ -205,13 +202,7 @@ export const update = mutation({
     phoneNumber: v.optional(v.string()),
     age: v.optional(v.number()),
     photoUrl: v.optional(v.string()),
-    role: v.optional(
-      v.union(
-        v.literal("Batter"),
-        v.literal("Bowler"),
-        v.literal("All-Rounder"),
-      ),
-    ),
+    role: v.optional(v.array(v.string())),
     battingBowlingHand: v.optional(
       v.union(v.literal("Right-handed"), v.literal("Left-handed")),
     ),
@@ -219,6 +210,7 @@ export const update = mutation({
     jerseyNumber: v.optional(v.number()),
     tshirtSize: v.optional(
       v.union(
+        v.literal("XS"),
         v.literal("S"),
         v.literal("M"),
         v.literal("L"),
@@ -235,7 +227,7 @@ export const update = mutation({
 
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
-    
+
     if (args.basePrice !== undefined) {
       if (args.basePrice < 50000) {
         throw new Error("Base price must be at least ₹50,000");

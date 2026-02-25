@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { formatCurrency, getErrorMessage } from '@/lib/utils';
+import { formatCurrency, getErrorMessage, getRoleDisplay } from '@/lib/utils';
 import { useSound } from '@/hooks/useSound';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { TeamLogo } from '@/components/ui/team-logo';
@@ -995,7 +995,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
                       <div className="flex flex-wrap justify-center sm:justify-start gap-2 mb-3 sm:mb-4">
                         <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-purple-600 rounded-full text-xs sm:text-sm font-semibold">
-                          {currentPlayer.role}
+                          {getRoleDisplay(currentPlayer.role)}
                         </span>
                         <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
                           {currentPlayer.age} years
@@ -1246,7 +1246,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 className="flex flex-wrap justify-center gap-3 sm:gap-4 mb-6 sm:mb-8"
               >
                 <span className="px-4 sm:px-6 py-2 sm:py-3 bg-purple-600 rounded-full text-sm sm:text-lg font-semibold text-white shadow-lg">
-                  {currentPlayer.role}
+                  {getRoleDisplay(currentPlayer.role)}
                 </span>
                 <span className="px-4 sm:px-6 py-2 sm:py-3 bg-slate-700 rounded-full text-sm sm:text-lg text-white shadow-lg">
                   {currentPlayer.age} years

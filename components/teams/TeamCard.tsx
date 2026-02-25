@@ -54,7 +54,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
         captainHand: team.captainHand,
         players: teamPlayers.map(p => ({
           name: p.name,
-          role: p.role,
+          role: Array.isArray(p.role) ? p.role.join(", ") : p.role,
           soldPrice: p.soldPrice,
           jerseyNumber: p.jerseyNumber,
           battingBowlingHand: p.battingBowlingHand,

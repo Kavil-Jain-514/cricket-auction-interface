@@ -7,7 +7,7 @@ import { Id } from '@/convex/_generated/dataModel';
 import { X, Search, UserCheck, UserX, ArrowRightLeft, DollarSign, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatCurrency, getErrorMessage } from '@/lib/utils';
+import { formatCurrency, getErrorMessage, getRoleDisplay } from '@/lib/utils';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TeamLogo } from '@/components/ui/team-logo';
@@ -219,7 +219,7 @@ export function AdminPlayerManager({ tournamentId, onClose }: AdminPlayerManager
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
-                                                <span>{player.role}</span>
+                                                <span>{getRoleDisplay(player.role)}</span>
                                                 {player.auctionStatus === 'sold' && team && (
                                                     <>
                                                         <span>•</span>

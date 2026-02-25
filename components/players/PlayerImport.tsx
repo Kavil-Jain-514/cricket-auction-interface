@@ -9,6 +9,7 @@ import { Upload, FileSpreadsheet, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+import { PLAYER_ROLES } from '@/lib/utils';
 
 interface PlayerImportProps {
   tournamentId: Id<"tournaments">;
@@ -19,7 +20,7 @@ interface ParsedPlayer {
   name: string;
   phoneNumber?: string;
   age: number;
-  role: string;
+  role: string[];
   battingBowlingHand: string;
   tshirtSize?: string;
   jerseyNumber?: number;
@@ -70,9 +71,9 @@ function parseGoogleDriveUrl(url: string | undefined): string | undefined {
 }
 
 // Parse T-Shirt size from various formats
-function parseTshirtSize(size: string): 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL' | undefined {
+function parseTshirtSize(size: string): 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL' | undefined {
   const normalized = size.toUpperCase().trim();
-  const validSizes: ('S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL')[] = ['S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'];
+  const validSizes: ('XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL')[] = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'];
 
   if (validSizes.includes(normalized as typeof validSizes[number])) {
     return normalized as typeof validSizes[number];
@@ -152,11 +153,20 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
 
       jsonData.forEach((row, idx) => {
         try {
+          // Parse role — support "Batter / Wicket Keeper" or "Batter, Bowler" etc.
+          const rawRole = String(getColumnValue(row, 'Player Role', 'Role', 'player role') || 'All-Rounder').trim();
+          const parsedRoles = rawRole
+            .split(/[/,&]+/)
+            .map(r => r.trim())
+            .map(r => r === 'All Rounder' ? 'All-Rounder' : r)
+            .map(r => r === 'WK' || r === 'Keeper' || r === 'Wicketkeeper' ? 'Wicket Keeper' : r)
+            .filter(r => (PLAYER_ROLES as readonly string[]).includes(r));
+
           const player: ParsedPlayer = {
             name: String(getColumnValue(row, 'Player Name', 'Name', 'player name') || '').trim(),
             phoneNumber: getColumnValue(row, 'Phone Number', 'Phone', 'phone number', 'Mobile') ? String(getColumnValue(row, 'Phone Number', 'Phone', 'phone number', 'Mobile')) : undefined,
             age: parseInt(String(getColumnValue(row, 'Age', 'age'))) || 0,
-            role: String(getColumnValue(row, 'Player Role', 'Role', 'player role') || 'All-Rounder').trim(),
+            role: parsedRoles.length > 0 ? parsedRoles : ['All-Rounder'],
             battingBowlingHand: String(getColumnValue(row, 'Batting/Bowling Hand', 'Hand', 'Batting Hand', 'batting/bowling hand') || '').includes('Left') ? 'Left-handed' : 'Right-handed',
             tshirtSize: parseTshirtSize(String(getColumnValue(row, 'T-Shirt Size', 'T Shirt Size', 'TShirt Size', 'Tshirt', 'T-Shirt', 'T shirt', 'tshirt size', 'Shirt Size', 'shirt') || '')),
             jerseyNumber: getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey') ? parseInt(String(getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey'))) : undefined,
@@ -181,10 +191,6 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
           }
           if (player.age < 15 || player.age > 65) {
             validationErrors.push(`Row ${idx + 2}: Age must be between 15-65 for "${player.name}"`);
-            return;
-          }
-          if (!['Batter', 'Bowler', 'All-Rounder'].includes(player.role)) {
-            validationErrors.push(`Row ${idx + 2}: Invalid role "${player.role}" for "${player.name}". Use: Batter, Bowler, or All-Rounder`);
             return;
           }
           if (player.basePrice !== undefined && player.basePrice < 50000) {
