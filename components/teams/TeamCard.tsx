@@ -57,6 +57,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
           role: Array.isArray(p.role) ? p.role.join(", ") : p.role,
           soldPrice: p.soldPrice,
           jerseyNumber: p.jerseyNumber,
+          jerseyName: p.jerseyName,
           battingBowlingHand: p.battingBowlingHand,
           phoneNumber: (p as Record<string, unknown>).phoneNumber as string | undefined,
           tshirtSize: p.tshirtSize,

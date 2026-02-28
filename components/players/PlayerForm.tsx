@@ -36,6 +36,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     battingBowlingHand: 'Right-handed' as 'Right-handed' | 'Left-handed',
     tshirtSize: 'L' as 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
     jerseyNumber: undefined as number | undefined,
+    jerseyName: '',
     basePrice: undefined as number | undefined,
     photoUrl: '',
   });
@@ -114,6 +115,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
         battingBowlingHand: formData.battingBowlingHand,
         tshirtSize: formData.tshirtSize,
         jerseyNumber: formData.jerseyNumber,
+        jerseyName: formData.jerseyName || undefined,
         basePrice: formData.basePrice,
         photoUrl: formData.photoUrl || undefined,
       });
@@ -174,7 +176,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
           </div>
 
           {/* Row 2: Age, Role, Hand, T-Shirt Size, Jersey */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
             <div>
               <Label htmlFor="age">Age *</Label>
               <Input
@@ -276,6 +278,17 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 className={`mt-2 h-11 sm:h-12 text-base ${errors.jerseyNumber ? 'border-red-500' : ''}`}
               />
               {errors.jerseyNumber && <p className="text-red-400 text-xs mt-1">{errors.jerseyNumber}</p>}
+            </div>
+
+            <div>
+              <Label htmlFor="jerseyName">Jersey Name</Label>
+              <Input
+                id="jerseyName"
+                value={formData.jerseyName}
+                onChange={(e) => setFormData({ ...formData, jerseyName: e.target.value })}
+                placeholder="e.g., SHARMA"
+                className="mt-2 h-11 sm:h-12 text-base"
+              />
             </div>
           </div>
 

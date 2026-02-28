@@ -6,6 +6,7 @@ interface Player {
   soldPrice?: number;
   // age: number;
   jerseyNumber?: number;
+  jerseyName?: string;
   battingBowlingHand: string;
   phoneNumber?: string;
   tshirtSize?: string;
@@ -197,9 +198,10 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
   doc.text("Phone", margin + 45, y + 6);
   doc.text("Role", margin + 75, y + 6);
   doc.text("Jersey#", margin + 100, y + 6);
-  doc.text("Size", margin + 115, y + 6);
-  doc.text("Hand", margin + 130, y + 6);
-  doc.text("Price", margin + 150, y + 6);
+  doc.text("Jersey Name", margin + 112, y + 6);
+  doc.text("Size", margin + 138, y + 6);
+  doc.text("Hand", margin + 150, y + 6);
+  doc.text("Price", margin + 163, y + 6);
 
   y += 10;
 
@@ -229,9 +231,10 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
       doc.text("Phone", margin + 45, y + 6);
       doc.text("Role", margin + 75, y + 6);
       doc.text("Jersey#", margin + 100, y + 6);
-      doc.text("Size", margin + 115, y + 6);
-      doc.text("Hand", margin + 130, y + 6);
-      doc.text("Price", margin + 150, y + 6);
+      doc.text("Jersey Name", margin + 112, y + 6);
+      doc.text("Size", margin + 138, y + 6);
+      doc.text("Hand", margin + 150, y + 6);
+      doc.text("Price", margin + 163, y + 6);
 
       y += 10;
       doc.setFont("helvetica", "normal");
@@ -250,14 +253,15 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
     doc.text(player.phoneNumber || "-", margin + 45, y + 2);
     doc.text(player.role.substring(0, 10), margin + 75, y + 2);
     doc.text(`${player.jerseyNumber || "-"}`, margin + 100, y + 2);
-    doc.text(player.tshirtSize || "-", margin + 115, y + 2);
+    doc.text((player.jerseyName || "-").substring(0, 10), margin + 112, y + 2);
+    doc.text(player.tshirtSize || "-", margin + 138, y + 2);
 
     // Simplify hand display
     const hand = player.battingBowlingHand.includes("Right") ? "R" : "L";
-    doc.text(hand, margin + 130, y + 2);
+    doc.text(hand, margin + 150, y + 2);
 
     doc.setTextColor(34, 139, 34); // Green for price
-    doc.text(formatCurrency(player.soldPrice || 0), margin + 150, y + 2);
+    doc.text(formatCurrency(player.soldPrice || 0), margin + 163, y + 2);
 
     y += 8;
   });

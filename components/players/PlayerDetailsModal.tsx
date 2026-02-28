@@ -147,8 +147,14 @@ export function PlayerDetailsModal({
                   )}
                   {player.jerseyNumber && (
                     <div>
-                      <span className="text-slate-500">Jersey</span>
+                      <span className="text-slate-500">Jersey #</span>
                       <p className="font-semibold">#{player.jerseyNumber}</p>
+                    </div>
+                  )}
+                  {player.jerseyName && (
+                    <div>
+                      <span className="text-slate-500">Jersey Name</span>
+                      <p className="font-semibold">{player.jerseyName}</p>
                     </div>
                   )}
                 </div>

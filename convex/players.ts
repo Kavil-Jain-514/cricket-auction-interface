@@ -15,6 +15,7 @@ export const create = mutation({
     ),
     basePrice: v.optional(v.number()),
     jerseyNumber: v.optional(v.number()),
+    jerseyName: v.optional(v.string()),
     phoneNumber: v.optional(v.string()),
     tshirtSize: v.optional(
       v.union(
@@ -91,6 +92,7 @@ export const create = mutation({
       battingBowlingHand: args.battingBowlingHand,
       basePrice: args.basePrice,
       jerseyNumber: args.jerseyNumber,
+      jerseyName: args.jerseyName,
       playerNumber: nextPlayerNumber,
       tshirtSize: args.tshirtSize,
       auctionStatus: "pending",
@@ -137,6 +139,7 @@ export const bulkImport = mutation({
         battingBowlingHand: player.battingBowlingHand,
         basePrice: player.basePrice,
         jerseyNumber: player.jerseyNumber,
+        jerseyName: player.jerseyName,
         playerNumber: maxPlayerNumber + index + 1,
         tshirtSize: player.tshirtSize,
         auctionStatus: "pending",
@@ -208,6 +211,7 @@ export const update = mutation({
     ),
     basePrice: v.optional(v.number()),
     jerseyNumber: v.optional(v.number()),
+    jerseyName: v.optional(v.string()),
     tshirtSize: v.optional(
       v.union(
         v.literal("XS"),

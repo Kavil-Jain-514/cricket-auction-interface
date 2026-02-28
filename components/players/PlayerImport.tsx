@@ -24,6 +24,7 @@ interface ParsedPlayer {
   battingBowlingHand: string;
   tshirtSize?: string;
   jerseyNumber?: number;
+  jerseyName?: string;
   basePrice?: number;
   photoUrl?: string;
 }
@@ -168,8 +169,9 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             age: parseInt(String(getColumnValue(row, 'Age', 'age'))) || 0,
             role: parsedRoles.length > 0 ? parsedRoles : ['All-Rounder'],
             battingBowlingHand: String(getColumnValue(row, 'Batting/Bowling Hand', 'Hand', 'Batting Hand', 'batting/bowling hand') || '').includes('Left') ? 'Left-handed' : 'Right-handed',
-            tshirtSize: parseTshirtSize(String(getColumnValue(row, 'T-Shirt Size', 'T Shirt Size', 'TShirt Size', 'Tshirt', 'T-Shirt', 'T shirt', 'tshirt size', 'Shirt Size', 'shirt') || '')),
+            tshirtSize: parseTshirtSize(String(getColumnValue(row, 'T-Shirt Size', 'T Shirt Size', 'TShirt Size', 'Tshirt', 'T-Shirt', 'T shirt', 'tshirt size', 'Shirt Size', 'shirt', 'Jersey Size') || '')),
             jerseyNumber: getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey') ? parseInt(String(getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey'))) : undefined,
+            jerseyName: getColumnValue(row, 'Jersey Name', 'jersey name', 'Jersey Name On Back', 'Name On Jersey') ? String(getColumnValue(row, 'Jersey Name', 'jersey name', 'Jersey Name On Back', 'Name On Jersey')).trim() : undefined,
             basePrice: getColumnValue(row, 'Base Price', 'base price', 'Price') ? (parseInt(String(getColumnValue(row, 'Base Price', 'base price', 'Price'))) || undefined) : undefined,
             photoUrl: parseGoogleDriveUrl(getColumnValue(row, 'Profile Photo', 'Photo', 'profile photo', 'Image') as string | undefined),
           };
@@ -329,7 +331,8 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                     <th className="px-4 py-3 text-left text-sm font-semibold">Role</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Age</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Hand</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">Jersey</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Jersey #</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Jersey Name</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">T-Shirt</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Base Price</th>
                   </tr>
@@ -383,6 +386,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                       <td className="px-4 py-3 text-sm">{player.age}</td>
                       <td className="px-4 py-3 text-sm">{player.battingBowlingHand}</td>
                       <td className="px-4 py-3 text-sm">{player.jerseyNumber || '-'}</td>
+                      <td className="px-4 py-3 text-sm">{player.jerseyName || '-'}</td>
                       <td className="px-4 py-3 text-sm">{player.tshirtSize || '-'}</td>
                       <td className="px-4 py-3 text-sm font-semibold">
                         {player.basePrice ? `₹${(player.basePrice / 100000).toFixed(1)}L` : 'Default'}
