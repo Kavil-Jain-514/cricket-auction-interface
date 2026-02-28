@@ -88,6 +88,16 @@ function parseTshirtSize(size: string): 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | 
   return undefined;
 }
 
+// Normalize a single role token to a valid PLAYER_ROLES value
+function normalizeRole(r: string): string {
+  const s = r.trim().toLowerCase();
+  if (s === 'batter' || s === 'batsman' || s === 'bat') return 'Batter';
+  if (s === 'bowler' || s === 'bowl') return 'Bowler';
+  if (s === 'all-rounder' || s === 'all rounder' || s === 'allrounder' || s === 'ar') return 'All-Rounder';
+  if (s === 'wicket keeper' || s === 'wicket-keeper' || s === 'wicketkeeper' || s === 'wk' || s === 'keeper' || s === 'wicket') return 'Wicket Keeper';
+  return (PLAYER_ROLES as readonly string[]).find(role => role.toLowerCase() === s) || r.trim();
+}
+
 // Helper to get column value with flexible matching (case-insensitive and partial match)
 function getColumnValue(row: Record<string, unknown>, ...possibleNames: string[]): unknown {
   const keys = Object.keys(row);
@@ -142,11 +152,34 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+
+      // --- Hyperlink extraction ---
+      // sheet_to_json only returns cell values, not hyperlink targets.
+      // Photos are often stored as hyperlinks (display text ≠ URL).
+      // We scan every cell for a hyperlink and store it by address.
+      const hyperlinksByAddress: Record<string, string> = {};
+      for (const addr of Object.keys(worksheet)) {
+        if (addr.startsWith('!')) continue;
+        const cell = worksheet[addr] as { l?: { Target?: string } };
+        if (cell?.l?.Target) {
+          hyperlinksByAddress[addr] = cell.l.Target;
+        }
+      }
+
+      // Find the photo column index from the header row so we can look up hyperlinks per data row
+      const headerRowRaw = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1 })[0] ?? [];
+      const photoColIdx = (headerRowRaw as unknown[]).findIndex((h) => {
+        if (typeof h !== 'string') return false;
+        const l = h.toLowerCase();
+        return l.includes('photo') || l.includes('image') || l === 'pic' || l === 'picture' || l.includes('drive');
+      });
+
       const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
 
       // Debug: Log all column names from Excel
       if (jsonData.length > 0) {
         console.log('Excel columns found:', Object.keys(jsonData[0]));
+        console.log('Photo column index:', photoColIdx, '| Hyperlinks found:', Object.keys(hyperlinksByAddress).length);
       }
 
       const players: ParsedPlayer[] = [];
@@ -154,14 +187,33 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
 
       jsonData.forEach((row, idx) => {
         try {
-          // Parse role — support "Batter / Wicket Keeper" or "Batter, Bowler" etc.
-          const rawRole = String(getColumnValue(row, 'Player Role', 'Role', 'player role') || 'All-Rounder').trim();
-          const parsedRoles = rawRole
-            .split(/[/,&]+/)
-            .map(r => r.trim())
-            .map(r => r === 'All Rounder' ? 'All-Rounder' : r)
-            .map(r => r === 'WK' || r === 'Keeper' || r === 'Wicketkeeper' ? 'Wicket Keeper' : r)
-            .filter(r => (PLAYER_ROLES as readonly string[]).includes(r));
+          // Parse role — support "Batter, Bowler" or "Batter / Wicket Keeper" or "Batter & Bowler"
+          const rawRole = String(getColumnValue(row, 'Player Role', 'Role', 'player role', 'Roles', 'Position', 'Player Type') || '').trim();
+
+          const parsedRoles = rawRole.length > 0
+            ? rawRole
+                .split(/[/,&,]+/)
+                .map(r => normalizeRole(r))
+                .filter(r => (PLAYER_ROLES as readonly string[]).includes(r))
+            : [];
+
+          console.log(`Row ${idx + 2}: rawRole="${rawRole}" → parsedRoles=${JSON.stringify(parsedRoles)}`);
+
+          // Resolve photo URL: prefer hyperlink target (row idx+1 because row 0 is the header)
+          let resolvedPhotoUrl: string | undefined;
+          if (photoColIdx >= 0) {
+            const cellAddr = XLSX.utils.encode_cell({ r: idx + 1, c: photoColIdx });
+            const hyperlinkTarget = hyperlinksByAddress[cellAddr];
+            if (hyperlinkTarget) {
+              resolvedPhotoUrl = parseGoogleDriveUrl(hyperlinkTarget) ?? undefined;
+            }
+          }
+          // Fall back to plain cell value if no hyperlink was found
+          if (!resolvedPhotoUrl) {
+            resolvedPhotoUrl = parseGoogleDriveUrl(
+              getColumnValue(row, 'Profile Photo', 'Photo', 'profile photo', 'Image', 'Picture', 'Pic', 'Player Photo') as string | undefined
+            ) ?? undefined;
+          }
 
           const player: ParsedPlayer = {
             name: String(getColumnValue(row, 'Player Name', 'Name', 'player name') || '').trim(),
@@ -170,15 +222,16 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             role: parsedRoles.length > 0 ? parsedRoles : ['All-Rounder'],
             battingBowlingHand: String(getColumnValue(row, 'Batting/Bowling Hand', 'Hand', 'Batting Hand', 'batting/bowling hand') || '').includes('Left') ? 'Left-handed' : 'Right-handed',
             tshirtSize: parseTshirtSize(String(getColumnValue(row, 'T-Shirt Size', 'T Shirt Size', 'TShirt Size', 'Tshirt', 'T-Shirt', 'T shirt', 'tshirt size', 'Shirt Size', 'shirt', 'Jersey Size') || '')),
-            jerseyNumber: getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey') ? parseInt(String(getColumnValue(row, 'Jersey Number', 'Jersey', 'jersey number', 'Jersey No', 'jersey'))) : undefined,
+            jerseyNumber: getColumnValue(row, 'Jersey Number', 'Jersey No', 'jersey number') ? parseInt(String(getColumnValue(row, 'Jersey Number', 'Jersey No', 'jersey number'))) : undefined,
             jerseyName: getColumnValue(row, 'Jersey Name', 'jersey name', 'Jersey Name On Back', 'Name On Jersey') ? String(getColumnValue(row, 'Jersey Name', 'jersey name', 'Jersey Name On Back', 'Name On Jersey')).trim() : undefined,
             basePrice: getColumnValue(row, 'Base Price', 'base price', 'Price') ? (parseInt(String(getColumnValue(row, 'Base Price', 'base price', 'Price'))) || undefined) : undefined,
-            photoUrl: parseGoogleDriveUrl(getColumnValue(row, 'Profile Photo', 'Photo', 'profile photo', 'Image') as string | undefined),
+            photoUrl: resolvedPhotoUrl,
           };
 
           // Debug: Log raw row data for first player
           if (idx === 0) {
             console.log('First row raw data:', JSON.stringify(row, null, 2));
+            console.log('First row photoUrl resolved to:', resolvedPhotoUrl);
           }
           console.log(`Player ${player.name}: Jersey = ${player.jerseyNumber}, T-Shirt = ${player.tshirtSize}`);
 
@@ -379,9 +432,13 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                       </td>
                       <td className="px-4 py-3 text-sm">{player.name}</td>
                       <td className="px-4 py-3">
-                        <span className="px-2 py-1 bg-purple-600 rounded text-xs">
-                          {player.role}
-                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {player.role.map((r) => (
+                            <span key={r} className="px-2 py-1 bg-purple-600 rounded text-xs">
+                              {r}
+                            </span>
+                          ))}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-sm">{player.age}</td>
                       <td className="px-4 py-3 text-sm">{player.battingBowlingHand}</td>
