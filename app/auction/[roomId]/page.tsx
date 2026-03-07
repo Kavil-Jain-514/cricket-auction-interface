@@ -111,7 +111,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         amount?: number;
         sold?: boolean;
         success?: boolean;
+        reason?: string;
       } | null;
+
+      // Another admin tab already finalized this player — silently ignore.
+      if (res && !res.success && res.reason === "No player in auction") return;
+
       const isSold = res?.sold ?? hadBidder;
       const finalTeamName = res?.teamName ?? bidderTeam?.name ?? null;
       const finalAmount = res?.amount ?? bidAmount;
@@ -196,6 +201,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     // Check if this is a new player (different from last one we showed intro for)
     if (newPlayerId && player && newPlayerId !== lastPlayerIdRef.current) {
       lastPlayerIdRef.current = newPlayerId;
+
+      // Reset custom bid amounts so the accumulated map doesn't grow unboundedly.
+      // Defer state update to avoid synchronous setState in effect
+      requestAnimationFrame(() => {
+        setCustomBidAmounts({});
+      });
 
       // Clear any existing timer
       if (introTimerRef.current) {
@@ -1287,6 +1298,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       {showPlayerManager && auctionData.tournament && (
         <AdminPlayerManager
           tournamentId={auctionData.tournament._id}
+          maxPlayersPerTeam={auctionData.tournament.settings.maxPlayersPerTeam}
+          tournamentBasePrice={auctionData.tournament.settings.basePrice ?? 100000}
           onClose={() => setShowPlayerManager(false)}
         />
       )}

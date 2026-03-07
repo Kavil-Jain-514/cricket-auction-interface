@@ -14,6 +14,8 @@ import { TeamLogo } from '@/components/ui/team-logo';
 
 interface AdminPlayerManagerProps {
     tournamentId: Id<"tournaments">;
+    maxPlayersPerTeam: number;
+    tournamentBasePrice: number;
     onClose: () => void;
 }
 
@@ -27,7 +29,7 @@ interface EditState {
     newPrice?: number;
 }
 
-export function AdminPlayerManager({ tournamentId, onClose }: AdminPlayerManagerProps) {
+export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournamentBasePrice, onClose }: AdminPlayerManagerProps) {
     const players = useQuery(api.players.listByTournament, { tournamentId });
     const teams = useQuery(api.teams.listByTournament, { tournamentId });
 
@@ -320,11 +322,10 @@ export function AdminPlayerManager({ tournamentId, onClose }: AdminPlayerManager
                                                     {/* Mark as sold: team + price */}
                                                     {editState.action === 'status' && editState.newStatus === 'sold' && (() => {
                                                         const selectedTeam = editState.newTeamId ? teams?.find(t => t._id === editState.newTeamId) : null;
-                                                        const maxPlayers = 15; // fallback; actual check is on backend
                                                         const teamPlayerCount = selectedTeam ? (players?.filter(p => p.teamId === selectedTeam._id && p.auctionStatus === 'sold').length || 0) : 0;
-                                                        const slotsNeeded = maxPlayers - teamPlayerCount - 1; // -1 for this player
+                                                        const slotsNeeded = maxPlayersPerTeam - teamPlayerCount - 1; // -1 for this player
                                                         const purseAfter = selectedTeam ? selectedTeam.purseRemaining - (editState.newPrice || 0) : 0;
-                                                        const basePrice = 100000; // conservative estimate
+                                                        const basePrice = tournamentBasePrice;
                                                         const canFillSquad = !selectedTeam || slotsNeeded <= 0 || purseAfter >= slotsNeeded * basePrice;
                                                         const insufficientPurse = selectedTeam && (editState.newPrice || 0) > selectedTeam.purseRemaining;
 
@@ -373,11 +374,10 @@ export function AdminPlayerManager({ tournamentId, onClose }: AdminPlayerManager
                                                     {/* Reassign: new team + optional new price */}
                                                     {editState.action === 'reassign' && (() => {
                                                         const selectedTeam = editState.newTeamId ? teams?.find(t => t._id === editState.newTeamId) : null;
-                                                        const maxPlayers = 15;
                                                         const teamPlayerCount = selectedTeam ? (players?.filter(p => p.teamId === selectedTeam._id && p.auctionStatus === 'sold').length || 0) : 0;
-                                                        const slotsNeeded = maxPlayers - teamPlayerCount - 1;
+                                                        const slotsNeeded = maxPlayersPerTeam - teamPlayerCount - 1;
                                                         const purseAfter = selectedTeam ? selectedTeam.purseRemaining - (editState.newPrice || 0) : 0;
-                                                        const basePrice = 100000;
+                                                        const basePrice = tournamentBasePrice;
                                                         const canFillSquad = !selectedTeam || slotsNeeded <= 0 || purseAfter >= slotsNeeded * basePrice;
                                                         const insufficientPurse = selectedTeam && (editState.newPrice || 0) > selectedTeam.purseRemaining;
 
@@ -429,11 +429,10 @@ export function AdminPlayerManager({ tournamentId, onClose }: AdminPlayerManager
                                                         const team = currentPlayer?.teamId ? teams?.find(t => t._id === currentPlayer.teamId) : null;
                                                         const oldPrice = currentPlayer?.soldPrice || 0;
                                                         const priceDiff = (editState.newPrice || 0) - oldPrice;
-                                                        const maxPlayers = 15;
                                                         const teamPlayerCount = team ? (players?.filter(p => p.teamId === team._id && p.auctionStatus === 'sold').length || 0) : 0;
-                                                        const slotsNeeded = maxPlayers - teamPlayerCount;
+                                                        const slotsNeeded = maxPlayersPerTeam - teamPlayerCount;
                                                         const purseAfter = team ? team.purseRemaining - priceDiff : 0;
-                                                        const basePrice = 100000;
+                                                        const basePrice = tournamentBasePrice;
                                                         const canFillSquad = !team || slotsNeeded <= 0 || purseAfter >= slotsNeeded * basePrice;
                                                         const insufficientPurse = team && priceDiff > 0 && priceDiff > team.purseRemaining;
 

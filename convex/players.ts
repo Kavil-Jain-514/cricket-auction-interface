@@ -104,10 +104,39 @@ export const create = mutation({
   },
 });
 
+const tshirtSizeValidator = v.optional(
+  v.union(
+    v.literal("XS"),
+    v.literal("S"),
+    v.literal("M"),
+    v.literal("L"),
+    v.literal("XL"),
+    v.literal("XXL"),
+    v.literal("3XL"),
+    v.literal("4XL"),
+  ),
+);
+
 export const bulkImport = mutation({
   args: {
     tournamentId: v.id("tournaments"),
-    players: v.array(v.any()),
+    players: v.array(
+      v.object({
+        name: v.string(),
+        age: v.number(),
+        role: v.array(v.string()),
+        battingBowlingHand: v.union(
+          v.literal("Right-handed"),
+          v.literal("Left-handed"),
+        ),
+        phoneNumber: v.optional(v.string()),
+        photoUrl: v.optional(v.string()),
+        basePrice: v.optional(v.number()),
+        jerseyNumber: v.optional(v.number()),
+        jerseyName: v.optional(v.string()),
+        tshirtSize: tshirtSizeValidator,
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     // Admin only
@@ -162,14 +191,6 @@ export const listByTournament = query({
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) return [];
 
-    const query = ctx.db
-      .query("players")
-      .withIndex("by_tournament", (q) =>
-        q.eq("tournamentId", args.tournamentId),
-      );
-
-    const players = await query.collect();
-
     // Check if the current user is an admin to determine PII visibility
     const identity = await ctx.auth.getUserIdentity();
     let isAdminUser = false;
@@ -181,20 +202,33 @@ export const listByTournament = query({
       isAdminUser = user?.role === "admin";
     }
 
+    // Use the compound index when filtering by status to avoid a full-collection scan.
+    const players = args.status
+      ? await ctx.db
+          .query("players")
+          .withIndex("by_tournament_status", (q) =>
+            q
+              .eq("tournamentId", args.tournamentId)
+              .eq("auctionStatus", args.status as "pending" | "sold" | "unsold" | "in_auction"),
+          )
+          .collect()
+      : await ctx.db
+          .query("players")
+          .withIndex("by_tournament", (q) =>
+            q.eq("tournamentId", args.tournamentId),
+          )
+          .collect();
+
     // Map players to resolve basePrice fallback and strip PII for non-admins
-    const resolvedPlayers = players.map((p) => {
-      const { ...publicFields } = p;
-      return {
-        ...(isAdminUser ? p : publicFields),
-        basePrice: p.basePrice ?? tournament.settings?.basePrice ?? 100000,
-      };
+    return players.map((p) => {
+      const basePrice = p.basePrice ?? tournament.settings?.basePrice ?? 100000;
+      if (isAdminUser) {
+        return { ...p, basePrice };
+      }
+      // Strip phone number for non-admin viewers
+      const { phoneNumber: _stripped, ...publicFields } = p;
+      return { ...publicFields, basePrice };
     });
-
-    if (args.status) {
-      return resolvedPlayers.filter((p) => p.auctionStatus === args.status);
-    }
-
-    return resolvedPlayers;
   },
 });
 

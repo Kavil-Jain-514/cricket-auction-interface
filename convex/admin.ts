@@ -398,14 +398,16 @@ export const resetTeamPurse = mutation({
         .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
         .collect();
 
-      for (const player of teamPlayers) {
-        await ctx.db.patch(player._id, {
-          teamId: undefined,
-          soldPrice: undefined,
-          auctionStatus: "unsold",
-          updatedAt: Date.now(),
-        });
-      }
+      await Promise.all(
+        teamPlayers.map((player) =>
+          ctx.db.patch(player._id, {
+            teamId: undefined,
+            soldPrice: undefined,
+            auctionStatus: "unsold",
+            updatedAt: Date.now(),
+          }),
+        ),
+      );
     }
 
     await ctx.db.patch(args.teamId, {
@@ -454,6 +456,10 @@ export const overrideCurrentBid = mutation({
   },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
+
+    if (args.amount <= 0) {
+      throw new Error("Override bid amount must be positive");
+    }
 
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
@@ -522,19 +528,15 @@ export const clearCurrentPlayerBids = mutation({
       )
       .collect();
 
-    // Delete all live bids
-    for (const bid of bids) {
-      await ctx.db.delete(bid._id);
-    }
+    // Delete all live bids in parallel
+    await Promise.all(bids.map((bid) => ctx.db.delete(bid._id)));
 
-    // Reset timer
+    // Reset timer — liveBids table is now the source of truth; do not write legacy fields
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     const timerSeconds = tournament?.settings.bidTimerSeconds || 30;
 
     await ctx.db.patch(args.auctionRoomId, {
       bidTimerEndsAt: Date.now() + timerSeconds * 1000,
-      currentBidAmount: undefined,
-      currentBidTeamId: undefined,
       updatedAt: Date.now(),
     });
 

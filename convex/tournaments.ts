@@ -116,12 +116,13 @@ export const list = query({
 
 // List all tournaments - for viewers to see active tournaments
 export const listAll = query({
-  handler: async (ctx) => {
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
 
-    // Return all tournaments ordered by creation date
-    return await ctx.db.query("tournaments").order("desc").collect();
+    const cap = Math.min(args.limit ?? 50, 100);
+    return await ctx.db.query("tournaments").order("desc").take(cap);
   },
 });
 
@@ -208,33 +209,41 @@ export const deleteTournament = mutation({
         .collect(),
     ]);
 
-    // Delete all related data in parallel batches
+    // Fetch bids and events for all auction rooms in a single parallel batch
+    // (avoids a sequential loop of round-trips per room).
+    const roomRelated = await Promise.all(
+      auctionRooms.map((room) =>
+        Promise.all([
+          ctx.db
+            .query("bids")
+            .withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id))
+            .collect(),
+          ctx.db
+            .query("auctionEvents")
+            .withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id))
+            .collect(),
+          ctx.db
+            .query("liveBids")
+            .withIndex("by_room", (q) => q.eq("auctionRoomId", room._id))
+            .collect(),
+        ]),
+      ),
+    );
+
+    // Flatten and delete everything in one batch
     const deletePromises: Promise<unknown>[] = [
-      ...players.map((player) => ctx.db.delete(player._id)),
-      ...teams.map((team) => ctx.db.delete(team._id)),
-      ...auctionRooms.map((room) => ctx.db.delete(room._id)),
+      ...players.map((p) => ctx.db.delete(p._id)),
+      ...teams.map((t) => ctx.db.delete(t._id)),
+      ...auctionRooms.map((r) => ctx.db.delete(r._id)),
     ];
-
-    // Also delete related bids and events for each auction room
-    for (const room of auctionRooms) {
-      const [bids, events] = await Promise.all([
-        ctx.db
-          .query("bids")
-          .withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id))
-          .collect(),
-        ctx.db
-          .query("auctionEvents")
-          .withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id))
-          .collect(),
-      ]);
-
+    for (const [bids, events, liveBids] of roomRelated) {
       deletePromises.push(
-        ...bids.map((bid) => ctx.db.delete(bid._id)),
-        ...events.map((event) => ctx.db.delete(event._id)),
+        ...bids.map((b) => ctx.db.delete(b._id)),
+        ...events.map((e) => ctx.db.delete(e._id)),
+        ...liveBids.map((b) => ctx.db.delete(b._id)),
       );
     }
 
-    // Execute all deletes then delete tournament
     await Promise.all(deletePromises);
     await ctx.db.delete(args.id);
 
