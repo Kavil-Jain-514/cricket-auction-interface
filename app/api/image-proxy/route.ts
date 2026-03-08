@@ -88,11 +88,21 @@ export async function GET(request: NextRequest) {
 
   try {
     const response = await fetch(parsed.toString(), {
+      redirect: "manual", // Never follow redirects — a redirect could point to a
+      // non-allowlisted or internal host, bypassing SSRF protections.
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
       },
     });
+
+    // Treat any redirect as an error rather than following it to an unknown host.
+    if (response.status >= 300 && response.status < 400) {
+      return NextResponse.json(
+        { error: "Upstream redirected to an external URL" },
+        { status: 502 },
+      );
+    }
 
     if (!response.ok) {
       return NextResponse.json(
