@@ -534,8 +534,10 @@ export const clearCurrentPlayerBids = mutation({
       .collect();
 
     // Delete all live bids sequentially to avoid excessive parallel writes
-    for (const bid of bids) {
-      await ctx.db.delete(bid._id);
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < bids.length; i += CHUNK_SIZE) {
+      const chunk = bids.slice(i, i + CHUNK_SIZE);
+      await Promise.all(chunk.map((bid) => ctx.db.delete(bid._id)));
     }
 
     // Reset timer — liveBids table is now the source of truth; do not write legacy fields

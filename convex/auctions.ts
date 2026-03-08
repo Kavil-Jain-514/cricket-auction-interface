@@ -209,7 +209,11 @@ export const placeBid = mutation({
       .first();
 
     // Bid rate limiting: reject if same team bid < 500ms ago (prevents spam)
-    if (latestBid && latestBid.teamId === args.teamId && Date.now() - latestBid.timestamp < 500) {
+    if (
+      latestBid &&
+      latestBid.teamId === args.teamId &&
+      Date.now() - latestBid.timestamp < 500
+    ) {
       return { success: false, reason: "Please wait before bidding again" };
     }
 
@@ -328,11 +332,12 @@ export const finalizePlayerSale = mutation({
 
     const player = await ctx.db.get(currentPlayerId);
     if (!player) throw new Error("Player not found");
-    
+
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
-    
-    const playerBasePrice = player.basePrice ?? tournament.settings.basePrice ?? 100000;
+
+    const playerBasePrice =
+      player.basePrice ?? tournament.settings.basePrice ?? 100000;
 
     const now = Date.now();
     const result = {
@@ -457,14 +462,18 @@ export const startNextPlayer = mutation({
     const maxPlayersPerTeam = tournament.settings.maxPlayersPerTeam;
     const teams = await ctx.db
       .query("teams")
-      .withIndex("by_tournament", (q) => q.eq("tournamentId", auctionRoom.tournamentId))
+      .withIndex("by_tournament", (q) =>
+        q.eq("tournamentId", auctionRoom.tournamentId),
+      )
       .collect();
 
     if (teams.length > 0) {
       const soldPlayers = await ctx.db
         .query("players")
         .withIndex("by_tournament_status", (q) =>
-          q.eq("tournamentId", auctionRoom.tournamentId).eq("auctionStatus", "sold")
+          q
+            .eq("tournamentId", auctionRoom.tournamentId)
+            .eq("auctionStatus", "sold"),
         )
         .collect();
 
@@ -472,7 +481,10 @@ export const startNextPlayer = mutation({
       const soldCountByTeam = new Map<string, number>();
       for (const p of soldPlayers) {
         if (p.teamId) {
-          soldCountByTeam.set(p.teamId, (soldCountByTeam.get(p.teamId) ?? 0) + 1);
+          soldCountByTeam.set(
+            p.teamId,
+            (soldCountByTeam.get(p.teamId) ?? 0) + 1,
+          );
         }
       }
 
@@ -567,7 +579,8 @@ export const startNextPlayer = mutation({
         data: {
           playerId: nextPlayer._id,
           playerName: nextPlayer.name,
-          basePrice: nextPlayer.basePrice ?? tournament.settings.basePrice ?? 100000,
+          basePrice:
+            nextPlayer.basePrice ?? tournament.settings.basePrice ?? 100000,
         },
         timestamp: now,
       }),
@@ -579,7 +592,8 @@ export const startNextPlayer = mutation({
         targetId: nextPlayer._id,
         newData: {
           playerName: nextPlayer.name,
-          basePrice: nextPlayer.basePrice ?? tournament.settings.basePrice ?? 100000,
+          basePrice:
+            nextPlayer.basePrice ?? tournament.settings.basePrice ?? 100000,
         },
         tournamentId: auctionRoom.tournamentId,
         auctionRoomId: args.auctionRoomId,
@@ -654,7 +668,9 @@ export const restartCurrentPlayer = mutation({
     // Delete bids in bounded chunks (consistent with other mutations in this file).
     const CHUNK = 200;
     for (let i = 0; i < allBids.length; i += CHUNK) {
-      await Promise.all(allBids.slice(i, i + CHUNK).map((bid) => ctx.db.delete(bid._id)));
+      await Promise.all(
+        allBids.slice(i, i + CHUNK).map((bid) => ctx.db.delete(bid._id)),
+      );
     }
 
     // Reset the timer and record the event once all deletes are done.
@@ -715,13 +731,13 @@ export const getLiveAuction = query({
           )
           .order("desc")
           .take(10),
-        // Cap the count query at 500 so it's bounded even for busy players.
+        // Fetch all bids for an accurate count, even if slower.
         ctx.db
           .query("liveBids")
           .withIndex("by_player", (q) =>
             q.eq("playerId", auctionRoom.currentPlayerId!),
           )
-          .take(500),
+          .collect(),
       ]);
 
       totalBidsCount = countBids.length;
@@ -747,7 +763,9 @@ export const getLiveAuction = query({
       )
       .collect();
 
-    const pendingPlayers = allPlayers.filter((p) => p.auctionStatus === "pending");
+    const pendingPlayers = allPlayers.filter(
+      (p) => p.auctionStatus === "pending",
+    );
     // Trim sold players to only the fields needed by the client (complete screen + purse map).
     const soldPlayers = allPlayers
       .filter((p) => p.auctionStatus === "sold")
@@ -758,21 +776,30 @@ export const getLiveAuction = query({
         soldPrice: p.soldPrice,
         teamId: p.teamId,
       }));
-    const unsoldPlayers = allPlayers.filter((p) => p.auctionStatus === "unsold");
+    const unsoldPlayers = allPlayers.filter(
+      (p) => p.auctionStatus === "unsold",
+    );
 
     // Calculate maxAllowedBid for each team based on squad completion requirements
     const maxPlayersPerTeam = tournament?.settings.maxPlayersPerTeam || 15;
     const tournamentBasePrice = tournament?.settings.basePrice ?? 100000;
     const minBasePrice =
       pendingPlayers.length > 0
-        ? Math.min(...pendingPlayers.map((p) => p.basePrice ?? tournamentBasePrice))
-        : (currentPlayer ? (currentPlayer.basePrice ?? tournamentBasePrice) : 100000);
+        ? Math.min(
+            ...pendingPlayers.map((p) => p.basePrice ?? tournamentBasePrice),
+          )
+        : currentPlayer
+          ? (currentPlayer.basePrice ?? tournamentBasePrice)
+          : 100000;
 
     // Build team player counts from soldPlayers already fetched above — avoids N+1 per-team queries
     const teamPlayerCounts = new Map<string, number>();
     for (const p of soldPlayers) {
       if (p.teamId) {
-        teamPlayerCounts.set(p.teamId, (teamPlayerCounts.get(p.teamId) || 0) + 1);
+        teamPlayerCounts.set(
+          p.teamId,
+          (teamPlayerCounts.get(p.teamId) || 0) + 1,
+        );
       }
     }
 
@@ -799,7 +826,11 @@ export const getLiveAuction = query({
     return {
       auctionRoom: {
         ...auctionRoom,
-        currentBidAmount: currentBid?.amount || (currentPlayer ? (currentPlayer.basePrice ?? tournamentBasePrice) : undefined),
+        currentBidAmount:
+          currentBid?.amount ||
+          (currentPlayer
+            ? (currentPlayer.basePrice ?? tournamentBasePrice)
+            : undefined),
         currentBidTeamId: currentBid?.teamId,
       },
       currentPlayer,
@@ -916,7 +947,10 @@ export const restartAuction = mutation({
     // Helper: execute thunks in sequential chunks to stay within Convex's
     // per-mutation write limit (~1000 ops). Accepts thunks so that DB writes
     // are only initiated for the current chunk, not all at once upfront.
-    async function runInChunks<T>(thunks: (() => Promise<T>)[], chunkSize = 200): Promise<void> {
+    async function runInChunks<T>(
+      thunks: (() => Promise<T>)[],
+      chunkSize = 200,
+    ): Promise<void> {
       for (let i = 0; i < thunks.length; i += chunkSize) {
         await Promise.all(thunks.slice(i, i + chunkSize).map((fn) => fn()));
       }
@@ -939,23 +973,25 @@ export const restartAuction = mutation({
 
     // Reset players, teams, and delete records in bounded batches.
     await runInChunks(
-      players.map((player) => () =>
-        ctx.db.patch(player._id, {
-          auctionStatus: "pending",
-          soldPrice: undefined,
-          teamId: undefined,
-          updatedAt: now,
-        }),
+      players.map(
+        (player) => () =>
+          ctx.db.patch(player._id, {
+            auctionStatus: "pending",
+            soldPrice: undefined,
+            teamId: undefined,
+            updatedAt: now,
+          }),
       ),
     );
 
     await runInChunks(
-      teams.map((team) => () =>
-        ctx.db.patch(team._id, {
-          purseRemaining: basePurse,
-          purseSpent: 0,
-          updatedAt: now,
-        }),
+      teams.map(
+        (team) => () =>
+          ctx.db.patch(team._id, {
+            purseRemaining: basePurse,
+            purseSpent: 0,
+            updatedAt: now,
+          }),
       ),
     );
 

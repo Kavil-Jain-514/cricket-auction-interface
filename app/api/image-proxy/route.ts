@@ -20,6 +20,9 @@ const ALLOWED_HOSTNAMES = new Set([
 // Max binary response size: 7 MB (fits in ~10 MB base64+JSON response)
 const MAX_RESPONSE_BYTES = 7 * 1024 * 1024;
 
+// Maximum number of redirects to follow before giving up.
+const MAX_REDIRECTS = 3;
+
 // Blocks RFC-1918 private ranges, loopback, and link-local addresses.
 function isPrivateHost(hostname: string): boolean {
   const privatePatterns = [
@@ -34,6 +37,57 @@ function isPrivateHost(hostname: string): boolean {
     /^fe80:/i,
   ];
   return privatePatterns.some((re) => re.test(hostname));
+}
+
+// Validates that a URL is safe to fetch: HTTPS, allowlisted hostname, non-private.
+// Returns an error string on failure, or null on success.
+function validateUrl(url: URL): string | null {
+  if (url.protocol !== "https:") return "Only HTTPS URLs are allowed";
+  if (!ALLOWED_HOSTNAMES.has(url.hostname)) return "URL hostname is not permitted";
+  if (isPrivateHost(url.hostname)) return "URL hostname is not permitted";
+  return null;
+}
+
+// Fetches a URL while manually following redirects so each hop can be
+// validated against the allowlist (guarding against SSRF via open redirects).
+async function safeFetch(url: URL): Promise<Response> {
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const response = await fetch(current.toString(), {
+      redirect: "manual",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      },
+    });
+
+    if (response.status < 300 || response.status >= 400) {
+      // Not a redirect — return whatever we got (ok or error).
+      return response;
+    }
+
+    if (hop === MAX_REDIRECTS) {
+      throw new Error("Too many redirects");
+    }
+
+    const location = response.headers.get("location");
+    if (!location) throw new Error("Redirect with no Location header");
+
+    let next: URL;
+    try {
+      // Location may be relative; resolve against the current URL.
+      next = new URL(location, current);
+    } catch {
+      throw new Error("Redirect to an invalid URL");
+    }
+
+    const err = validateUrl(next);
+    if (err) throw new Error(`Redirect blocked: ${err}`);
+
+    current = next;
+  }
+  // Unreachable, but satisfies TypeScript.
+  throw new Error("Too many redirects");
 }
 
 export async function GET(request: NextRequest) {
@@ -62,47 +116,13 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Only allow https.
-  if (parsed.protocol !== "https:") {
-    return NextResponse.json(
-      { error: "Only HTTPS URLs are allowed" },
-      { status: 400 },
-    );
-  }
-
-  // Enforce domain allowlist.
-  if (!ALLOWED_HOSTNAMES.has(parsed.hostname)) {
-    return NextResponse.json(
-      { error: "URL hostname is not permitted" },
-      { status: 400 },
-    );
-  }
-
-  // Block private/internal IP ranges (defence-in-depth).
-  if (isPrivateHost(parsed.hostname)) {
-    return NextResponse.json(
-      { error: "URL hostname is not permitted" },
-      { status: 400 },
-    );
+  const validationError = validateUrl(parsed);
+  if (validationError) {
+    return NextResponse.json({ error: validationError }, { status: 400 });
   }
 
   try {
-    const response = await fetch(parsed.toString(), {
-      redirect: "manual", // Never follow redirects — a redirect could point to a
-      // non-allowlisted or internal host, bypassing SSRF protections.
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-      },
-    });
-
-    // Treat any redirect as an error rather than following it to an unknown host.
-    if (response.status >= 300 && response.status < 400) {
-      return NextResponse.json(
-        { error: "Upstream redirected to an external URL" },
-        { status: 502 },
-      );
-    }
+    const response = await safeFetch(parsed);
 
     if (!response.ok) {
       return NextResponse.json(
