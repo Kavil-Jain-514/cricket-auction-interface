@@ -194,15 +194,17 @@ export const deleteTeam = mutation({
       .withIndex("by_team", (q) => q.eq("teamId", args.id))
       .collect();
 
-    // Release all players from this team
-    for (const player of players) {
-      await ctx.db.patch(player._id, {
-        teamId: undefined,
-        soldPrice: undefined,
-        auctionStatus: "pending",
-        updatedAt: Date.now(),
-      });
-    }
+    // Release all players from this team in parallel
+    await Promise.all(
+      players.map((player) =>
+        ctx.db.patch(player._id, {
+          teamId: undefined,
+          soldPrice: undefined,
+          auctionStatus: "pending",
+          updatedAt: Date.now(),
+        }),
+      ),
+    );
 
     await ctx.db.delete(args.id);
     return { success: true, releasedPlayers: players.length };

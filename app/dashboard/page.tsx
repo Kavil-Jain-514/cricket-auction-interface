@@ -35,7 +35,7 @@ export default function DashboardPage() {
   
   // Admins see their own tournaments, viewers see all tournaments
   const adminTournaments = useQuery(api.tournaments.list);
-  const allTournaments = useQuery(api.tournaments.listAll);
+  const allTournaments = useQuery(api.tournaments.listAll, {});
   
   // Use appropriate tournament list based on role
   const tournaments = isAdmin ? adminTournaments : allTournaments;

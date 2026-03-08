@@ -21,8 +21,8 @@ interface ParsedPlayer {
   phoneNumber?: string;
   age: number;
   role: string[];
-  battingBowlingHand: string;
-  tshirtSize?: string;
+  battingBowlingHand: "Right-handed" | "Left-handed";
+  tshirtSize?: "XS" | "S" | "M" | "L" | "XL" | "XXL" | "3XL" | "4XL";
   jerseyNumber?: number;
   jerseyName?: string;
   basePrice?: number;
@@ -176,12 +176,6 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
 
       const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
 
-      // Debug: Log all column names from Excel
-      if (jsonData.length > 0) {
-        console.log('Excel columns found:', Object.keys(jsonData[0]));
-        console.log('Photo column index:', photoColIdx, '| Hyperlinks found:', Object.keys(hyperlinksByAddress).length);
-      }
-
       const players: ParsedPlayer[] = [];
       const validationErrors: string[] = [];
 
@@ -196,8 +190,6 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                 .map(r => normalizeRole(r))
                 .filter(r => (PLAYER_ROLES as readonly string[]).includes(r))
             : [];
-
-          console.log(`Row ${idx + 2}: rawRole="${rawRole}" → parsedRoles=${JSON.stringify(parsedRoles)}`);
 
           // Resolve photo URL: prefer hyperlink target (row idx+1 because row 0 is the header)
           let resolvedPhotoUrl: string | undefined;
@@ -215,25 +207,25 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             ) ?? undefined;
           }
 
+          // Resolve each column value once to avoid double iteration
+          const rawPhone = getColumnValue(row, 'Phone Number', 'Phone', 'phone number', 'Mobile');
+          const rawJerseyNumber = getColumnValue(row, 'Jersey Number', 'Jersey No', 'jersey number');
+          const rawJerseyName = getColumnValue(row, 'Jersey Name', 'jersey name', 'Jersey Name On Back', 'Name On Jersey');
+          const rawBasePrice = getColumnValue(row, 'Base Price', 'base price', 'Price');
+
           const player: ParsedPlayer = {
             name: String(getColumnValue(row, 'Player Name', 'Name', 'player name') || '').trim(),
-            phoneNumber: getColumnValue(row, 'Phone Number', 'Phone', 'phone number', 'Mobile') ? String(getColumnValue(row, 'Phone Number', 'Phone', 'phone number', 'Mobile')) : undefined,
+            phoneNumber: rawPhone ? String(rawPhone) : undefined,
             age: parseInt(String(getColumnValue(row, 'Age', 'age'))) || 0,
             role: parsedRoles.length > 0 ? parsedRoles : ['All-Rounder'],
             battingBowlingHand: String(getColumnValue(row, 'Batting/Bowling Hand', 'Hand', 'Batting Hand', 'batting/bowling hand') || '').includes('Left') ? 'Left-handed' : 'Right-handed',
             tshirtSize: parseTshirtSize(String(getColumnValue(row, 'T-Shirt Size', 'T Shirt Size', 'TShirt Size', 'Tshirt', 'T-Shirt', 'T shirt', 'tshirt size', 'Shirt Size', 'shirt', 'Jersey Size') || '')),
-            jerseyNumber: getColumnValue(row, 'Jersey Number', 'Jersey No', 'jersey number') ? parseInt(String(getColumnValue(row, 'Jersey Number', 'Jersey No', 'jersey number'))) : undefined,
-            jerseyName: getColumnValue(row, 'Jersey Name', 'jersey name', 'Jersey Name On Back', 'Name On Jersey') ? String(getColumnValue(row, 'Jersey Name', 'jersey name', 'Jersey Name On Back', 'Name On Jersey')).trim() : undefined,
-            basePrice: getColumnValue(row, 'Base Price', 'base price', 'Price') ? (parseInt(String(getColumnValue(row, 'Base Price', 'base price', 'Price'))) || undefined) : undefined,
+            jerseyNumber: rawJerseyNumber ? parseInt(String(rawJerseyNumber)) : undefined,
+            jerseyName: rawJerseyName ? String(rawJerseyName).trim() : undefined,
+            basePrice: rawBasePrice ? (parseInt(String(rawBasePrice)) || undefined) : undefined,
             photoUrl: resolvedPhotoUrl,
           };
 
-          // Debug: Log raw row data for first player
-          if (idx === 0) {
-            console.log('First row raw data:', JSON.stringify(row, null, 2));
-            console.log('First row photoUrl resolved to:', resolvedPhotoUrl);
-          }
-          console.log(`Player ${player.name}: Jersey = ${player.jerseyNumber}, T-Shirt = ${player.tshirtSize}`);
 
           // Validation
           if (!player.name) {
@@ -292,13 +284,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
     try {
       await importPlayers({
         tournamentId,
-        players: parsed.map(p => ({
-          ...p,
-          tournamentId,
-          auctionStatus: 'pending',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        })),
+        players: parsed,
       });
 
       toast.success(`Imported ${parsed.length} players successfully!`);

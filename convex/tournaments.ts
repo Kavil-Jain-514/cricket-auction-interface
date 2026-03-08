@@ -38,7 +38,10 @@ export const create = mutation({
     if (args.settings.minBidIncrement > args.settings.basePurse / 10) {
       throw new Error("Bid increment cannot exceed 10% of base purse");
     }
-    if (args.settings.basePrice !== undefined && args.settings.basePrice < 50000) {
+    if (
+      args.settings.basePrice !== undefined &&
+      args.settings.basePrice < 50000
+    ) {
       throw new Error("Base price must be at least ₹50,000");
     }
     if (
@@ -116,12 +119,19 @@ export const list = query({
 
 // List all tournaments - for viewers to see active tournaments
 export const listAll = query({
-  handler: async (ctx) => {
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
-
-    // Return all tournaments ordered by creation date
-    return await ctx.db.query("tournaments").order("desc").collect();
+    if (args.limit !== undefined && args.limit <= 0) {
+      throw new Error("limit must be a positive number");
+    }
+    const tournamentsQuery = ctx.db.query("tournaments").order("desc");
+    if (args.limit === undefined) {
+      return await tournamentsQuery.collect();
+    }
+    const cap = Math.max(1, Math.min(args.limit, 100));
+    return await tournamentsQuery.take(cap);
   },
 });
 
@@ -169,7 +179,10 @@ export const update = mutation({
     if (tournament.status === "completed") {
       throw new Error("Cannot edit tournament after it is completed");
     }
-    if (args.settings?.basePrice !== undefined && args.settings.basePrice < 50000) {
+    if (
+      args.settings?.basePrice !== undefined &&
+      args.settings.basePrice < 50000
+    ) {
       throw new Error("Base price must be at least ₹50,000");
     }
     const { id, ...updates } = args;
@@ -208,34 +221,60 @@ export const deleteTournament = mutation({
         .collect(),
     ]);
 
-    // Delete all related data in parallel batches
-    const deletePromises: Promise<unknown>[] = [
-      ...players.map((player) => ctx.db.delete(player._id)),
-      ...teams.map((team) => ctx.db.delete(team._id)),
-      ...auctionRooms.map((room) => ctx.db.delete(room._id)),
-    ];
+    // Fetch bids and events for all auction rooms in a single parallel batch
+    // (avoids a sequential loop of round-trips per room).
+    const roomRelated = await Promise.all(
+      auctionRooms.map((room) =>
+        Promise.all([
+          ctx.db
+            .query("bids")
+            .withIndex("by_auction_room", (q) =>
+              q.eq("auctionRoomId", room._id),
+            )
+            .collect(),
+          ctx.db
+            .query("auctionEvents")
+            .withIndex("by_auction_room", (q) =>
+              q.eq("auctionRoomId", room._id),
+            )
+            .collect(),
+          ctx.db
+            .query("liveBids")
+            .withIndex("by_room", (q) => q.eq("auctionRoomId", room._id))
+            .collect(),
+        ]),
+      ),
+    );
 
-    // Also delete related bids and events for each auction room
-    for (const room of auctionRooms) {
-      const [bids, events] = await Promise.all([
-        ctx.db
-          .query("bids")
-          .withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id))
-          .collect(),
-        ctx.db
-          .query("auctionEvents")
-          .withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id))
-          .collect(),
-      ]);
-
-      deletePromises.push(
-        ...bids.map((bid) => ctx.db.delete(bid._id)),
-        ...events.map((event) => ctx.db.delete(event._id)),
-      );
+    // Helper: delete in sequential chunks to stay within Convex's per-mutation
+    // write limit (~1000 ops) and avoid partial-deletion if the mutation times out.
+    async function deleteInChunks(ids: { _id: Parameters<typeof ctx.db.delete>[0] }[], chunkSize = 200) {
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        await Promise.all(
+          ids
+            .slice(i, i + chunkSize)
+            .map((doc) => ctx.db.delete(doc._id)),
+        );
+      }
     }
 
-    // Execute all deletes then delete tournament
-    await Promise.all(deletePromises);
+    // Delete deepest children first so a mid-flight failure never leaves
+    // dangling references pointing at already-deleted parents.
+
+    // 1. Room-level children: bids, events, liveBids
+    const allBids = roomRelated.flatMap(([bids]) => bids);
+    const allEvents = roomRelated.flatMap(([, events]) => events);
+    const allLiveBids = roomRelated.flatMap(([, , liveBids]) => liveBids);
+    await deleteInChunks(allBids);
+    await deleteInChunks(allEvents);
+    await deleteInChunks(allLiveBids);
+
+    // 2. Mid-level: players, teams, auction rooms
+    await deleteInChunks(players);
+    await deleteInChunks(teams);
+    await deleteInChunks(auctionRooms);
+
+    // 3. Tournament itself
     await ctx.db.delete(args.id);
 
     return { success: true };

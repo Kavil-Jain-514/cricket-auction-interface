@@ -67,13 +67,15 @@ export const reassignPlayer = mutation({
       .withIndex("by_team", (q) => q.eq("teamId", args.newTeamId))
       .collect();
     // +1 because this player is being added to the team
-    const newTeamPlayerCountAfter = newTeamCurrentPlayers.filter(
-      (p) => p._id !== args.playerId
-    ).length + 1;
+    const newTeamPlayerCountAfter =
+      newTeamCurrentPlayers.filter((p) => p._id !== args.playerId).length + 1;
     const slotsNeededAfter = maxPlayersPerTeam - newTeamPlayerCountAfter;
     const purseAfter = newTeam.purseRemaining - newSoldPrice;
 
-    if (slotsNeededAfter > 0 && purseAfter < slotsNeededAfter * tournamentBasePrice) {
+    if (
+      slotsNeededAfter > 0 &&
+      purseAfter < slotsNeededAfter * tournamentBasePrice
+    ) {
       throw new Error(
         `This would leave the team unable to fill their squad. After this transfer, they'd have ${formatPurse(purseAfter)} remaining but need ${formatPurse(slotsNeededAfter * tournamentBasePrice)} to fill ${slotsNeededAfter} more slot(s) at base price.`,
       );
@@ -253,7 +255,10 @@ export const updatePlayerStatus = mutation({
       const slotsNeededAfter = maxPlayersPerTeam - playerCountAfter;
       const purseAfter = newTeam.purseRemaining - args.soldPrice;
 
-      if (slotsNeededAfter > 0 && purseAfter < slotsNeededAfter * tournamentBasePrice) {
+      if (
+        slotsNeededAfter > 0 &&
+        purseAfter < slotsNeededAfter * tournamentBasePrice
+      ) {
         throw new Error(
           `This would leave the team unable to fill their squad. They'd have ${formatPurse(purseAfter)} remaining but need ${formatPurse(slotsNeededAfter * tournamentBasePrice)} to fill ${slotsNeededAfter} more slot(s) at base price.`,
         );
@@ -398,14 +403,16 @@ export const resetTeamPurse = mutation({
         .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
         .collect();
 
-      for (const player of teamPlayers) {
-        await ctx.db.patch(player._id, {
-          teamId: undefined,
-          soldPrice: undefined,
-          auctionStatus: "unsold",
-          updatedAt: Date.now(),
-        });
-      }
+      await Promise.all(
+        teamPlayers.map((player) =>
+          ctx.db.patch(player._id, {
+            teamId: undefined,
+            soldPrice: undefined,
+            auctionStatus: "unsold",
+            updatedAt: Date.now(),
+          }),
+        ),
+      );
     }
 
     await ctx.db.patch(args.teamId, {
@@ -454,6 +461,10 @@ export const overrideCurrentBid = mutation({
   },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
+
+    if (args.amount <= 0) {
+      throw new Error("Override bid amount must be positive");
+    }
 
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
@@ -522,19 +533,19 @@ export const clearCurrentPlayerBids = mutation({
       )
       .collect();
 
-    // Delete all live bids
-    for (const bid of bids) {
-      await ctx.db.delete(bid._id);
+    // Delete all live bids sequentially to avoid excessive parallel writes
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < bids.length; i += CHUNK_SIZE) {
+      const chunk = bids.slice(i, i + CHUNK_SIZE);
+      await Promise.all(chunk.map((bid) => ctx.db.delete(bid._id)));
     }
 
-    // Reset timer
+    // Reset timer — liveBids table is now the source of truth; do not write legacy fields
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     const timerSeconds = tournament?.settings.bidTimerSeconds || 30;
 
     await ctx.db.patch(args.auctionRoomId, {
       bidTimerEndsAt: Date.now() + timerSeconds * 1000,
-      currentBidAmount: undefined,
-      currentBidTeamId: undefined,
       updatedAt: Date.now(),
     });
 
