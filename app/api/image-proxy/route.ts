@@ -17,8 +17,8 @@ const ALLOWED_HOSTNAMES = new Set([
   "res.cloudinary.com",
 ]);
 
-// Max response size: 10 MB
-const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+// Max binary response size: 7 MB (fits in ~10 MB base64+JSON response)
+const MAX_RESPONSE_BYTES = 7 * 1024 * 1024;
 
 // Blocks RFC-1918 private ranges, loopback, and link-local addresses.
 function isPrivateHost(hostname: string): boolean {
@@ -46,19 +46,28 @@ export async function GET(request: NextRequest) {
   const rawUrl = request.nextUrl.searchParams.get("url");
 
   if (!rawUrl) {
-    return NextResponse.json({ error: "Missing url parameter" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing url parameter" },
+      { status: 400 },
+    );
   }
 
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
   } catch {
-    return NextResponse.json({ error: "Invalid url parameter" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid url parameter" },
+      { status: 400 },
+    );
   }
 
   // Only allow https.
   if (parsed.protocol !== "https:") {
-    return NextResponse.json({ error: "Only HTTPS URLs are allowed" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Only HTTPS URLs are allowed" },
+      { status: 400 },
+    );
   }
 
   // Enforce domain allowlist.
@@ -121,7 +130,10 @@ export async function GET(request: NextRequest) {
         if (done) break;
         totalBytes += value.byteLength;
         if (totalBytes > MAX_RESPONSE_BYTES) {
-          return NextResponse.json({ error: "Image too large" }, { status: 502 });
+          return NextResponse.json(
+            { error: "Image too large" },
+            { status: 502 },
+          );
         }
         chunks.push(value);
       }

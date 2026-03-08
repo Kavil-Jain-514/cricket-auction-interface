@@ -170,7 +170,7 @@ export const placeBid = mutation({
   },
   handler: async (ctx, args) => {
     // Only admins can place bids
-    const admin = await requireAdmin(ctx);
+    await requireAdmin(ctx);
 
     if (args.amount <= 0) {
       return { success: false, reason: "Bid amount must be positive" };
@@ -275,7 +275,12 @@ export const placeBid = mutation({
     const now = Date.now();
     const bidTimerSeconds = tournament.settings.bidTimerSeconds || 30;
 
-    // Insert bid AND reset timer on every bid
+    // Insert bid AND reset timer on every bid.
+    // Note: per-bid audit logging is intentionally omitted here — placeBid is
+    // a high-frequency hot path and logging every bid would cause write
+    // amplification and rapid auditLogs growth. The full bid history is
+    // already captured in the liveBids table and archived to bids on
+    // finalization, which is sufficient for auditing.
     await Promise.all([
       ctx.db.insert("liveBids", {
         auctionRoomId: args.auctionRoomId,
@@ -288,20 +293,6 @@ export const placeBid = mutation({
       ctx.db.patch(args.auctionRoomId, {
         bidTimerEndsAt: now + bidTimerSeconds * 1000,
         updatedAt: now,
-      }),
-      logAdminAction(ctx, {
-        userId: admin._id,
-        userEmail: admin.email,
-        action: "place_bid",
-        targetType: "auction",
-        targetId: args.auctionRoomId,
-        newData: {
-          playerId: auctionRoom.currentPlayerId,
-          teamId: args.teamId,
-          amount: args.amount,
-        },
-        tournamentId: auctionRoom.tournamentId,
-        auctionRoomId: args.auctionRoomId,
       }),
     ]);
 
@@ -660,9 +651,14 @@ export const restartCurrentPlayer = mutation({
     const now = Date.now();
     const bidTimerSeconds = tournament.settings.bidTimerSeconds || 30;
 
-    // Delete all bids and reset the timer
+    // Delete bids in bounded chunks (consistent with other mutations in this file).
+    const CHUNK = 200;
+    for (let i = 0; i < allBids.length; i += CHUNK) {
+      await Promise.all(allBids.slice(i, i + CHUNK).map((bid) => ctx.db.delete(bid._id)));
+    }
+
+    // Reset the timer and record the event once all deletes are done.
     await Promise.all([
-      ...allBids.map((bid) => ctx.db.delete(bid._id)),
       ctx.db.patch(args.auctionRoomId, {
         bidTimerEndsAt: now + bidTimerSeconds * 1000,
         updatedAt: now,

@@ -126,8 +126,12 @@ export const listAll = query({
     if (args.limit !== undefined && args.limit <= 0) {
       throw new Error("limit must be a positive number");
     }
-    const cap = Math.max(1, Math.min(args.limit ?? 50, 100));
-    return await ctx.db.query("tournaments").order("desc").take(cap);
+    const tournamentsQuery = ctx.db.query("tournaments").order("desc");
+    if (args.limit === undefined) {
+      return await tournamentsQuery.collect();
+    }
+    const cap = Math.max(1, Math.min(args.limit, 100));
+    return await tournamentsQuery.take(cap);
   },
 });
 
@@ -244,9 +248,13 @@ export const deleteTournament = mutation({
 
     // Helper: delete in sequential chunks to stay within Convex's per-mutation
     // write limit (~1000 ops) and avoid partial-deletion if the mutation times out.
-    async function deleteInChunks(ids: { _id: string }[], chunkSize = 200) {
+    async function deleteInChunks(ids: { _id: Parameters<typeof ctx.db.delete>[0] }[], chunkSize = 200) {
       for (let i = 0; i < ids.length; i += chunkSize) {
-        await Promise.all(ids.slice(i, i + chunkSize).map((doc) => ctx.db.delete(doc._id as never)));
+        await Promise.all(
+          ids
+            .slice(i, i + chunkSize)
+            .map((doc) => ctx.db.delete(doc._id)),
+        );
       }
     }
 

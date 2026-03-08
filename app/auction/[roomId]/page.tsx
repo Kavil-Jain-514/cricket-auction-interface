@@ -199,12 +199,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     const player = auctionData?.currentPlayer;
 
     // Check if this is a new player (different from last one we showed intro for)
+    let rafClearBids = 0;
+    let rafIntro = 0;
+
     if (newPlayerId && player && newPlayerId !== lastPlayerIdRef.current) {
       lastPlayerIdRef.current = newPlayerId;
 
       // Reset custom bid amounts so the accumulated map doesn't grow unboundedly.
-      // Defer state update to avoid synchronous setState in effect
-      requestAnimationFrame(() => {
+      // Defer state update to avoid synchronous setState in effect.
+      rafClearBids = requestAnimationFrame(() => {
         setCustomBidAmounts({});
       });
 
@@ -213,8 +216,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         clearTimeout(introTimerRef.current);
       }
 
-      // Use requestAnimationFrame to defer state update
-      requestAnimationFrame(() => {
+      // Defer state update to next frame.
+      rafIntro = requestAnimationFrame(() => {
         setShowPlayerIntro(true);
 
         // Auto-hide after 2 seconds
@@ -225,6 +228,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     }
 
     return () => {
+      if (rafClearBids) cancelAnimationFrame(rafClearBids);
+      if (rafIntro) cancelAnimationFrame(rafIntro);
       if (introTimerRef.current) {
         clearTimeout(introTimerRef.current);
       }
@@ -335,13 +340,17 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     prevCurrentPlayerIdRef.current = currentPlayerIdNow ?? null;
 
     // Show flash if any
+    let rafFlash = 0;
     if (flashToShow) {
       // Use requestAnimationFrame to avoid sync setState in effect
-      requestAnimationFrame(() => {
+      rafFlash = requestAnimationFrame(() => {
         showStatusFlash(flashToShow);
       });
     }
 
+    return () => {
+      if (rafFlash) cancelAnimationFrame(rafFlash);
+    };
   }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, auctionData?.currentPlayer, auctionData?.currentBidTeam, auctionData?.auctionRoom?.currentBidAmount, showStatusFlash]);
 
   // Auto-hide status flash after 3 seconds
