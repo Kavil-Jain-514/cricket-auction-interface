@@ -78,9 +78,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   // Track player info for sold/unsold flash
   const prevPlayerInfoRef = useRef<{
     name: string;
+    photoUrl?: string;
     teamName?: string;
     teamColor?: string;
+    teamLogoUrl?: string;
     amount?: number;
+    basePrice?: number;
   } | null>(null);
 
   const [result, setResult] = useState<{
@@ -206,9 +209,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       lastPlayerIdRef.current = newPlayerId;
 
       // Reset custom bid amounts so the accumulated map doesn't grow unboundedly.
-      // Defer state update to avoid synchronous setState in effect.
+      // Also auto-close the result popup for viewers when admin loads the next player.
       rafClearBids = requestAnimationFrame(() => {
         setCustomBidAmounts({});
+        setShowResult(false);
       });
 
       // Clear any existing timer
@@ -252,25 +256,29 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     const currentBidAmountNow = auctionData?.auctionRoom?.currentBidAmount;
 
     let flashToShow: typeof statusFlash = null;
+    let soldUnsoldResult: typeof result = null;
 
     // Check for player sold/unsold (player was being auctioned and now no player is selected)
-    if (!flashToShow && prevCurrentPlayerIdRef.current && !currentPlayerIdNow && prevPlayerInfoRef.current) {
+    if (!soldUnsoldResult && !flashToShow && prevCurrentPlayerIdRef.current && !currentPlayerIdNow && prevPlayerInfoRef.current) {
       if (prevPlayerInfoRef.current.teamName && prevPlayerInfoRef.current.amount) {
-        // Player was sold (had a bidding team)
-        flashToShow = {
-          type: 'sold',
-          message: 'SOLD!',
+        // Player was sold — capture for full result popup (same as admin)
+        soldUnsoldResult = {
           playerName: prevPlayerInfoRef.current.name,
+          playerPhotoUrl: prevPlayerInfoRef.current.photoUrl,
           teamName: prevPlayerInfoRef.current.teamName,
-          teamColor: prevPlayerInfoRef.current.teamColor,
+          teamLogoUrl: prevPlayerInfoRef.current.teamLogoUrl,
           amount: prevPlayerInfoRef.current.amount,
+          sold: true,
+          teamColor: prevPlayerInfoRef.current.teamColor,
         };
       } else {
-        // Player went unsold
-        flashToShow = {
-          type: 'unsold',
-          message: 'UNSOLD',
+        // Player went unsold — capture for full result popup
+        soldUnsoldResult = {
           playerName: prevPlayerInfoRef.current.name,
+          playerPhotoUrl: prevPlayerInfoRef.current.photoUrl,
+          teamName: null,
+          amount: prevPlayerInfoRef.current.basePrice ?? 0,
+          sold: false,
         };
       }
     }
@@ -328,9 +336,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     if (currentPlayerIdNow && currentPlayer) {
       prevPlayerInfoRef.current = {
         name: currentPlayer.name,
+        photoUrl: currentPlayer.photoUrl,
         teamName: currentBidTeam?.name,
         teamColor: currentBidTeam?.colorPrimary,
+        teamLogoUrl: currentBidTeam?.logoUrl,
         amount: currentBidAmountNow,
+        basePrice: currentPlayer.basePrice,
       };
     }
 
@@ -339,10 +350,20 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     prevBidCountRef.current = currentBidCount;
     prevCurrentPlayerIdRef.current = currentPlayerIdNow ?? null;
 
-    // Show flash if any
+    // Show sold/unsold as full result popup (same experience as admin)
     let rafFlash = 0;
-    if (flashToShow) {
-      // Use requestAnimationFrame to avoid sync setState in effect
+    if (soldUnsoldResult) {
+      rafFlash = requestAnimationFrame(() => {
+        setResult(soldUnsoldResult);
+        setShowResult(true);
+        if (soldUnsoldResult!.sold) {
+          play('sold', 0.7);
+        } else {
+          play('unsold', 0.5);
+        }
+      });
+    } else if (flashToShow) {
+      // Other flashes (paused, resumed, reverted, rebid, new_bid) stay as banners
       rafFlash = requestAnimationFrame(() => {
         showStatusFlash(flashToShow);
       });
@@ -351,7 +372,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     return () => {
       if (rafFlash) cancelAnimationFrame(rafFlash);
     };
-  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, auctionData?.currentPlayer, auctionData?.currentBidTeam, auctionData?.auctionRoom?.currentBidAmount, showStatusFlash]);
+  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, auctionData?.currentPlayer, auctionData?.currentBidTeam, auctionData?.auctionRoom?.currentBidAmount, showStatusFlash, play]);
 
   // Auto-hide status flash after 3 seconds
   useEffect(() => {
@@ -716,10 +737,52 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 </Button>
               </div>
             ) : (
-              /* Viewer Mode Indicator - Shown to non-admins */
-              <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/60 rounded-lg border border-slate-700">
-                <Eye className="w-4 h-4 text-blue-400" />
-                <span className="text-sm text-slate-300">Viewer Mode</span>
+              /* Viewer Mode: Compact Timer + Bid11Pro Branding */
+              <div className="flex items-center gap-3 sm:gap-5">
+                {/* Compact countdown timer */}
+                <div className="relative w-11 h-11 sm:w-14 sm:h-14 shrink-0">
+                  <div className={`absolute inset-0 rounded-full blur-md transition-colors ${displayTimeLeft <= 10 ? 'bg-red-500/40' : 'bg-orange-500/20'}`} />
+                  <svg className="w-full h-full transform -rotate-90 relative z-10" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="42" stroke="currentColor" strokeWidth="12" fill="none" className="text-slate-700" />
+                    <motion.circle
+                      cx="50" cy="50" r="42"
+                      stroke="currentColor" strokeWidth="12" fill="none"
+                      className={displayTimeLeft <= 10 ? "text-red-500" : "text-orange-500"}
+                      strokeDasharray={2 * Math.PI * 42}
+                      strokeDashoffset={2 * Math.PI * 42 * (1 - displayTimeLeft / (auctionData.tournament?.settings.bidTimerSeconds || 30))}
+                      strokeLinecap="round"
+                      transition={{ duration: 0.1, ease: "linear" }}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center z-20">
+                    <motion.span
+                      className={`text-sm sm:text-base font-extrabold ${displayTimeLeft <= 10 ? 'text-red-400' : 'text-orange-300'}`}
+                      animate={{ scale: displayTimeLeft <= 5 && displayTimeLeft > 0 ? [1, 1.15, 1] : 1 }}
+                      transition={{ repeat: displayTimeLeft <= 5 && displayTimeLeft > 0 ? Infinity : 0, duration: 0.8 }}
+                    >
+                      {displayTimeLeft}
+                    </motion.span>
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div className="hidden sm:block h-9 w-px bg-slate-700" />
+
+                {/* Bid11Pro Branding */}
+                <div className="hidden sm:flex flex-col">
+                  <span className="text-lg sm:text-xl font-extrabold tracking-tight bg-linear-to-r from-yellow-400 via-orange-400 to-orange-500 bg-clip-text text-transparent leading-tight">
+                    Bid11Pro
+                  </span>
+                  <span className="text-[10px] sm:text-[11px] text-slate-400 leading-tight">
+                    Developed by Kavil Dani · +91-7406486484
+                  </span>
+                </div>
+
+                {/* Viewer badge */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-500/10 rounded-lg border border-blue-500/30">
+                  <Eye className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-xs font-medium text-blue-300">Viewer</span>
+                </div>
               </div>
             )}
 
@@ -802,8 +865,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       </AnimatePresence>
 
       <main className="max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 pb-20 safe-bottom">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 lg:gap-6">
-          {/* Teams Panel - Full width on mobile/tablet, side panel on desktop */}
+        <div className={`grid grid-cols-1 gap-4 sm:gap-5 lg:gap-6 ${isAdmin ? 'lg:grid-cols-12' : ''}`}>
+          {/* Teams Panel - Only shown to admins */}
+          {isAdmin && (
           <aside className="lg:col-span-3 order-2 lg:order-2">
             <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
               <Users className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -932,11 +996,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               })}
             </div>
           </aside>
+          )}
 
           {/* Center Stage */}
-          <div className="lg:col-span-6 order-1 lg:order-2">
-            {/* Timer - Cricket Ball Style */}
-            <div className="flex justify-center mb-4 sm:mb-6 lg:mb-8">
+          <div className={`order-1 ${isAdmin ? 'lg:col-span-6 lg:order-2' : ''}`}>
+            {/* Timer - Cricket Ball Style - Admin only; viewers see it in the header */}
+            {isAdmin && <div className="flex justify-center mb-4 sm:mb-6 lg:mb-8">
               <div className="relative w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32">
                 {/* Glow effect */}
                 <div className={`absolute inset-0 rounded-full blur-xl transition-colors ${displayTimeLeft <= 10 ? 'bg-red-500/30' : 'bg-orange-500/20'
@@ -981,7 +1046,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   </div>
                 </div>
               </div>
-            </div>
+            </div>}
 
             {/* Player Card */}
             <AnimatePresence mode="wait">
@@ -993,6 +1058,90 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   exit={{ opacity: 0, y: -20 }}
                   className="bg-linear-to-br from-slate-800 to-slate-900 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-700 shadow-2xl"
                 >
+                  {/* Viewer Mode: Enlarged horizontal layout */}
+                  {!isAdmin ? (
+                    <div className="flex flex-col lg:flex-row gap-6 lg:gap-10 items-center">
+                      {/* Large Player Photo */}
+                      <PlayerAvatar
+                        name={currentPlayer.name}
+                        photoUrl={currentPlayer.photoUrl}
+                        size="3xl"
+                        className="rounded-2xl shrink-0"
+                      />
+
+                      {/* Player Details + Bid on the right */}
+                      <div className="flex-1 w-full">
+                        <div className="flex items-center justify-center lg:justify-start gap-3 mb-3 sm:mb-4">
+                          {currentPlayer.playerNumber && (
+                            <span className="inline-flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-blue-600 text-white text-xl sm:text-2xl font-bold shadow-lg">
+                              #{currentPlayer.playerNumber}
+                            </span>
+                          )}
+                          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold">
+                            {currentPlayer.name}
+                          </h2>
+                        </div>
+
+                        <div className="flex flex-wrap justify-center lg:justify-start gap-2 sm:gap-3 mb-5 sm:mb-6">
+                          <span className="px-4 py-2 bg-purple-600 rounded-full text-sm sm:text-base font-semibold">
+                            {getRoleDisplay(currentPlayer.role)}
+                          </span>
+                          <span className="px-4 py-2 bg-slate-700 rounded-full text-sm sm:text-base">
+                            {currentPlayer.age} years
+                          </span>
+                          <span className="px-4 py-2 bg-slate-700 rounded-full text-sm sm:text-base">
+                            {currentPlayer.battingBowlingHand}
+                          </span>
+                        </div>
+
+                        {/* Current Bid Display - Compact for viewer */}
+                        <motion.div
+                          className="bg-linear-to-r from-yellow-600 to-orange-600 rounded-xl p-4 sm:p-5 text-center"
+                          animate={{ scale: [1, 1.01, 1] }}
+                          transition={{ repeat: Infinity, duration: 2 }}
+                        >
+                          <div className="text-xs sm:text-sm font-semibold mb-1 opacity-90">
+                            {isFirstBid ? "STARTING PRICE" : "CURRENT BID"}
+                          </div>
+                          <motion.div
+                            className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-1"
+                            key={currentBid}
+                            initial={{ scale: 1.2 }}
+                            animate={{ scale: 1 }}
+                          >
+                            {formatCurrency(currentBid)}
+                          </motion.div>
+                          {currentBidTeam && !isFirstBid && (
+                            <div className="text-xs sm:text-sm opacity-90">
+                              by {currentBidTeam.name}
+                            </div>
+                          )}
+                        </motion.div>
+
+                        {/* Player Info - inline for viewer */}
+                        <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+                          <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700">
+                            <div className="text-xs text-slate-400 mb-1">Base Price</div>
+                            <div className="text-sm font-semibold">
+                              {formatCurrency(currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000)}
+                            </div>
+                          </div>
+                          <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700">
+                            <div className="text-xs text-slate-400 mb-1">Next Bid</div>
+                            <div className="text-sm font-semibold text-green-400">
+                              {formatCurrency(isFirstBid ? (currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000) : minNextBid)}
+                            </div>
+                          </div>
+                          <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700">
+                            <div className="text-xs text-slate-400 mb-1">Total Bids</div>
+                            <div className="text-sm font-semibold">{auctionData?.totalBidsCount || 0}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Admin Mode: Original compact layout */
+                    <>
                   <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 mb-4 sm:mb-6">
                     <PlayerAvatar
                       name={currentPlayer.name}
@@ -1050,6 +1199,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       </div>
                     )}
                   </motion.div>
+                    </>
+                  )}
                 </motion.div>
               ) : (
                 <div className="text-center py-12 sm:py-16 lg:py-20 text-slate-400">
@@ -1074,7 +1225,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             </AnimatePresence>
           </div>
 
-          {/* Live Feed */}
+          {/* Live Feed - Side panel for admin, below center stage for viewer */}
+          {isAdmin ? (
           <aside className="lg:col-span-3 order-3">
             <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
               <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1143,6 +1295,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               </div>
             )}
           </aside>
+          ) : null}
         </div>
       </main>
 
@@ -1157,19 +1310,21 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           amount={result.amount}
           sold={result.sold}
           teamColor={result.teamColor}
+          avatarSize={isAdmin ? 'xl' : '2xl'}
+          interactive={isAdmin}
           onClose={async () => {
             setShowResult(false);
-            // Auto-advance if auction is still live and there are more players
-            // Wait a tick to let popup close visually
-            setTimeout(async () => {
-              // Only auto-advance if auction is live and not completed
-              if (
-                auctionData?.auctionRoom?.status === 'live' &&
-                (auctionData?.stats?.pending > 0 || auctionData?.stats?.unsold > 0 || auctionData?.stats?.inAuction > 0)
-              ) {
-                await handleNextPlayer();
-              }
-            }, 100);
+            // Only admins auto-advance to the next player
+            if (isAdmin) {
+              setTimeout(async () => {
+                if (
+                  auctionData?.auctionRoom?.status === 'live' &&
+                  (auctionData?.stats?.pending > 0 || auctionData?.stats?.unsold > 0 || auctionData?.stats?.inAuction > 0)
+                ) {
+                  await handleNextPlayer();
+                }
+              }, 100);
+            }
           }}
         />
       )}
@@ -1298,11 +1453,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       {/* Live Stats Crawler/Ticker — memoized to avoid re-renders on timer/bid changes */}
       <TickerBar teams={teams} soldPlayers={soldPlayers} maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15} />
 
-      {/* Watermark */}
-      <div className="fixed bottom-10 sm:bottom-12 left-1/2 -translate-x-1/2 text-center text-[8px] sm:text-[10px] md:text-xs text-slate-200/70 pointer-events-none select-none z-50 whitespace-nowrap">
-        Developed by Kavil Dani • +91-7406486484 • Instagram: kavil.jain
-      </div>
-
+    
       {/* Admin Player Manager Modal */}
       {showPlayerManager && auctionData.tournament && (
         <AdminPlayerManager
@@ -1339,12 +1490,12 @@ const TickerBar = React.memo(function TickerBar({ teams, soldPlayers, maxPlayers
   }, [teams, soldPlayers]);
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 border-t border-slate-700 py-1.5 sm:py-2 z-40 overflow-hidden">
+    <div className="fixed bottom-0 left-0 right-0 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 border-t-2 border-slate-600 py-3 sm:py-4 z-40 overflow-hidden">
       <div className="relative flex items-center">
         <div className="absolute left-0 w-8 sm:w-16 h-full bg-linear-to-r from-slate-900 to-transparent z-10" />
         <div className="absolute right-0 w-8 sm:w-16 h-full bg-linear-to-l from-slate-900 to-transparent z-10" />
         <motion.div
-          className="flex gap-3 sm:gap-6 md:gap-8 px-4 sm:px-8 whitespace-nowrap"
+          className="flex gap-4 sm:gap-8 md:gap-10 px-4 sm:px-8 whitespace-nowrap"
           animate={{ x: ["0%", "-50%"] }}
           transition={{
             x: {
@@ -1356,35 +1507,35 @@ const TickerBar = React.memo(function TickerBar({ teams, soldPlayers, maxPlayers
           }}
         >
           {[...Array(2)].map((_, loopIndex) => (
-            <div key={loopIndex} className="flex gap-3 sm:gap-6 md:gap-8">
+            <div key={loopIndex} className="flex gap-4 sm:gap-8 md:gap-10">
               {tickerContent.map((team) => (
                 <div
                   key={`${loopIndex}-${team._id}`}
-                  className="flex items-center gap-1.5 sm:gap-2 bg-slate-800/50 rounded-full px-2.5 sm:px-4 py-1 sm:py-1.5 border border-slate-700 shrink-0"
+                  className="flex items-center gap-2 sm:gap-3 bg-slate-800/60 rounded-full px-4 sm:px-6 py-2 sm:py-2.5 border border-slate-600 shrink-0"
                 >
                   {team.logoUrl ? (
                     <Image
                       src={team.logoUrl}
                       alt={team.name}
-                      width={24}
-                      height={24}
-                      className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 rounded-full object-cover shrink-0"
+                      width={32}
+                      height={32}
+                      className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-full object-cover shrink-0"
                     />
                   ) : (
                     <div
-                      className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold text-white shrink-0"
+                      className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center text-xs sm:text-sm font-bold text-white shrink-0"
                       style={{ backgroundColor: team.colorPrimary || '#6366f1' }}
                     >
                       {team.name.charAt(0)}
                     </div>
                   )}
-                  <span className="font-medium text-white text-[11px] sm:text-xs md:text-sm">{team.name}</span>
-                  <span className="text-slate-500 text-[10px] sm:text-sm">•</span>
-                  <span className="text-emerald-400 font-semibold text-[11px] sm:text-xs md:text-sm">
+                  <span className="font-semibold text-white text-sm sm:text-base md:text-lg">{team.name}</span>
+                  <span className="text-slate-400 text-sm sm:text-base">•</span>
+                  <span className="text-emerald-400 font-bold text-sm sm:text-base md:text-lg">
                     {formatCurrency(team.purseRemaining || 0)}
                   </span>
-                  <span className="text-slate-500 text-[10px] sm:text-sm">•</span>
-                  <span className={`text-[11px] sm:text-xs md:text-sm font-medium ${team.teamPlayerCount >= maxPlayersPerTeam ? 'text-red-400' : 'text-sky-400'}`}>
+                  <span className="text-slate-400 text-sm sm:text-base">•</span>
+                  <span className={`text-sm sm:text-base md:text-lg font-semibold ${team.teamPlayerCount >= maxPlayersPerTeam ? 'text-red-400' : 'text-sky-400'}`}>
                     {team.teamPlayerCount}/{maxPlayersPerTeam}
                   </span>
                 </div>

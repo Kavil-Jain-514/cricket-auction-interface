@@ -18,6 +18,10 @@ interface PlayerResultPopupProps {
   sold: boolean;
   teamColor?: string;
   onClose: () => void;
+  /** When false (viewer mode), disables click-to-close and hides the prompt */
+  interactive?: boolean;
+  /** Avatar size — use '2xl' for larger viewer displays */
+  avatarSize?: 'xl' | '2xl' | '3xl';
 }
 
 export function PlayerResultPopup({
@@ -30,43 +34,48 @@ export function PlayerResultPopup({
   sold,
   teamColor = '#3B82F6',
   onClose,
+  interactive = true,
+  avatarSize = 'xl',
 }: PlayerResultPopupProps) {
+  // Confetti effect — isolated so onClose/interactive changes don't restart it
   useEffect(() => {
-    if (show && sold) {
-      // Confetti burst for sold players
-      const duration = 5000;
-      const end = Date.now() + duration;
+    if (!show || !sold) return;
 
-      const frame = () => {
-        confetti({
-          particleCount: 3,
-          angle: 60,
-          spread: 55,
-          origin: { x: 0 },
-          colors: [teamColor, '#FFD700', '#FFF'],
-        });
-        confetti({
-          particleCount: 3,
-          angle: 120,
-          spread: 55,
-          origin: { x: 1 },
-          colors: [teamColor, '#FFD700', '#FFF'],
-        });
+    const duration = 5000;
+    const end = Date.now() + duration;
+    let rafId: number;
 
-        if (Date.now() < end) {
-          requestAnimationFrame(frame);
-        }
-      };
-      
-      frame();
-    }
+    const frame = () => {
+      confetti({
+        particleCount: 3,
+        angle: 60,
+        spread: 55,
+        origin: { x: 0 },
+        colors: [teamColor, '#FFD700', '#FFF'],
+      });
+      confetti({
+        particleCount: 3,
+        angle: 120,
+        spread: 55,
+        origin: { x: 1 },
+        colors: [teamColor, '#FFD700', '#FFF'],
+      });
 
-    if (show) {
-      // Auto-close after 1.5 seconds
-      const timeout = setTimeout(onClose, 5000);
-      return () => clearTimeout(timeout);
-    }
-  }, [show, sold, teamColor, onClose]);
+      if (Date.now() < end) {
+        rafId = requestAnimationFrame(frame);
+      }
+    };
+
+    frame();
+    return () => cancelAnimationFrame(rafId);
+  }, [show, sold, teamColor]);
+
+  // Auto-close after 5 seconds (admin mode only)
+  useEffect(() => {
+    if (!show || !interactive) return;
+    const timeout = setTimeout(onClose, 5000);
+    return () => clearTimeout(timeout);
+  }, [show, interactive, onClose]);
 
   return (
     <AnimatePresence>
@@ -76,7 +85,7 @@ export function PlayerResultPopup({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-60 flex items-center justify-center bg-black/90 backdrop-blur-md"
-          onClick={onClose}
+          onClick={interactive ? onClose : undefined}
         >
           <motion.div
             initial={{ scale: 0, rotate: -180 }}
@@ -115,7 +124,7 @@ export function PlayerResultPopup({
                   <PlayerAvatar 
                     name={playerName} 
                     photoUrl={playerPhotoUrl} 
-                    size="xl" 
+                    size={avatarSize}
                     className="mx-auto rounded-2xl"
                   />
                   <p className="text-4xl font-bold text-white">{playerName}</p>
@@ -175,7 +184,7 @@ export function PlayerResultPopup({
                   <PlayerAvatar 
                     name={playerName} 
                     photoUrl={playerPhotoUrl} 
-                    size="xl" 
+                    size={avatarSize}
                     className="mx-auto rounded-2xl grayscale opacity-75"
                   />
                   <p className="text-4xl font-bold text-white">{playerName}</p>
@@ -189,14 +198,16 @@ export function PlayerResultPopup({
               </>
             )}
 
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 2 }}
-              className="text-sm text-slate-400 mt-8"
-            >
-              Click anywhere to continue
-            </motion.p>
+            {interactive && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 2 }}
+                className="text-sm text-slate-400 mt-8"
+              >
+                Click anywhere to continue
+              </motion.p>
+            )}
           </motion.div>
         </motion.div>
       )}
