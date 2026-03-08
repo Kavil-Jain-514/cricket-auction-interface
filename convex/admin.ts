@@ -67,13 +67,15 @@ export const reassignPlayer = mutation({
       .withIndex("by_team", (q) => q.eq("teamId", args.newTeamId))
       .collect();
     // +1 because this player is being added to the team
-    const newTeamPlayerCountAfter = newTeamCurrentPlayers.filter(
-      (p) => p._id !== args.playerId
-    ).length + 1;
+    const newTeamPlayerCountAfter =
+      newTeamCurrentPlayers.filter((p) => p._id !== args.playerId).length + 1;
     const slotsNeededAfter = maxPlayersPerTeam - newTeamPlayerCountAfter;
     const purseAfter = newTeam.purseRemaining - newSoldPrice;
 
-    if (slotsNeededAfter > 0 && purseAfter < slotsNeededAfter * tournamentBasePrice) {
+    if (
+      slotsNeededAfter > 0 &&
+      purseAfter < slotsNeededAfter * tournamentBasePrice
+    ) {
       throw new Error(
         `This would leave the team unable to fill their squad. After this transfer, they'd have ${formatPurse(purseAfter)} remaining but need ${formatPurse(slotsNeededAfter * tournamentBasePrice)} to fill ${slotsNeededAfter} more slot(s) at base price.`,
       );
@@ -253,7 +255,10 @@ export const updatePlayerStatus = mutation({
       const slotsNeededAfter = maxPlayersPerTeam - playerCountAfter;
       const purseAfter = newTeam.purseRemaining - args.soldPrice;
 
-      if (slotsNeededAfter > 0 && purseAfter < slotsNeededAfter * tournamentBasePrice) {
+      if (
+        slotsNeededAfter > 0 &&
+        purseAfter < slotsNeededAfter * tournamentBasePrice
+      ) {
         throw new Error(
           `This would leave the team unable to fill their squad. They'd have ${formatPurse(purseAfter)} remaining but need ${formatPurse(slotsNeededAfter * tournamentBasePrice)} to fill ${slotsNeededAfter} more slot(s) at base price.`,
         );
@@ -528,8 +533,10 @@ export const clearCurrentPlayerBids = mutation({
       )
       .collect();
 
-    // Delete all live bids in parallel
-    await Promise.all(bids.map((bid) => ctx.db.delete(bid._id)));
+    // Delete all live bids sequentially to avoid excessive parallel writes
+    for (const bid of bids) {
+      await ctx.db.delete(bid._id);
+    }
 
     // Reset timer — liveBids table is now the source of truth; do not write legacy fields
     const tournament = await ctx.db.get(auctionRoom.tournamentId);

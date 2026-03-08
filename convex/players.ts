@@ -185,7 +185,14 @@ export const bulkImport = mutation({
 export const listByTournament = query({
   args: {
     tournamentId: v.id("tournaments"),
-    status: v.optional(v.string()),
+    status: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("sold"),
+        v.literal("unsold"),
+        v.literal("in_auction"),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
@@ -209,7 +216,7 @@ export const listByTournament = query({
           .withIndex("by_tournament_status", (q) =>
             q
               .eq("tournamentId", args.tournamentId)
-              .eq("auctionStatus", args.status as "pending" | "sold" | "unsold" | "in_auction"),
+              .eq("auctionStatus", args.status!),
           )
           .collect()
       : await ctx.db

@@ -710,17 +710,25 @@ export const getLiveAuction = query({
     let totalBidsCount = 0;
 
     if (auctionRoom.currentPlayerId) {
-      // Single collect + in-memory slice: eliminates the second count-only round-trip.
-      const allLiveBids = await ctx.db
-        .query("liveBids")
-        .withIndex("by_player", (q) =>
-          q.eq("playerId", auctionRoom.currentPlayerId!),
-        )
-        .order("desc")
-        .collect();
+      // Bounded take(10) for the display list — keeps the hot path fast.
+      const [bids, countBids] = await Promise.all([
+        ctx.db
+          .query("liveBids")
+          .withIndex("by_player", (q) =>
+            q.eq("playerId", auctionRoom.currentPlayerId!),
+          )
+          .order("desc")
+          .take(10),
+        // Cap the count query at 500 so it's bounded even for busy players.
+        ctx.db
+          .query("liveBids")
+          .withIndex("by_player", (q) =>
+            q.eq("playerId", auctionRoom.currentPlayerId!),
+          )
+          .take(500),
+      ]);
 
-      totalBidsCount = allLiveBids.length;
-      const bids = allLiveBids.slice(0, 10);
+      totalBidsCount = countBids.length;
 
       if (bids.length > 0) {
         currentBid = bids[0];
@@ -909,11 +917,12 @@ export const restartAuction = mutation({
         .collect(),
     ]);
 
-    // Helper: run an array of promises in sequential chunks to avoid
-    // exceeding Convex's per-mutation parallel write limit (~1000 ops).
-    async function runInChunks<T>(ops: Promise<T>[], chunkSize = 200): Promise<void> {
-      for (let i = 0; i < ops.length; i += chunkSize) {
-        await Promise.all(ops.slice(i, i + chunkSize));
+    // Helper: execute thunks in sequential chunks to stay within Convex's
+    // per-mutation write limit (~1000 ops). Accepts thunks so that DB writes
+    // are only initiated for the current chunk, not all at once upfront.
+    async function runInChunks<T>(thunks: (() => Promise<T>)[], chunkSize = 200): Promise<void> {
+      for (let i = 0; i < thunks.length; i += chunkSize) {
+        await Promise.all(thunks.slice(i, i + chunkSize).map((fn) => fn()));
       }
     }
 
@@ -934,7 +943,7 @@ export const restartAuction = mutation({
 
     // Reset players, teams, and delete records in bounded batches.
     await runInChunks(
-      players.map((player) =>
+      players.map((player) => () =>
         ctx.db.patch(player._id, {
           auctionStatus: "pending",
           soldPrice: undefined,
@@ -945,7 +954,7 @@ export const restartAuction = mutation({
     );
 
     await runInChunks(
-      teams.map((team) =>
+      teams.map((team) => () =>
         ctx.db.patch(team._id, {
           purseRemaining: basePurse,
           purseSpent: 0,
@@ -955,9 +964,9 @@ export const restartAuction = mutation({
     );
 
     await runInChunks([
-      ...liveBids.map((bid) => ctx.db.delete(bid._id)),
-      ...bids.map((bid) => ctx.db.delete(bid._id)),
-      ...events.map((event) => ctx.db.delete(event._id)),
+      ...liveBids.map((bid) => () => ctx.db.delete(bid._id)),
+      ...bids.map((bid) => () => ctx.db.delete(bid._id)),
+      ...events.map((event) => () => ctx.db.delete(event._id)),
     ]);
 
     return { success: true, message: "Auction has been reset" };

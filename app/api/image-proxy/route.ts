@@ -101,13 +101,35 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Enforce max size.
-    const arrayBuffer = await response.arrayBuffer();
-    if (arrayBuffer.byteLength > MAX_RESPONSE_BYTES) {
+    // Reject early when the upstream advertises a size we'd refuse anyway.
+    const contentLength = response.headers.get("content-length");
+    if (contentLength !== null && Number(contentLength) > MAX_RESPONSE_BYTES) {
       return NextResponse.json({ error: "Image too large" }, { status: 502 });
     }
 
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
+    // Stream the body so we can abort before fully buffering an oversized response.
+    if (!response.body) {
+      return NextResponse.json({ error: "No response body" }, { status: 502 });
+    }
+
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalBytes += value.byteLength;
+        if (totalBytes > MAX_RESPONSE_BYTES) {
+          return NextResponse.json({ error: "Image too large" }, { status: 502 });
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.cancel();
+    }
+
+    const base64 = Buffer.concat(chunks).toString("base64");
     const dataUrl = `data:${contentType};base64,${base64}`;
 
     return NextResponse.json({ dataUrl });
