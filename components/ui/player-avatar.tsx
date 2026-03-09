@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 interface PlayerAvatarProps {
   name: string;
   photoUrl?: string | null;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
   className?: string;
   showBorder?: boolean;
 }
@@ -18,6 +18,7 @@ const sizeClasses = {
   lg: 'w-16 h-16 text-xl',
   xl: 'w-24 h-24 text-2xl',
   '2xl': 'w-48 h-48 text-6xl',
+  '3xl': 'w-108 h-108 text-8xl',
 };
 
 const sizeWidths = {
@@ -26,6 +27,7 @@ const sizeWidths = {
   lg: 128,
   xl: 192,
   '2xl': 384,
+  '3xl': 864,
 };
 
 const borderSizeClasses = {
@@ -34,6 +36,7 @@ const borderSizeClasses = {
   lg: 'border-2',
   xl: 'border-3',
   '2xl': 'border-4',
+  '3xl': 'border-4',
 };
 
 export function PlayerAvatar({
