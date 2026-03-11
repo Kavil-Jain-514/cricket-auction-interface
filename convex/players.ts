@@ -2,6 +2,21 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin } from "./auth";
 
+// Shared validator for T-shirt size — reused across create, bulkImport, and update
+const tshirtSizeValidator = v.optional(
+  v.union(
+    v.literal("XS"),
+    v.literal("S"),
+    v.literal("M"),
+    v.literal("L"),
+    v.literal("XL"),
+    v.literal("XXL"),
+    v.literal("3XL"),
+    v.literal("4XL"),
+  ),
+);
+
+/** Create a single player for a tournament. Auto-assigns the next sequential playerNumber. */
 export const create = mutation({
   args: {
     tournamentId: v.id("tournaments"),
@@ -17,19 +32,7 @@ export const create = mutation({
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
     phoneNumber: v.optional(v.string()),
-    tshirtSize: v.optional(
-      v.union(
-        v.literal("XS"),
-        v.literal("S"),
-        v.literal("M"),
-        v.literal("L"),
-        v.literal("XL"),
-        v.literal("XXL"),
-        v.literal("3XL"),
-        v.literal("4XL"),
-      ),
-    ),
-    // ... other fields
+    tshirtSize: tshirtSizeValidator,
   },
   handler: async (ctx, args) => {
     // Admin only
@@ -104,19 +107,11 @@ export const create = mutation({
   },
 });
 
-const tshirtSizeValidator = v.optional(
-  v.union(
-    v.literal("XS"),
-    v.literal("S"),
-    v.literal("M"),
-    v.literal("L"),
-    v.literal("XL"),
-    v.literal("XXL"),
-    v.literal("3XL"),
-    v.literal("4XL"),
-  ),
-);
-
+/**
+ * Bulk-import multiple players from a parsed Excel sheet.
+ * All inserts run in parallel (Promise.all) since Convex handles concurrency safely.
+ * Player numbers continue from the current max to avoid conflicts.
+ */
 export const bulkImport = mutation({
   args: {
     tournamentId: v.id("tournaments"),
@@ -182,6 +177,11 @@ export const bulkImport = mutation({
   },
 });
 
+/**
+ * List players for a tournament with optional status filter.
+ * Uses the compound `by_tournament_status` index when filtering to avoid a full scan.
+ * Phone numbers (PII) are stripped for non-admin viewers.
+ */
 export const listByTournament = query({
   args: {
     tournamentId: v.id("tournaments"),
@@ -239,6 +239,7 @@ export const listByTournament = query({
   },
 });
 
+/** Update player fields. Blocked for sold or in-auction players. */
 export const update = mutation({
   args: {
     id: v.id("players"),
@@ -253,18 +254,7 @@ export const update = mutation({
     basePrice: v.optional(v.number()),
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
-    tshirtSize: v.optional(
-      v.union(
-        v.literal("XS"),
-        v.literal("S"),
-        v.literal("M"),
-        v.literal("L"),
-        v.literal("XL"),
-        v.literal("XXL"),
-        v.literal("3XL"),
-        v.literal("4XL"),
-      ),
-    ),
+    tshirtSize: tshirtSizeValidator,
   },
   handler: async (ctx, args) => {
     // Admin only
@@ -303,6 +293,7 @@ export const update = mutation({
   },
 });
 
+/** Delete a player. Cannot delete sold or in-auction players. */
 export const deletePlayer = mutation({
   args: { id: v.id("players") },
   handler: async (ctx, args) => {
@@ -329,6 +320,10 @@ export const deletePlayer = mutation({
   },
 });
 
+/**
+ * Delete all pending/unsold players for a tournament.
+ * Sold and in-auction players are always skipped unless `includesSold` is true.
+ */
 export const deleteAllByTournament = mutation({
   args: {
     tournamentId: v.id("tournaments"),

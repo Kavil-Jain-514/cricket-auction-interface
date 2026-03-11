@@ -94,24 +94,13 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       const loadImage = async (url: string): Promise<string | null> => {
         try {
           const processedUrl = forceJpegUrl(url);
-          console.log('[PDF] Loading image via proxy:', processedUrl);
-
-          // Use server-side proxy to bypass CORS (Google Drive, etc.)
+          // Use server-side proxy to bypass CORS (Google Drive, Cloudinary, etc.)
           const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(processedUrl)}`;
           const response = await fetch(proxyUrl);
-          if (!response.ok) {
-            console.warn('[PDF] Proxy fetch failed:', response.status);
-            return null;
-          }
+          if (!response.ok) return null;
           const data = await response.json();
-          if (data.dataUrl) {
-            console.log('[PDF] Image loaded, prefix:', data.dataUrl.substring(0, 40));
-            return data.dataUrl;
-          }
-          console.warn('[PDF] No dataUrl in response');
-          return null;
-        } catch (err) {
-          console.error('[PDF] Image load error:', err);
+          return data.dataUrl ?? null;
+        } catch {
           return null;
         }
       };
@@ -134,7 +123,6 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         });
 
       await Promise.all(imagePromises);
-      console.log('[PDF] Image cache size:', Object.keys(imageCache).length, '/', allPlayers.filter(p => p.photoUrl).length);
 
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -154,7 +142,6 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       const rows = 9;
       const cardsPerPage = cols * rows; // 27
       const cardWidth = (contentWidth - (cols - 1) * colGap) / cols;
-      console.log(cardWidth, 'cardWidth')
       const headerHeight = 32; // Space for tournament header
       const gridHeight = pageHeight - headerHeight - margin;
       const cardHeight = (gridHeight - (rows - 1) * rowGap) / rows;
@@ -203,8 +190,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
               const logoFormat = tournamentLogoBase64.includes('image/png') ? 'PNG' : 'JPEG';
               pdf.addImage(tournamentLogoBase64, logoFormat, startX, 6, logoSize, logoSize);
               startX += logoSize + 4;
-            } catch (e) {
-              console.error('[PDF] Logo addImage error:', e);
+            } catch {
+              // Logo failed to load — continue without it
             }
           }
 
@@ -214,8 +201,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           try {
             const logoFormat = tournamentLogoBase64.includes('image/png') ? 'PNG' : 'JPEG';
             pdf.addImage(tournamentLogoBase64, logoFormat, (pageWidth - logoSize) / 2, 6, logoSize, logoSize);
-          } catch (e) {
-            console.error('[PDF] Logo addImage error:', e);
+          } catch {
+            // Logo failed to load — continue without it
           }
         }
 
@@ -258,18 +245,15 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           try {
             const imgData = imageCache[player._id];
             const imgFormat = imgData.includes('image/png') ? 'PNG' : 'JPEG';
-            console.log('[PDF] Adding image for', player.name, 'format:', imgFormat);
             pdf.addImage(imgData, imgFormat, photoX, photoY, actualPhotoWidth, actualPhotoHeight);
 
             // Add border to photo
             pdf.setDrawColor(100, 116, 139); // slate-500
             pdf.setLineWidth(0.4);
             pdf.rect(photoX, photoY, actualPhotoWidth, actualPhotoHeight, 'S');
-          } catch (e) {
-            console.error('[PDF] addImage error for', player.name, ':', e);
+          } catch {
+            // Image render failed — card still renders without photo
           }
-        } else {
-          console.warn('[PDF] No image in cache for', player.name, 'photoUrl:', player.photoUrl);
         }
 
         // Player number overlapping photo and card border (top-left badge)
@@ -362,8 +346,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       const fileName = `${tournament?.name?.replace(/\s+/g, '_') || 'Tournament'}_All_Players.pdf`;
       pdf.save(fileName);
       toast.success(`Downloaded ${allPlayers.length} players as PDF`);
-    } catch (error) {
-      console.error('PDF generation error:', error);
+    } catch {
       toast.error('Failed to generate PDF');
     } finally {
       setIsGeneratingPDF(false);
@@ -444,26 +427,6 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           </div>
         </div>
 
-        {/* Filters */}
-        {/* <div className="flex items-center gap-3 mb-6">
-          <Filter className="w-5 h-5 text-slate-400" />
-          <div className="flex gap-2">
-            {['all', 'Batter', 'Bowler', 'All-Rounder'].map((role) => (
-              <button
-                key={role}
-                onClick={() => setFilterRole(role)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                  filterRole === role
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                }`}
-              >
-                {role === 'all' ? 'All Players' : role}
-              </button>
-            ))}
-          </div>
-        </div> */}
-
         {/* Stats - Status Based */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-6 overflow-x-auto pb-2 ipad-scroll">
           {/* Status Filters */}
@@ -521,17 +484,14 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           {/* Role Filters */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <span className="text-xs sm:text-sm text-slate-400 mr-1">Role:</span>
-            <button
-              onClick={() => setFilterRole(filterRole === 'all' ? 'all' : 'all')}
-              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterRole === 'all'
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                }`}
-              // Hide this if already showing all
-              style={{ display: filterRole === 'all' ? 'none' : 'block' }}
-            >
-              All
-            </button>
+            {filterRole !== 'all' && (
+              <button
+                onClick={() => setFilterRole('all')}
+                className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target bg-slate-800 text-slate-400 hover:bg-slate-700"
+              >
+                All
+              </button>
+            )}
             <button
               onClick={() => setFilterRole(filterRole === 'Batter' ? 'all' : 'Batter')}
               className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition touch-target ${filterRole === 'Batter'

@@ -5,8 +5,20 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Short format used in UI — always shows Lakhs: ₹1.50L */
 export function formatCurrency(amount: number): string {
   return `₹${(amount / 100000).toFixed(2)}L`;
+}
+
+/**
+ * Full format for documents and PDFs — picks the most readable unit:
+ * ≥1 Cr → "Rs.X.XX Cr", ≥1 L → "Rs.X.XX L", ≥1K → "Rs.X.XK", else "Rs.X"
+ */
+export function formatCurrencyFull(amount: number): string {
+  if (amount >= 10000000) return `Rs.${(amount / 10000000).toFixed(2)} Cr`;
+  if (amount >= 100000) return `Rs.${(amount / 100000).toFixed(2)} L`;
+  if (amount >= 1000) return `Rs.${(amount / 1000).toFixed(1)}K`;
+  return `Rs.${amount}`;
 }
 
 export function getPlayerInitials(name: string): string {
@@ -81,7 +93,8 @@ export function getRoleDisplay(role: string | string[]): string {
 }
 
 /**
- * Get the primary role color CSS classes for a player (based on first role).
+ * Translucent role badge classes — used in info cards and tooltips.
+ * Returns both background (20% opacity) and text color classes.
  */
 export function getRoleColor(role: string | string[]): string {
   const primary = getRoles(role)[0];
@@ -90,4 +103,25 @@ export function getRoleColor(role: string | string[]): string {
   if (primary === "Wicket Keeper") return "bg-emerald-500/20 text-emerald-400";
   if (primary?.includes("All")) return "bg-purple-500/20 text-purple-400";
   return "bg-slate-500/20 text-slate-400";
+}
+
+/**
+ * Solid role badge background class — used for compact colored pills (e.g. PlayerCard tags).
+ * Handles legacy "All Rounder" and hyphenated "Wicket-Keeper" spellings.
+ */
+export function getRoleBadgeBg(role: string): string {
+  if (role === "Batter") return "bg-blue-600";
+  if (role === "Bowler") return "bg-orange-600";
+  if (role === "All-Rounder" || role === "All Rounder") return "bg-purple-600";
+  if (role === "Wicket Keeper" || role === "Wicket-Keeper") return "bg-emerald-600";
+  return "bg-slate-600";
+}
+
+/** Solid status badge background class for auction status indicators. */
+export function getStatusBadgeBg(status: string): string {
+  if (status === "pending") return "bg-slate-600";
+  if (status === "in_auction") return "bg-yellow-600";
+  if (status === "sold") return "bg-green-600";
+  if (status === "unsold") return "bg-red-600";
+  return "bg-slate-600";
 }
