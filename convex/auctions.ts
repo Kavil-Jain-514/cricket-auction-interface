@@ -1,9 +1,12 @@
-// convex/auctions.ts
+// convex/auctions.ts - Live auction mutations and queries
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, logAdminAction } from "./auth";
 
-// Create a new auction room (Admin only)
+/**
+ * Create a new auction room for a tournament.
+ * One tournament can have multiple rooms but typically only one is live at a time.
+ */
 export const createAuctionRoom = mutation({
   args: {
     tournamentId: v.id("tournaments"),
@@ -25,7 +28,7 @@ export const createAuctionRoom = mutation({
   },
 });
 
-// Start the auction (Admin only)
+/** Start the auction — sets status to "live" and marks tournament as "active". */
 export const startAuction = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
@@ -67,7 +70,7 @@ export const startAuction = mutation({
   },
 });
 
-// Pause the auction (Admin only)
+/** Pause the auction — captures remaining timer so resume can restore it. */
 export const pauseAuction = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
@@ -110,7 +113,10 @@ export const pauseAuction = mutation({
   },
 });
 
-// Resume the auction (Admin only)
+/**
+ * Resume a paused auction. Restores the timer to the captured `pausedTimeRemaining`
+ * or falls back to the tournament default if no pause time was saved.
+ */
 export const resumeAuction = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
@@ -304,7 +310,12 @@ export const placeBid = mutation({
   },
 });
 
-// Finalize player sale - handles SOLD/UNSOLD (Admin only)
+/**
+ * Finalize the current player's auction — either SOLD or UNSOLD.
+ * - SOLD: assigns player to team, deducts from purse, archives bid history.
+ * - UNSOLD: marks player unsold and clears current player from room.
+ * Live bids are deleted after finalization; the winning bid is archived to `bids`.
+ */
 export const finalizePlayerSale = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
@@ -440,7 +451,11 @@ export const finalizePlayerSale = mutation({
   },
 });
 
-// Start auction for next player (Admin only)
+/**
+ * Pick and start the next player from the pending pool (random selection).
+ * Falls back to unsold players if no pending players remain.
+ * Marks the auction/tournament as completed when all squads are full or no players are left.
+ */
 export const startNextPlayer = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
@@ -604,7 +619,7 @@ export const startNextPlayer = mutation({
   },
 });
 
-// Revert last bid (Admin only)
+/** Remove the most recent bid for the current player (undo last bid). */
 export const revertLastBid = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
@@ -636,7 +651,10 @@ export const revertLastBid = mutation({
   },
 });
 
-// Restart auction for current player only - clears all bids and resets timer
+/**
+ * Restart bidding for the current player — clears ALL live bids and resets the
+ * timer to the tournament default. The player remains in_auction.
+ */
 export const restartCurrentPlayer = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
@@ -691,7 +709,15 @@ export const restartCurrentPlayer = mutation({
   },
 });
 
-// Get live auction state
+/**
+ * Primary real-time query consumed by the auction page.
+ *
+ * Design notes:
+ * - All players fetched in a single query then partitioned in memory to avoid N+1.
+ * - liveBids uses .take(10) for display; a separate .collect() gives the count.
+ * - `maxAllowedBid` is computed server-side so clients can grey-out unaffordable teams.
+ * - `serverTime` is returned so clients can correct for clock-skew when displaying the timer.
+ */
 export const getLiveAuction = query({
   args: { auctionRoomId: v.id("auctionRooms") },
   handler: async (ctx, args) => {
@@ -722,25 +748,18 @@ export const getLiveAuction = query({
     let totalBidsCount = 0;
 
     if (auctionRoom.currentPlayerId) {
-      // Bounded take(10) for the display list — keeps the hot path fast.
-      const [bids, countBids] = await Promise.all([
-        ctx.db
-          .query("liveBids")
-          .withIndex("by_player", (q) =>
-            q.eq("playerId", auctionRoom.currentPlayerId!),
-          )
-          .order("desc")
-          .take(10),
-        // Fetch all bids for an accurate count, even if slower.
-        ctx.db
-          .query("liveBids")
-          .withIndex("by_player", (q) =>
-            q.eq("playerId", auctionRoom.currentPlayerId!),
-          )
-          .collect(),
-      ]);
+      // Single collect() — used for both display (sliced to 10) and total count.
+      // Bid counts per player stay small (typically < 100), so collect() is safe here.
+      const allLiveBids = await ctx.db
+        .query("liveBids")
+        .withIndex("by_player", (q) =>
+          q.eq("playerId", auctionRoom.currentPlayerId!),
+        )
+        .order("desc")
+        .collect();
 
-      totalBidsCount = countBids.length;
+      totalBidsCount = allLiveBids.length;
+      const bids = allLiveBids.slice(0, 10);
 
       if (bids.length > 0) {
         currentBid = bids[0];

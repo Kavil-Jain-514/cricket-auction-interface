@@ -1,7 +1,7 @@
 "use client";
 
 import { Doc } from '@/convex/_generated/dataModel';
-import { formatCurrency, getRoles } from '@/lib/utils';
+import { formatCurrency, getRoles, getRoleBadgeBg, getStatusBadgeBg, getErrorMessage } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { Edit, Trash2 } from 'lucide-react';
 import { PlayerEditForm } from './PlayerEditForm';
@@ -9,7 +9,6 @@ import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { toast } from 'sonner';
-import { getErrorMessage } from '@/lib/utils';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { useUserRole } from '@/hooks/useUserRole';
 
@@ -17,22 +16,6 @@ interface PlayerCardProps {
   player: Doc<"players">;
   onClick?: () => void;
 }
-
-const roleColors: Record<string, string> = {
-  'Batter': 'bg-blue-600',
-  'Bowler': 'bg-orange-600',
-  'All-Rounder': 'bg-purple-600',
-  'All Rounder': 'bg-purple-600',
-  'Wicket Keeper': 'bg-emerald-600',
-  'Wicket-Keeper': 'bg-emerald-600',
-};
-
-const statusColors: Record<string, string> = {
-  'pending': 'bg-slate-600',
-  'in_auction': 'bg-yellow-600',
-  'sold': 'bg-green-600',
-  'unsold': 'bg-red-600',
-};
 
 export function PlayerCard({ player, onClick }: PlayerCardProps) {
   const [showEdit, setShowEdit] = useState(false);
@@ -107,11 +90,11 @@ export function PlayerCard({ player, onClick }: PlayerCardProps) {
             <p className="text-xs sm:text-sm text-slate-400">{player.age} years</p>
             <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-1.5">
               {getRoles(player.role).map((r) => (
-                <span key={r} className={`px-2 py-0.5 sm:py-1 ${roleColors[r] || 'bg-slate-600'} rounded text-xs font-semibold`}>
+                <span key={r} className={`px-2 py-0.5 sm:py-1 ${getRoleBadgeBg(r)} rounded text-xs font-semibold`}>
                   {r}
                 </span>
               ))}
-              <span className={`px-2 py-0.5 sm:py-1 ${statusColors[player.auctionStatus]} rounded text-xs font-semibold`}>
+              <span className={`px-2 py-0.5 sm:py-1 ${getStatusBadgeBg(player.auctionStatus)} rounded text-xs font-semibold`}>
                 {player.auctionStatus}
               </span>
             </div>

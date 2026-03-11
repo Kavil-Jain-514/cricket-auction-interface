@@ -1,4 +1,5 @@
 import { jsPDF } from "jspdf";
+import { formatCurrencyFull } from "@/lib/utils";
 
 interface Player {
   name: string;
@@ -29,16 +30,6 @@ interface TeamData {
   logoUrl?: string;
 }
 
-function formatCurrency(amount: number): string {
-  if (amount >= 10000000) {
-    return `Rs.${(amount / 10000000).toFixed(2)} Cr`;
-  } else if (amount >= 100000) {
-    return `Rs.${(amount / 100000).toFixed(2)} L`;
-  } else if (amount >= 1000) {
-    return `Rs.${(amount / 1000).toFixed(1)}K`;
-  }
-  return `Rs.${amount}`;
-}
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -167,17 +158,17 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
 
   const purseY = y + 18;
   doc.text(
-    `Total Spent: ${formatCurrency(team.purseSpent)}`,
+    `Total Spent: ${formatCurrencyFull(team.purseSpent)}`,
     margin + 5,
     purseY,
   );
   doc.text(
-    `Remaining: ${formatCurrency(team.purseRemaining)}`,
+    `Remaining: ${formatCurrencyFull(team.purseRemaining)}`,
     margin + 70,
     purseY,
   );
   doc.text(
-    `Total Purse: ${formatCurrency(team.purseSpent + team.purseRemaining)}`,
+    `Total Purse: ${formatCurrencyFull(team.purseSpent + team.purseRemaining)}`,
     margin + 135,
     purseY,
   );
@@ -300,7 +291,7 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
     doc.text(hand, margin + 140, y + 2);
 
     doc.setTextColor(34, 139, 34); // Green for price
-    doc.text(formatCurrency(player.soldPrice || 0), margin + 153, y + 2);
+    doc.text(formatCurrencyFull(player.soldPrice || 0), margin + 153, y + 2);
 
     y += 8;
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { TeamCard } from '@/components/teams/TeamCard';
 import { TeamForm } from '@/components/teams/TeamForm';
-import { useState } from 'react';
 import { useUserRole } from '@/hooks/useUserRole';
 
 export default function TeamsPage({ params }: { params: Promise<{ id: string }> }) {
