@@ -9,19 +9,20 @@ import { Id } from '@/convex/_generated/dataModel';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   SkipForward, Trophy,
-  TrendingUp, Users, Gavel, RotateCcw, RotateCw, Play, Pause, RefreshCcw,
+  Users, Gavel, RotateCcw, RotateCw, Play, Pause, RefreshCcw,
   Eye, Settings2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { formatCurrency, getErrorMessage, getRoleDisplay } from '@/lib/utils';
 import { useSound } from '@/hooks/useSound';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
-import { TeamLogo } from '@/components/ui/team-logo';
 import { useUserRole } from '@/hooks/useUserRole';
-import Image from 'next/image';
 import dynamic from 'next/dynamic';
+import { PlayerIntroFlash } from '@/components/auction/PlayerIntroFlash';
+import { ViewerTeamsPanel } from '@/components/auction/ViewerTeamsPanel';
+import { AuctionLiveBids } from '@/components/auction/AuctionLiveBids';
+import { AdminTeamsPanel } from '@/components/auction/AdminTeamsPanel';
 
 // Lazy-load heavy components that are only used conditionally
 const PlayerResultPopup = dynamic(() => import('@/components/auction/PlayerResultPopup').then(m => ({ default: m.PlayerResultPopup })), { ssr: false });
@@ -865,141 +866,29 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       </AnimatePresence>
 
       <main className="max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 pb-20 safe-bottom">
-        <div className={`grid grid-cols-10 gap-4 sm:gap-5 lg:gap-6 ${isAdmin ? 'lg:grid-cols-12' : ''}`}>
+        <div className={`grid gap-4 sm:gap-5 lg:gap-6 ${isAdmin ? 'grid-cols-12' : 'grid-cols-10'}`}>
           {/* Teams Panel - Only shown to admins */}
           {isAdmin && (
-          <aside className="lg:col-span-3 order-2 lg:order-2">
-            <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
-              <Users className="w-4 h-4 sm:w-5 sm:h-5" />
-              Teams
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3">
-              {teams?.map((team) => {
-                const isCurrentBidder = team._id === currentBidTeam?._id;
-                const teamPlayerCount = team.playerCount ?? (soldPlayers?.filter(p => p.teamId === team._id).length || 0);
-                const maxPlayersPerTeam = auctionData.tournament?.settings.maxPlayersPerTeam || 15;
-                const hasReachedMaxPlayers = teamPlayerCount >= maxPlayersPerTeam;
-                const minBidForTeam = isFirstBid ? (currentPlayer?.basePrice ?? auctionData.tournament?.settings.basePrice ?? 100000) : minNextBid;
-                const customAmount = getCustomBidAmount(team._id, minBidForTeam);
-                const hasSufficientPurse = team.purseRemaining >= customAmount;
-
-                // Check if bid exceeds max allowed for squad completion
-                const maxAllowedBid = team.maxAllowedBid ?? team.purseRemaining;
-                const exceedsMaxAllowed = customAmount > maxAllowedBid;
-
-                const isValidBid = customAmount >= minBidForTeam && customAmount <= team.purseRemaining && !exceedsMaxAllowed;
-                // Only admins can place bids
-                const canBid = isAdmin && hasSufficientPurse && !hasReachedMaxPlayers && isValidBid && currentPlayer && auctionRoom.status === 'live';
-
-                // Determine the error message
-                let bidError: string | null = null;
-                if (!isAdmin) {
-                  bidError = "Viewer mode - cannot place bids";
-                } else if (hasReachedMaxPlayers) {
-                  bidError = "Squad full";
-                } else if (exceedsMaxAllowed && team.playersNeeded && team.playersNeeded > 1) {
-                  bidError = `Max bid: ${formatCurrency(maxAllowedBid)} (need ${team.playersNeeded} more players)`;
-                } else if (!hasSufficientPurse) {
-                  bidError = "Insufficient purse";
-                }
-
-                return (
-                  <motion.div
-                    key={team._id}
-                    onClick={() => {
-                      if (canBid) {
-                        handleBid(team._id, customAmount);
-                      } else if (bidError) {
-                        toast.error(bidError);
-                      }
-                    }}
-                    className={`
-                  relative rounded-xl p-2.5 sm:p-3 border-2 transition-all
-                  ${canBid ? 'cursor-pointer hover:border-blue-500 hover:bg-slate-700/50 active:scale-[0.98]' : 'cursor-not-allowed'}
-                  ${isCurrentBidder
-                        ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20'
-                        : 'border-slate-700 bg-slate-800/50'
-                      }
-                  ${hasReachedMaxPlayers || exceedsMaxAllowed ? 'opacity-50' : ''}
-                `}
-                  >
-                    {bidding === team._id && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl z-10">
-                        <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-white" />
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-2 mb-2">
-                      {/* Team Logo */}
-                      <TeamLogo
-                        name={team.name}
-                        logoUrl={team.logoUrl}
-                        primaryColor={team.colorPrimary}
-                        size="sm"
-                      />
-
-                      <div className="flex-1 min-w-0">
-                        <span className="font-semibold text-xs sm:text-sm truncate block">
-                          {team.name}
-                        </span>
-                        {/* <span className={`text-xs ${
-                      hasReachedMaxPlayers ? 'text-red-400' : 'text-slate-400'
-                    }`}>
-                      {hasReachedMaxPlayers ? 'Squad Full' : formatCurrency(team.purseRemaining)}
-                    </span> */}
-                      </div>
-
-                      {isCurrentBidder && (
-                        <Gavel className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 animate-pulse shrink-0" />
-                      )}
-                    </div>
-
-                    {/* Custom Bid Input - Only shown to admins */}
-                    {isAdmin && currentPlayer && !hasReachedMaxPlayers && (
-                      <div
-                        className="relative"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">₹</span>
-                        <Input
-                          type="number"
-                          min={minBidForTeam}
-                          max={maxAllowedBid}
-                          step={auctionData.tournament?.settings.minBidIncrement || 25000}
-                          value={customAmount}
-                          onChange={(e) => {
-                            const value = parseInt(e.target.value) || minBidForTeam;
-                            setCustomBidAmount(team._id, value);
-                          }}
-                          className={`pl-6 pr-2 py-1 h-8 text-xs bg-slate-900 border-slate-600 text-white w-full ${exceedsMaxAllowed ? 'border-red-500' : ''}`}
-                          disabled={!currentPlayer || hasReachedMaxPlayers}
-                        />
-                      </div>
-                    )}
-
-                    {/* Validation Messages - Only shown to admins */}
-                    {isAdmin && currentPlayer && !hasReachedMaxPlayers && customAmount > 0 && (
-                      <div className="mt-1">
-                        {customAmount < minBidForTeam && (
-                          <p className="text-[10px] text-red-400">Min: {formatCurrency(minBidForTeam)}</p>
-                        )}
-                        {exceedsMaxAllowed && team.playersNeeded && team.playersNeeded > 1 && (
-                          <p className="text-[10px] text-red-400">Max: {formatCurrency(maxAllowedBid)} (need {team.playersNeeded} players)</p>
-                        )}
-                        {!exceedsMaxAllowed && customAmount > team.purseRemaining && (
-                          <p className="text-[10px] text-red-400">Exceeds purse limit</p>
-                        )}
-                      </div>
-                    )}
-                  </motion.div>
-                );
-              })}
-            </div>
-          </aside>
+            <AdminTeamsPanel
+              teams={teams ?? []}
+              soldPlayers={soldPlayers}
+              currentBidTeamId={currentBidTeam?._id}
+              currentPlayer={currentPlayer}
+              auctionRoomStatus={auctionRoom.status}
+              isFirstBid={isFirstBid}
+              minNextBid={minNextBid}
+              maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15}
+              tournamentBasePrice={auctionData.tournament?.settings.basePrice ?? 100000}
+              minBidIncrement={auctionData.tournament?.settings.minBidIncrement || 25000}
+              bidding={bidding}
+              getCustomBidAmount={getCustomBidAmount}
+              setCustomBidAmount={setCustomBidAmount}
+              onBid={(teamId, amount) => handleBid(teamId as Id<"teams">, amount)}
+            />
           )}
 
           {/* Center Stage */}
-          <div className={`order-1 lg:col-span-7 ${isAdmin ? 'lg:col-span-6 lg:order-2' : ''}`}>
+          <div className={`order-1 ${isAdmin ? 'col-span-12 lg:col-span-6 lg:order-2' : 'col-span-10 lg:col-span-7'}`}>
             {/* Timer - Cricket Ball Style - Admin only; viewers see it in the header */}
             {isAdmin && <div className="flex justify-center mb-4 sm:mb-6 lg:mb-8">
               <div className="relative w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32">
@@ -1121,22 +1010,22 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                         </motion.div>
 
                         {/* Player Info - inline for viewer */}
-                        <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-                          <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700">
-                            <div className="text-xs text-slate-400 mb-1">Base Price</div>
-                            <div className="text-sm font-semibold">
+                        <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3 text-center">
+                          <div className="bg-slate-800/60 rounded-lg p-2 sm:p-3 border border-slate-700">
+                            <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5 sm:mb-1">Base</div>
+                            <div className="text-xs sm:text-sm font-semibold">
                               {formatCurrency(currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000)}
                             </div>
                           </div>
-                          <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700">
-                            <div className="text-xs text-slate-400 mb-1">Next Bid</div>
-                            <div className="text-sm font-semibold text-green-400">
+                          <div className="bg-slate-800/60 rounded-lg p-2 sm:p-3 border border-slate-700">
+                            <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5 sm:mb-1">Next</div>
+                            <div className="text-xs sm:text-sm font-semibold text-green-400">
                               {formatCurrency(isFirstBid ? (currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000) : minNextBid)}
                             </div>
                           </div>
-                          <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700">
-                            <div className="text-xs text-slate-400 mb-1">Total Bids</div>
-                            <div className="text-sm font-semibold">{auctionData?.totalBidsCount || 0}</div>
+                          <div className="bg-slate-800/60 rounded-lg p-2 sm:p-3 border border-slate-700">
+                            <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5 sm:mb-1">Bids</div>
+                            <div className="text-xs sm:text-sm font-semibold">{auctionData?.totalBidsCount || 0}</div>
                           </div>
                         </div>
                       </div>
@@ -1229,118 +1118,25 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
           {/* Viewer Team Panel - right side on desktop */}
           {!isAdmin && (
-            <aside className="hidden lg:block lg:col-span-3 order-2">
-              <h3 className="text-base font-semibold flex items-center gap-2 mb-3">
-                <Users className="w-4 h-4" />
-                Teams
-              </h3>
-              <div className="grid grid-cols-2 gap-2">
-                {teams?.map((team) => {
-                  const teamPlayerCount = team.playerCount ?? (soldPlayers?.filter(p => p.teamId === team._id).length || 0);
-                  const maxPlayersPerTeam = auctionData.tournament?.settings.maxPlayersPerTeam || 15;
-                  const isCurrentBidder = team._id === currentBidTeam?._id;
-                  return (
-                    <div
-                      key={team._id}
-                      className={`rounded-xl p-2.5 border-2 transition-all ${
-                        isCurrentBidder
-                          ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20'
-                          : 'border-slate-700 bg-slate-800/50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <TeamLogo
-                          name={team.name}
-                          logoUrl={team.logoUrl}
-                          primaryColor={team.colorPrimary}
-                          size="sm"
-                        />
-                        <span className="font-semibold text-xs truncate flex-1">{team.name}</span>
-                        {isCurrentBidder && (
-                          <Gavel className="w-3 h-3 text-yellow-500 animate-pulse shrink-0" />
-                        )}
-                      </div>
-                      <div className="text-xs text-slate-400 space-y-0.5">
-                        <div className="text-green-400 font-medium truncate">{formatCurrency(team.purseRemaining)}</div>
-                        <div>{teamPlayerCount}/{maxPlayersPerTeam} players</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </aside>
+            <ViewerTeamsPanel
+              teams={teams ?? []}
+              soldPlayers={soldPlayers}
+              maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15}
+              currentBidTeamId={currentBidTeam?._id}
+            />
           )}
 
-          {/* Live Feed - Side panel for admin, below center stage for viewer */}
+          {/* Live Feed - Side panel for admin */}
           {isAdmin ? (
-          <aside className="lg:col-span-3 order-3">
-            <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
-              <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
-              Live Bids
-            </h3>
-
-            <div className="space-y-2">
-              {(!recentBids || recentBids.length === 0) ? (
-                <div className="text-center py-6 sm:py-8 text-slate-500">
-                  <p className="text-sm">No bids yet</p>
-                  <p className="text-xs mt-1">
-                    {isFirstBid ? "First bid starts at base price" : "Waiting for bids..."}
-                  </p>
-                </div>
-              ) : (
-                <AnimatePresence>
-                  {recentBids.slice(0, 5).map((bid, idx) => (
-                    <motion.div
-                      key={bid._id}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -20 }}
-                      transition={{ delay: idx * 0.05 }}
-                      className="bg-slate-800/70 backdrop-blur rounded-lg p-2.5 sm:p-3 border border-slate-700"
-                    >
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-xs sm:text-sm font-semibold truncate">
-                          {teams?.find(t => t._id === bid.teamId)?.name}
-                        </span>
-                        <span className="text-xs text-slate-400">
-                          {new Date(bid.timestamp).toLocaleTimeString()}
-                        </span>
-                      </div>
-                      <div className="text-base sm:text-lg font-bold text-yellow-400">
-                        {formatCurrency(bid.amount)}
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-              )}
-
-            </div>
-
-            {/* Quick Stats */}
-            {currentPlayer && (
-              <div className="mt-6 sm:mt-8 bg-slate-800/50 rounded-lg p-3 sm:p-4 border border-slate-700">
-                <h4 className="font-semibold mb-2 sm:mb-3 text-sm">Player Info</h4>
-                <div className="space-y-2 sm:space-y-3">
-                  <div className="flex justify-between text-xs sm:text-sm">
-                    <span className="text-slate-400">Base Price</span>
-                    <span className="font-semibold">
-                      {formatCurrency(currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs sm:text-sm">
-                    <span className="text-slate-400">Next Bid</span>
-                    <span className="font-semibold text-green-400">
-                      {formatCurrency(isFirstBid ? (currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000) : minNextBid)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs sm:text-sm">
-                    <span className="text-slate-400">Total Bids</span>
-                    <span className="font-semibold">{auctionData?.totalBidsCount || 0}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </aside>
+            <AuctionLiveBids
+              recentBids={recentBids}
+              teams={teams}
+              currentPlayer={currentPlayer}
+              isFirstBid={isFirstBid}
+              minNextBid={minNextBid}
+              totalBidsCount={auctionData?.totalBidsCount || 0}
+              tournamentBasePrice={auctionData.tournament?.settings.basePrice ?? 100000}
+            />
           ) : null}
         </div>
       </main>
@@ -1353,6 +1149,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           playerPhotoUrl={result.playerPhotoUrl}
           teamName={result.teamName}
           teamLogoUrl={result.teamLogoUrl}
+          tournamentLogoUrl={auctionData.tournament?.logoUrl}
           amount={result.amount}
           sold={result.sold}
           teamColor={result.teamColor}
@@ -1376,128 +1173,16 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       )}
 
       {/* Player Introduction Flash */}
-      <AnimatePresence>
-        {showPlayerIntro && currentPlayer && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="fixed inset-0 z-100 bg-linear-to-br from-slate-950 via-purple-950 to-slate-950 flex items-center justify-center"
-          >
-            {/* Animated background elements */}
-            <div className="absolute inset-0 overflow-hidden">
-              <motion.div
-                className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl"
-                animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
-                transition={{ duration: 2, repeat: Infinity }}
-              />
-              <motion.div
-                className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl"
-                animate={{ scale: [1.2, 1, 1.2], opacity: [0.5, 0.3, 0.5] }}
-                transition={{ duration: 2, repeat: Infinity }}
-              />
-            </div>
-
-            <motion.div
-              initial={{ scale: 0.8, y: 50 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.8, y: -50 }}
-              transition={{ duration: 0.4, ease: "easeOut" }}
-              className="relative z-10 text-center px-6"
-            >
-              {/* Player Photo */}
-              <motion.div
-                initial={{ scale: 0, rotate: -10 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ delay: 0.1, duration: 0.4, type: "spring" }}
-                className="mb-6 sm:mb-8"
-              >
-                <div className="relative inline-block">
-                  <div className="w-48 h-48 sm:w-64 sm:h-64 lg:w-80 lg:h-80 rounded-2xl overflow-hidden border-4 border-purple-500 shadow-2xl shadow-purple-500/30 mx-auto">
-                    {currentPlayer.photoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={currentPlayer.photoUrl}
-                        alt={currentPlayer.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-linear-to-br from-purple-600 to-blue-600 flex items-center justify-center">
-                        <span className="text-7xl sm:text-8xl lg:text-9xl font-bold text-white">
-                          {currentPlayer.name.charAt(0)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  {/* Glow effect */}
-                  <div className="absolute inset-0 rounded-2xl bg-purple-500/20 blur-xl -z-10 scale-110" />
-                </div>
-              </motion.div>
-
-              {/* Player Number Badge */}
-              {currentPlayer.playerNumber && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.5 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.15, duration: 0.3 }}
-                  className="mb-4"
-                >
-                  <span className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-600 text-white text-2xl sm:text-3xl font-bold shadow-lg shadow-blue-500/30">
-                    #{currentPlayer.playerNumber}
-                  </span>
-                </motion.div>
-              )}
-
-              {/* Player Name */}
-              <motion.h1
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2, duration: 0.3 }}
-                className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-4 sm:mb-6"
-              >
-                {currentPlayer.name}
-              </motion.h1>
-
-              {/* Player Details */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3, duration: 0.3 }}
-                className="flex flex-wrap justify-center gap-3 sm:gap-4 mb-6 sm:mb-8"
-              >
-                <span className="px-4 sm:px-6 py-2 sm:py-3 bg-purple-600 rounded-full text-sm sm:text-lg font-semibold text-white shadow-lg">
-                  {getRoleDisplay(currentPlayer.role)}
-                </span>
-                <span className="px-4 sm:px-6 py-2 sm:py-3 bg-slate-700 rounded-full text-sm sm:text-lg text-white shadow-lg">
-                  {currentPlayer.age} years
-                </span>
-                <span className="px-4 sm:px-6 py-2 sm:py-3 bg-slate-700 rounded-full text-sm sm:text-lg text-white shadow-lg">
-                  {currentPlayer.battingBowlingHand}
-                </span>
-              </motion.div>
-
-              {/* Base Price */}
-              <motion.div
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.4, duration: 0.3 }}
-                className="inline-block"
-              >
-                <div className="px-6 sm:px-8 py-3 sm:py-4 bg-linear-to-r from-yellow-500 to-orange-500 rounded-xl shadow-lg shadow-orange-500/30">
-                  <div className="text-xs sm:text-sm font-semibold text-white/80 mb-1">BASE PRICE</div>
-                  <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">
-                    {formatCurrency(currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000)}
-                  </div>
-                </div>
-              </motion.div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {currentPlayer && (
+        <PlayerIntroFlash
+          show={showPlayerIntro}
+          player={currentPlayer}
+          tournamentBasePrice={auctionData.tournament?.settings.basePrice ?? 100000}
+        />
+      )}
 
       {/* Live Stats Crawler/Ticker — memoized to avoid re-renders on timer/bid changes */}
-      <TickerBar teams={teams} soldPlayers={soldPlayers} maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15} />
+      {!isAdmin && <TickerBar teams={teams} soldPlayers={soldPlayers} />}
 
     
       {/* Admin Player Manager Modal */}
@@ -1518,22 +1203,32 @@ interface TickerBarProps {
   teams: Array<{
     _id: string;
     name: string;
-    logoUrl?: string;
     colorPrimary: string;
-    purseRemaining: number;
     [key: string]: unknown;
   }>;
-  soldPlayers: Array<{ teamId?: string;[key: string]: unknown }> | undefined;
-  maxPlayersPerTeam: number;
+  soldPlayers: Array<{ _id: string; name: string; soldPrice?: number; teamId?: string; [key: string]: unknown }> | undefined;
 }
 
-const TickerBar = React.memo(function TickerBar({ teams, soldPlayers, maxPlayersPerTeam }: TickerBarProps) {
+const TickerBar = React.memo(function TickerBar({ teams, soldPlayers }: TickerBarProps) {
   const tickerContent = useMemo(() => {
-    return teams?.map((team) => {
-      const teamPlayerCount = soldPlayers?.filter(p => p.teamId === team._id).length || 0;
-      return { ...team, teamPlayerCount };
-    }) || [];
-  }, [teams, soldPlayers]);
+    if (!soldPlayers || !teams) return [];
+    // Last 10 sold players (most recently sold first)
+    const sold = [...soldPlayers].filter(p => p.soldPrice && p.soldPrice > 0).slice(-10).reverse();
+    return sold.map(p => {
+      const team = teams.find(t => t._id === p.teamId);
+      return { ...p, teamName: team?.name, teamColor: team?.colorPrimary };
+    });
+  }, [soldPlayers, teams]);
+
+  if (tickerContent.length === 0) {
+    return (
+      <div className="fixed bottom-0 left-0 right-0 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 border-t-2 border-slate-600 py-3 sm:py-4 z-40 overflow-hidden">
+        <div className="flex items-center justify-center text-slate-500 text-sm">
+          No players sold yet
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 border-t-2 border-slate-600 py-3 sm:py-4 z-40 overflow-hidden">
@@ -1541,49 +1236,26 @@ const TickerBar = React.memo(function TickerBar({ teams, soldPlayers, maxPlayers
         <div className="absolute left-0 w-8 sm:w-16 h-full bg-linear-to-r from-slate-900 to-transparent z-10" />
         <div className="absolute right-0 w-8 sm:w-16 h-full bg-linear-to-l from-slate-900 to-transparent z-10" />
         <motion.div
-          className="flex gap-4 sm:gap-8 md:gap-10 px-4 sm:px-8 whitespace-nowrap"
+          className="flex gap-4 sm:gap-6 px-4 sm:px-8 whitespace-nowrap"
           animate={{ x: ["0%", "-50%"] }}
-          transition={{
-            x: {
-              repeat: Infinity,
-              repeatType: "loop",
-              duration: 20,
-              ease: "linear",
-            },
-          }}
+          transition={{ x: { repeat: Infinity, repeatType: "loop", duration: Math.max(15, tickerContent.length * 4), ease: "linear" } }}
         >
           {[...Array(2)].map((_, loopIndex) => (
-            <div key={loopIndex} className="flex gap-4 sm:gap-8 md:gap-10">
-              {tickerContent.map((team) => (
+            <div key={loopIndex} className="flex gap-4 sm:gap-6">
+              {tickerContent.map((player) => (
                 <div
-                  key={`${loopIndex}-${team._id}`}
-                  className="flex items-center gap-2 sm:gap-3 bg-slate-800/60 rounded-full px-4 sm:px-6 py-2 sm:py-2.5 border border-slate-600 shrink-0"
+                  key={`${loopIndex}-${player._id}`}
+                  className="flex items-center gap-2 sm:gap-3 bg-slate-800/60 rounded-full px-4 sm:px-5 py-2 border border-slate-600 shrink-0"
                 >
-                  {team.logoUrl ? (
-                    <Image
-                      src={team.logoUrl}
-                      alt={team.name}
-                      width={32}
-                      height={32}
-                      className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-full object-cover shrink-0"
-                    />
-                  ) : (
-                    <div
-                      className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center text-xs sm:text-sm font-bold text-white shrink-0"
-                      style={{ backgroundColor: team.colorPrimary || '#6366f1' }}
-                    >
-                      {team.name.charAt(0)}
-                    </div>
+                  <span className="font-semibold text-white text-sm sm:text-base">{player.name as string}</span>
+                  <span className="text-slate-400 text-sm">•</span>
+                  <span className="text-yellow-400 font-bold text-sm sm:text-base">{formatCurrency(player.soldPrice || 0)}</span>
+                  {player.teamName && (
+                    <>
+                      <span className="text-slate-400 text-sm">→</span>
+                      <span className="text-sky-300 text-sm sm:text-base">{player.teamName}</span>
+                    </>
                   )}
-                  <span className="font-semibold text-white text-sm sm:text-base md:text-lg">{team.name}</span>
-                  <span className="text-slate-400 text-sm sm:text-base">•</span>
-                  <span className="text-emerald-400 font-bold text-sm sm:text-base md:text-lg">
-                    {formatCurrency(team.purseRemaining || 0)}
-                  </span>
-                  <span className="text-slate-400 text-sm sm:text-base">•</span>
-                  <span className={`text-sm sm:text-base md:text-lg font-semibold ${team.teamPlayerCount >= maxPlayersPerTeam ? 'text-red-400' : 'text-sky-400'}`}>
-                    {team.teamPlayerCount}/{maxPlayersPerTeam}
-                  </span>
                 </div>
               ))}
             </div>

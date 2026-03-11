@@ -14,6 +14,7 @@ interface PlayerResultPopupProps {
   playerPhotoUrl?: string;
   teamName: string | null;
   teamLogoUrl?: string;
+  tournamentLogoUrl?: string;
   amount: number;
   sold: boolean;
   teamColor?: string;
@@ -30,6 +31,7 @@ export function PlayerResultPopup({
   playerPhotoUrl,
   teamName,
   teamLogoUrl,
+  tournamentLogoUrl,
   amount,
   sold,
   teamColor = '#3B82F6',
@@ -103,7 +105,16 @@ export function PlayerResultPopup({
                   transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
                   className="inline-block mb-6"
                 >
-                  <Trophy className="w-32 h-32 text-yellow-500" />
+                  {tournamentLogoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={tournamentLogoUrl}
+                      alt="Tournament"
+                      className="w-32 h-32 object-contain rounded-2xl"
+                    />
+                  ) : (
+                    <Trophy className="w-32 h-32 text-yellow-500" />
+                  )}
                 </motion.div>
 
                 <motion.h1
