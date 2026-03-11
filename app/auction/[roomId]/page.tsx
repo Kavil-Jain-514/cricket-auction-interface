@@ -865,7 +865,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       </AnimatePresence>
 
       <main className="max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 pb-20 safe-bottom">
-        <div className={`grid grid-cols-1 gap-4 sm:gap-5 lg:gap-6 ${isAdmin ? 'lg:grid-cols-12' : ''}`}>
+        <div className={`grid grid-cols-10 gap-4 sm:gap-5 lg:gap-6 ${isAdmin ? 'lg:grid-cols-12' : ''}`}>
           {/* Teams Panel - Only shown to admins */}
           {isAdmin && (
           <aside className="lg:col-span-3 order-2 lg:order-2">
@@ -999,7 +999,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           )}
 
           {/* Center Stage */}
-          <div className={`order-1 ${isAdmin ? 'lg:col-span-6 lg:order-2' : ''}`}>
+          <div className={`order-1 lg:col-span-7 ${isAdmin ? 'lg:col-span-6 lg:order-2' : ''}`}>
             {/* Timer - Cricket Ball Style - Admin only; viewers see it in the header */}
             {isAdmin && <div className="flex justify-center mb-4 sm:mb-6 lg:mb-8">
               <div className="relative w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32">
@@ -1062,12 +1062,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   {!isAdmin ? (
                     <div className="flex flex-col lg:flex-row gap-6 lg:gap-10 items-center">
                       {/* Large Player Photo */}
-                      <PlayerAvatar
-                        name={currentPlayer.name}
-                        photoUrl={currentPlayer.photoUrl}
-                        size="3xl"
-                        className="rounded-2xl shrink-0"
-                      />
+                      <div className="w-full max-w-70 sm:max-w-xs lg:w-auto lg:max-w-none mx-auto shrink-0">
+                        <PlayerAvatar
+                          name={currentPlayer.name}
+                          photoUrl={currentPlayer.photoUrl}
+                          size="3xl"
+                          className="rounded-2xl w-full! h-auto! aspect-square"
+                        />
+                      </div>
 
                       {/* Player Details + Bid on the right */}
                       <div className="flex-1 w-full">
@@ -1224,6 +1226,50 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               )}
             </AnimatePresence>
           </div>
+
+          {/* Viewer Team Panel - right side on desktop */}
+          {!isAdmin && (
+            <aside className="hidden lg:block lg:col-span-3 order-2">
+              <h3 className="text-base font-semibold flex items-center gap-2 mb-3">
+                <Users className="w-4 h-4" />
+                Teams
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                {teams?.map((team) => {
+                  const teamPlayerCount = team.playerCount ?? (soldPlayers?.filter(p => p.teamId === team._id).length || 0);
+                  const maxPlayersPerTeam = auctionData.tournament?.settings.maxPlayersPerTeam || 15;
+                  const isCurrentBidder = team._id === currentBidTeam?._id;
+                  return (
+                    <div
+                      key={team._id}
+                      className={`rounded-xl p-2.5 border-2 transition-all ${
+                        isCurrentBidder
+                          ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20'
+                          : 'border-slate-700 bg-slate-800/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <TeamLogo
+                          name={team.name}
+                          logoUrl={team.logoUrl}
+                          primaryColor={team.colorPrimary}
+                          size="sm"
+                        />
+                        <span className="font-semibold text-xs truncate flex-1">{team.name}</span>
+                        {isCurrentBidder && (
+                          <Gavel className="w-3 h-3 text-yellow-500 animate-pulse shrink-0" />
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-400 space-y-0.5">
+                        <div className="text-green-400 font-medium truncate">{formatCurrency(team.purseRemaining)}</div>
+                        <div>{teamPlayerCount}/{maxPlayersPerTeam} players</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </aside>
+          )}
 
           {/* Live Feed - Side panel for admin, below center stage for viewer */}
           {isAdmin ? (
