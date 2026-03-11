@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from 'react';
 import { Users, Gavel } from 'lucide-react';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { formatCurrency } from '@/lib/utils';
@@ -24,6 +25,14 @@ export function ViewerTeamsPanel({
   maxPlayersPerTeam,
   currentBidTeamId,
 }: ViewerTeamsPanelProps) {
+  const playerCountByTeam = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const p of soldPlayers ?? []) {
+      if (p.teamId) map[p.teamId] = (map[p.teamId] ?? 0) + 1;
+    }
+    return map;
+  }, [soldPlayers]);
+
   return (
     <aside className="col-span-10 lg:col-span-3 order-2">
       <h3 className="text-sm font-semibold flex items-center gap-2 mb-2 text-slate-300">
@@ -33,9 +42,7 @@ export function ViewerTeamsPanel({
       {/* Mobile: horizontal scroll strip; Desktop: 2-column grid */}
       <div className="flex overflow-x-auto pb-1 gap-2 lg:grid lg:grid-cols-2 lg:overflow-visible scrollbar-none">
         {teams?.map((team) => {
-          const teamPlayerCount =
-            team.playerCount ??
-            (soldPlayers?.filter((p) => p.teamId === team._id).length || 0);
+          const teamPlayerCount = team.playerCount ?? (playerCountByTeam[team._id] ?? 0);
           const isCurrentBidder = team._id === currentBidTeamId;
           return (
             <div

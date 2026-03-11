@@ -113,10 +113,10 @@ export function PlayerIntroFlash({ show, player, tournamentBasePrice }: PlayerIn
                 {getRoleDisplay(player.role)}
               </span>
               <span className="px-4 sm:px-6 py-2 sm:py-3 bg-slate-700 rounded-full text-sm sm:text-lg text-white shadow-lg">
-                {player.age} years
+                {player.age != null ? `${player.age} years` : '-'}
               </span>
               <span className="px-4 sm:px-6 py-2 sm:py-3 bg-slate-700 rounded-full text-sm sm:text-lg text-white shadow-lg">
-                {player.battingBowlingHand}
+                {player.battingBowlingHand ?? '-'}
               </span>
             </motion.div>
 

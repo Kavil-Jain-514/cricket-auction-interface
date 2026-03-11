@@ -1212,7 +1212,7 @@ interface TickerBarProps {
 const TickerBar = React.memo(function TickerBar({ teams, soldPlayers }: TickerBarProps) {
   const tickerContent = useMemo(() => {
     if (!soldPlayers || !teams) return [];
-    // Last 10 sold players (most recently sold first)
+    // Last 10 sold players in query order (no sale timestamp available; order is not guaranteed to reflect recency)
     const sold = [...soldPlayers].filter(p => p.soldPrice && p.soldPrice > 0).slice(-10).reverse();
     return sold.map(p => {
       const team = teams.find(t => t._id === p.teamId);
