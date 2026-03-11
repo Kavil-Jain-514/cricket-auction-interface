@@ -150,6 +150,15 @@
   .ipad-input {
     @apply h-12 text-base;
   }
+
+  /* Hide scrollbar while keeping scroll functionality */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
   
   /* Responsive text that's readable on iPad */
   .text-responsive-sm {
