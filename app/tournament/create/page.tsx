@@ -58,12 +58,7 @@ export default function CreateTournamentPage() {
       newErrors.minBidIncrement = 'Bid increment cannot exceed 10% of base purse';
     }
 
-    // Base price validation
-    if (!formData.basePrice || formData.basePrice < 50000) {
-      newErrors.basePrice = 'Base price must be at least ₹50,000';
-    } else if (formData.basePrice > formData.basePurse / 2) {
-      newErrors.basePrice = 'Base price cannot exceed 50% of base purse';
-    }
+    // Base price validation removed
 
     // Bid timer validation
     if (!formData.bidTimerSeconds || formData.bidTimerSeconds < 10) {
@@ -72,12 +67,7 @@ export default function CreateTournamentPage() {
       newErrors.bidTimerSeconds = 'Bid timer cannot exceed 120 seconds';
     }
 
-    // Max players validation
-    if (!formData.maxPlayersPerTeam || formData.maxPlayersPerTeam < 11) {
-      newErrors.maxPlayersPerTeam = 'Teams need at least 11 players';
-    } else if (formData.maxPlayersPerTeam > 15) {
-      newErrors.maxPlayersPerTeam = 'Max players cannot exceed 15';
-    }
+    // Max players validation removed
 
     setErrors(newErrors);
 
@@ -252,15 +242,11 @@ export default function CreateTournamentPage() {
                     setFormData({ ...formData, basePrice: parseInt(e.target.value) || 0 });
                     if (errors.basePrice) setErrors({ ...errors, basePrice: '' });
                   }}
-                  className={`mt-2 min-h-11 ${errors.basePrice ? 'border-red-500' : ''}`}
+                  className="mt-2 min-h-11"
                 />
-                {errors.basePrice ? (
-                  <p className="text-red-400 text-xs mt-1">{errors.basePrice}</p>
-                ) : (
-                  <p className="text-xs text-slate-400 mt-1">
-                    Default: ₹{(formData.basePrice / 100000).toFixed(1)} Lakhs
-                  </p>
-                )}
+                <p className="text-xs text-slate-400 mt-1">
+                  Default: ₹{(formData.basePrice / 100000).toFixed(1)} Lakhs
+                </p>
               </div>
 
               <div>
@@ -293,16 +279,13 @@ export default function CreateTournamentPage() {
                   id="maxPlayersPerTeam"
                   type="number"
                   required
-                  min="11"
-                  max="30"
                   value={formData.maxPlayersPerTeam}
                   onChange={(e) => {
                     setFormData({ ...formData, maxPlayersPerTeam: parseInt(e.target.value) || 0 });
                     if (errors.maxPlayersPerTeam) setErrors({ ...errors, maxPlayersPerTeam: '' });
                   }}
-                  className={`mt-2 min-h-11 ${errors.maxPlayersPerTeam ? 'border-red-500' : ''}`}
+                  className="mt-2 min-h-11"
                 />
-                {errors.maxPlayersPerTeam && <p className="text-red-400 text-xs mt-1">{errors.maxPlayersPerTeam}</p>}
               </div>
             </div>
           </div>

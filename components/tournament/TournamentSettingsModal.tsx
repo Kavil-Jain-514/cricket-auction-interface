@@ -240,8 +240,6 @@ export function TournamentSettingsModal({
                   id="basePrice"
                   type="number"
                   required
-                  min="50000"
-                  step="25000"
                   value={formData.basePrice}
                   onChange={(e) => setFormData({ ...formData, basePrice: parseInt(e.target.value) })}
                   className="mt-2"
@@ -274,8 +272,6 @@ export function TournamentSettingsModal({
                   id="maxPlayersPerTeam"
                   type="number"
                   required
-                  min="5"
-                  max="25"
                   value={formData.maxPlayersPerTeam}
                   onChange={(e) => setFormData({ ...formData, maxPlayersPerTeam: parseInt(e.target.value) })}
                   className="mt-2"

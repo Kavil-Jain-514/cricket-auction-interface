@@ -240,10 +240,6 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             validationErrors.push(`Row ${idx + 2}: Age must be between 15-65 for "${player.name}"`);
             return;
           }
-          if (player.basePrice !== undefined && player.basePrice < 50000) {
-            validationErrors.push(`Row ${idx + 2}: Base price must be at least ₹50,000 for "${player.name}"`);
-            return;
-          }
           if (player.jerseyNumber !== undefined && (player.jerseyNumber < 1)) {
             validationErrors.push(`Row ${idx + 2}: Jersey number must be 1-99 for "${player.name}"`);
             return;

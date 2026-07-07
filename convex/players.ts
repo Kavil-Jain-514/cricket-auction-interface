@@ -48,14 +48,6 @@ export const create = mutation({
     if (args.age < 15 || args.age > 65) {
       throw new Error("Player age must be between 15 and 65");
     }
-    if (args.basePrice !== undefined) {
-      if (args.basePrice < 50000) {
-        throw new Error("Base price must be at least ₹50,000");
-      }
-      if (args.basePrice > 50000000) {
-        throw new Error("Base price cannot exceed ₹5 Crore");
-      }
-    }
     if (
       args.jerseyNumber !== undefined &&
       (args.jerseyNumber < 1 || args.jerseyNumber > 99)
@@ -262,15 +254,6 @@ export const update = mutation({
 
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
-
-    if (args.basePrice !== undefined) {
-      if (args.basePrice < 50000) {
-        throw new Error("Base price must be at least ₹50,000");
-      }
-      if (args.basePrice > 50000000) {
-        throw new Error("Base price cannot exceed ₹5 Crore");
-      }
-    }
 
     // Check if player is already sold
     if (player.auctionStatus === "sold") {

@@ -69,15 +69,6 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
       newErrors.phoneNumber = 'Phone number must be 10 digits';
     }
 
-    // Base price validation (optional)
-    if (formData.basePrice !== undefined) {
-      if (formData.basePrice < 50000) {
-        newErrors.basePrice = 'Base price must be at least ₹50,000';
-      } else if (formData.basePrice > 50000000) {
-        newErrors.basePrice = 'Base price cannot exceed ₹5 Crore';
-      }
-    }
-
     // Jersey number validation (optional)
     if (formData.jerseyNumber !== undefined) {
       if (formData.jerseyNumber < 1 || formData.jerseyNumber > 99) {
@@ -300,23 +291,17 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 <Input
                   id="basePrice"
                   type="number"
-                  min="50000"
-                  step="25000"
                   value={formData.basePrice || ''}
                   placeholder={`Default: ₹${((tournament?.settings?.basePrice ?? 100000) / 100000).toFixed(1)}L`}
                   onChange={(e) => {
                     setFormData({ ...formData, basePrice: e.target.value ? parseInt(e.target.value) : undefined });
                     if (errors.basePrice) setErrors({ ...errors, basePrice: '' });
                   }}
-                  className={`mt-2 h-11 sm:h-12 text-base ${errors.basePrice ? 'border-red-500' : ''}`}
+                  className="mt-2 h-11 sm:h-12 text-base"
                 />
-                {errors.basePrice ? (
-                  <p className="text-red-400 text-xs mt-1">{errors.basePrice}</p>
-                ) : (
-                  <p className="text-xs text-slate-400 mt-1">
-                    {formData.basePrice ? `Overridden: ₹${(formData.basePrice / 100000).toFixed(2)}L` : 'Leave empty to inherit from tournament'}
-                  </p>
-                )}
+                <p className="text-xs text-slate-400 mt-1">
+                  {formData.basePrice ? `Overridden: ₹${(formData.basePrice / 100000).toFixed(2)}L` : 'Leave empty to inherit from tournament'}
+                </p>
               </div>
             </div>
 

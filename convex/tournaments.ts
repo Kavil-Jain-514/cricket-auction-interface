@@ -39,22 +39,10 @@ export const create = mutation({
       throw new Error("Bid increment cannot exceed 10% of base purse");
     }
     if (
-      args.settings.basePrice !== undefined &&
-      args.settings.basePrice < 50000
-    ) {
-      throw new Error("Base price must be at least ₹50,000");
-    }
-    if (
       args.settings.bidTimerSeconds < 10 ||
       args.settings.bidTimerSeconds > 120
     ) {
       throw new Error("Bid timer must be between 10 and 120 seconds");
-    }
-    if (
-      args.settings.maxPlayersPerTeam < 11 ||
-      args.settings.maxPlayersPerTeam > 30
-    ) {
-      throw new Error("Max players per team must be between 11 and 30");
     }
 
     // Get current user (implement auth first)
@@ -179,12 +167,6 @@ export const update = mutation({
     if (tournament.status === "completed") {
       throw new Error("Cannot edit tournament after it is completed");
     }
-    if (
-      args.settings?.basePrice !== undefined &&
-      args.settings.basePrice < 50000
-    ) {
-      throw new Error("Base price must be at least ₹50,000");
-    }
     const { id, ...updates } = args;
 
     await ctx.db.patch(id, {
@@ -248,12 +230,13 @@ export const deleteTournament = mutation({
 
     // Helper: delete in sequential chunks to stay within Convex's per-mutation
     // write limit (~1000 ops) and avoid partial-deletion if the mutation times out.
-    async function deleteInChunks(ids: { _id: Parameters<typeof ctx.db.delete>[0] }[], chunkSize = 200) {
+    async function deleteInChunks(
+      ids: { _id: Parameters<typeof ctx.db.delete>[0] }[],
+      chunkSize = 200,
+    ) {
       for (let i = 0; i < ids.length; i += chunkSize) {
         await Promise.all(
-          ids
-            .slice(i, i + chunkSize)
-            .map((doc) => ctx.db.delete(doc._id)),
+          ids.slice(i, i + chunkSize).map((doc) => ctx.db.delete(doc._id)),
         );
       }
     }

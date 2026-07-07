@@ -233,8 +233,6 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
                 <Input
                   id="basePrice"
                   type="number"
-                  min="50000"
-                  step="25000"
                   value={formData.basePrice || ''}
                   placeholder="Inherit from tournament"
                   onChange={(e) => setFormData({ ...formData, basePrice: e.target.value ? parseInt(e.target.value) : undefined })}
