@@ -40,9 +40,58 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const { isAdmin } = useUserRole();
 
   // Convex queries and mutations
-  const auctionData = useQuery(api.auctions.getLiveAuction, {
+  // Split into a HOT query (room + live bids, re-sent on every bid/timer) and a
+  // COLD query (full roster, only re-sent on sale/player-change). The roster is
+  // keyed on tournamentId + currentPlayerId from the hot query so per-bid room
+  // patches don't invalidate it — critical for 150+ concurrent viewers.
+  const liveData = useQuery(api.auctions.getLiveAuction, {
     auctionRoomId
   });
+  const rosterData = useQuery(
+    api.auctions.getAuctionRoster,
+    liveData
+      ? {
+          tournamentId: liveData.auctionRoom.tournamentId,
+          currentPlayerId: liveData.auctionRoom.currentPlayerId,
+        }
+      : 'skip'
+  );
+
+  // Merge the two query results into the single shape the rest of the page expects.
+  const auctionData = useMemo(() => {
+    if (liveData === undefined) return undefined;
+    if (liveData === null) return null;
+    const currentPlayer = rosterData?.currentPlayer ?? null;
+    const tournament = rosterData?.tournament ?? null;
+    const tournamentBasePrice = tournament?.settings?.basePrice ?? 100000;
+    const currentBidAmount =
+      liveData.currentBidAmount ??
+      (currentPlayer ? (currentPlayer.basePrice ?? tournamentBasePrice) : undefined);
+    return {
+      auctionRoom: {
+        ...liveData.auctionRoom,
+        currentBidAmount,
+        currentBidTeamId: liveData.currentBidTeamId,
+      },
+      currentPlayer,
+      currentBidTeam: liveData.currentBidTeam,
+      recentBids: liveData.recentBids,
+      totalBidsCount: liveData.totalBidsCount,
+      serverTime: liveData.serverTime,
+      teams: rosterData?.teams ?? [],
+      tournament,
+      soldPlayers: rosterData?.soldPlayers ?? [],
+      minBasePrice: rosterData?.minBasePrice,
+      stats: rosterData?.stats ?? {
+        total: 0,
+        pending: 0,
+        sold: 0,
+        unsold: 0,
+        inAuction: 0,
+      },
+    };
+  }, [liveData, rosterData]);
+
   const placeBid = useMutation(api.auctions.placeBid);
   const finalizePlayer = useMutation(api.auctions.finalizePlayerSale);
   const startNext = useMutation(api.auctions.startNextPlayer);
@@ -460,7 +509,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     }
   }, [revertBid, auctionRoomId]);
 
-  if (!auctionData) {
+  // Wait for both the hot payload and the initial roster before first paint so
+  // teams/current-player aren't momentarily empty. Subsequent bid/timer updates
+  // only touch `liveData`, so the roster stays warm and never re-triggers this.
+  if (!auctionData || rosterData === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
@@ -504,8 +556,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const currentBid = auctionRoom.currentBidAmount || currentPlayer?.basePrice || 0;
   const minNextBid = currentBid + (auctionData.tournament?.settings.minBidIncrement || 25000);
 
-  const isFirstBid = !recentBids || recentBids.length === 0 ||
-    (recentBids.length === 0 && currentBid === currentPlayer?.basePrice);
+  const isFirstBid = !recentBids || recentBids.length === 0;
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden">

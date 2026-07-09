@@ -710,13 +710,16 @@ export const restartCurrentPlayer = mutation({
 });
 
 /**
- * Primary real-time query consumed by the auction page.
+ * HOT query — subscribed by every viewer and re-sent on every bid / timer reset.
  *
- * Design notes:
- * - All players fetched in a single query then partitioned in memory to avoid N+1.
- * - liveBids uses .take(10) for display; a separate .collect() gives the count.
- * - `maxAllowedBid` is computed server-side so clients can grey-out unaffordable teams.
- * - `serverTime` is returned so clients can correct for clock-skew when displaying the timer.
+ * Kept deliberately small so that with 150+ concurrent viewers, a bid only
+ * fans out a lightweight payload (room + live bids), NOT the full roster. It
+ * reads the auctionRoom document (which changes each bid) and the current
+ * player's live bids only — it does NOT scan the players or teams tables.
+ *
+ * The heavy roster data (teams, sold players, stats, current-player details)
+ * lives in `getAuctionRoster`, which is keyed on tournamentId + currentPlayerId
+ * so it is NOT invalidated by per-bid room patches.
  */
 export const getLiveAuction = query({
   args: { auctionRoomId: v.id("auctionRooms") },
@@ -724,21 +727,9 @@ export const getLiveAuction = query({
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) return null;
 
-    const [currentPlayer, teams, tournament] = await Promise.all([
-      auctionRoom.currentPlayerId
-        ? ctx.db.get(auctionRoom.currentPlayerId)
-        : null,
-      ctx.db
-        .query("teams")
-        .withIndex("by_tournament", (q) =>
-          q.eq("tournamentId", auctionRoom.tournamentId),
-        )
-        .collect(),
-      ctx.db.get(auctionRoom.tournamentId),
-    ]);
-
-    let currentBid = null;
     let currentBidTeam = null;
+    let currentBidAmount: number | undefined = undefined;
+    let currentBidTeamId: string | undefined = undefined;
     let recentBids: Array<{
       _id: string;
       teamId: string;
@@ -762,8 +753,9 @@ export const getLiveAuction = query({
       const bids = allLiveBids.slice(0, 10);
 
       if (bids.length > 0) {
-        currentBid = bids[0];
-        currentBidTeam = await ctx.db.get(currentBid.teamId);
+        currentBidAmount = bids[0].amount;
+        currentBidTeamId = bids[0].teamId;
+        currentBidTeam = await ctx.db.get(bids[0].teamId);
       }
 
       recentBids = bids.map((b) => ({
@@ -774,13 +766,53 @@ export const getLiveAuction = query({
       }));
     }
 
-    // Single query for all players, partitioned in memory.
-    const allPlayers = await ctx.db
-      .query("players")
-      .withIndex("by_tournament", (q) =>
-        q.eq("tournamentId", auctionRoom.tournamentId),
-      )
-      .collect();
+    return {
+      auctionRoom,
+      // Latest live-bid amount only (undefined when no bids yet). The client
+      // falls back to the current player's base price from `getAuctionRoster`.
+      currentBidAmount,
+      currentBidTeamId,
+      currentBidTeam,
+      recentBids,
+      totalBidsCount,
+      // Server timestamp for client clock-skew correction
+      serverTime: Date.now(),
+    };
+  },
+});
+
+/**
+ * COLD query — the full roster (teams, sold players, stats, current-player
+ * details, squad-completion maxAllowedBid).
+ *
+ * Intentionally keyed on `tournamentId` + `currentPlayerId` (passed by the
+ * client from the hot query) instead of reading the auctionRoom document, so
+ * that per-bid / per-timer patches to the room do NOT invalidate this query.
+ * It therefore only re-runs — and only re-fans-out to viewers — when a player
+ * is actually sold/unsold, a new player starts, or a team purse changes.
+ */
+export const getAuctionRoster = query({
+  args: {
+    tournamentId: v.id("tournaments"),
+    currentPlayerId: v.optional(v.id("players")),
+  },
+  handler: async (ctx, args) => {
+    const [currentPlayer, teams, tournament, allPlayers] = await Promise.all([
+      args.currentPlayerId ? ctx.db.get(args.currentPlayerId) : null,
+      ctx.db
+        .query("teams")
+        .withIndex("by_tournament", (q) =>
+          q.eq("tournamentId", args.tournamentId),
+        )
+        .collect(),
+      ctx.db.get(args.tournamentId),
+      ctx.db
+        .query("players")
+        .withIndex("by_tournament", (q) =>
+          q.eq("tournamentId", args.tournamentId),
+        )
+        .collect(),
+    ]);
 
     const pendingPlayers = allPlayers.filter(
       (p) => p.auctionStatus === "pending",
@@ -809,7 +841,7 @@ export const getLiveAuction = query({
           )
         : currentPlayer
           ? (currentPlayer.basePrice ?? tournamentBasePrice)
-          : 100000;
+          : tournamentBasePrice;
 
     // Build team player counts from soldPlayers already fetched above — avoids N+1 per-team queries
     const teamPlayerCounts = new Map<string, number>();
@@ -843,20 +875,8 @@ export const getLiveAuction = query({
     });
 
     return {
-      auctionRoom: {
-        ...auctionRoom,
-        currentBidAmount:
-          currentBid?.amount ||
-          (currentPlayer
-            ? (currentPlayer.basePrice ?? tournamentBasePrice)
-            : undefined),
-        currentBidTeamId: currentBid?.teamId,
-      },
       currentPlayer,
-      currentBidTeam,
       teams: teamsWithMaxBid,
-      recentBids,
-      totalBidsCount,
       tournament,
       soldPlayers,
       minBasePrice,
@@ -871,8 +891,6 @@ export const getLiveAuction = query({
         unsold: unsoldPlayers.length,
         inAuction: currentPlayer ? 1 : 0,
       },
-      // Server timestamp for client clock-skew correction
-      serverTime: Date.now(),
     };
   },
 });
