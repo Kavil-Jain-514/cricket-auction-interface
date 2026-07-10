@@ -92,12 +92,6 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
   const validateStep2 = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    // Captain age validation (only if captain name is provided)
-    if (formData.captainName && formData.captainAge !== undefined) {
-      if (formData.captainAge < 15 || formData.captainAge > 65) {
-        newErrors.captainAge = 'Captain age must be between 15 and 65';
-      }
-    }
 
     setErrors(newErrors);
 
@@ -356,8 +350,7 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                     <Input
                       id="captainAge"
                       type="number"
-                      min="15"
-                      max="50"
+                      min="1"
                       value={formData.captainAge || ''}
                       onChange={(e) => setFormData({ 
                         ...formData, 

@@ -38,12 +38,6 @@ export const create = mutation({
     if (!args.ownerName || args.ownerName.trim().length < 2) {
       throw new Error("Owner name must be at least 2 characters");
     }
-    if (
-      args.captainAge !== undefined &&
-      (args.captainAge < 15 || args.captainAge > 65)
-    ) {
-      throw new Error("Captain age must be between 15 and 65");
-    }
 
     // Get tournament to get base purse
     const tournament = await ctx.db.get(args.tournamentId);

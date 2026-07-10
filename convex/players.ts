@@ -45,9 +45,6 @@ export const create = mutation({
     if (args.name.trim().length > 50) {
       throw new Error("Player name must be less than 50 characters");
     }
-    if (args.age < 15 || args.age > 65) {
-      throw new Error("Player age must be between 15 and 65");
-    }
     if (
       args.jerseyNumber !== undefined &&
       (args.jerseyNumber < 1 || args.jerseyNumber > 99)

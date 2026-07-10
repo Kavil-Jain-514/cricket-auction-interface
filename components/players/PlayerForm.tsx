@@ -32,7 +32,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     name: '',
     phoneNumber: '',
     age: 24,
-    role: ['All-Rounder'] as string[],
+    role: [] as string[],
     battingBowlingHand: 'Right-handed' as 'Right-handed' | 'Left-handed',
     tshirtSize: 'L' as 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
     jerseyNumber: undefined as number | undefined,
@@ -55,13 +55,6 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
       newErrors.name = 'Name must be at least 2 characters';
     } else if (formData.name.trim().length > 50) {
       newErrors.name = 'Name must be less than 50 characters';
-    }
-
-    // Age validation
-    if (!formData.age || formData.age < 15) {
-      newErrors.age = 'Age must be at least 15';
-    } else if (formData.age > 65) {
-      newErrors.age = 'Age must be less than 65';
     }
 
     // Phone validation (optional but if provided, validate format)
@@ -174,8 +167,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                 id="age"
                 type="number"
                 required
-                min="15"
-                max="65"
+                min="1"
                 value={formData.age}
                 onChange={(e) => {
                   setFormData({ ...formData, age: parseInt(e.target.value) || 0 });
@@ -187,7 +179,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
             </div>
 
             <div>
-              <Label>Role(s) *</Label>
+              <Label>Role(s)</Label>
               <div className="mt-2 flex flex-wrap gap-2">
                 {PLAYER_ROLES.map((r) => (
                   <button
@@ -210,7 +202,6 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
                   </button>
                 ))}
               </div>
-              {formData.role.length === 0 && <p className="text-red-400 text-xs mt-1">Select at least one role</p>}
             </div>
 
             <div className="col-span-2 sm:col-span-1">

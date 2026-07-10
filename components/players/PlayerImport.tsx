@@ -217,7 +217,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             name: String(getColumnValue(row, 'Player Name', 'Name', 'player name') || '').trim(),
             phoneNumber: rawPhone ? String(rawPhone) : undefined,
             age: parseInt(String(getColumnValue(row, 'Age', 'age'))) || 0,
-            role: parsedRoles.length > 0 ? parsedRoles : ['All-Rounder'],
+            role: parsedRoles,
             battingBowlingHand: String(getColumnValue(row, 'Batting/Bowling Hand', 'Hand', 'Batting Hand', 'batting/bowling hand') || '').includes('Left') ? 'Left-handed' : 'Right-handed',
             tshirtSize: parseTshirtSize(String(getColumnValue(row, 'T-Shirt Size', 'T Shirt Size', 'TShirt Size', 'Tshirt', 'T-Shirt', 'T shirt', 'tshirt size', 'Shirt Size', 'shirt', 'Jersey Size') || '')),
             jerseyNumber: rawJerseyNumber ? parseInt(String(rawJerseyNumber)) : undefined,
@@ -234,10 +234,6 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
           }
           if (player.name.length < 2) {
             validationErrors.push(`Row ${idx + 2}: Player name must be at least 2 characters`);
-            return;
-          }
-          if (player.age < 15 || player.age > 65) {
-            validationErrors.push(`Row ${idx + 2}: Age must be between 15-65 for "${player.name}"`);
             return;
           }
           if (player.jerseyNumber !== undefined && (player.jerseyNumber < 1)) {
@@ -270,6 +266,58 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       setParsing(false);
     }
   };
+
+  const handleDownloadTemplate = useCallback(() => {
+    try {
+      const templateRows = [
+        {
+          'Player Name': 'John Doe',
+          'Phone Number': '9876543210',
+          'Age': 25,
+          'Player Role': 'Batter',
+          'Batting/Bowling Hand': 'Right-handed',
+          'T-Shirt Size': 'L',
+          'Jersey Number': 7,
+          'Jersey Name': 'JOHN',
+          'Base Price': 100000,
+          'Profile Photo': 'https://drive.google.com/file/d/FILE_ID/view?usp=sharing',
+        },
+        {
+          'Player Name': 'Jane Smith',
+          'Phone Number': '9123456780',
+          'Age': 28,
+          'Player Role': 'All-Rounder',
+          'Batting/Bowling Hand': 'Left-handed',
+          'T-Shirt Size': 'M',
+          'Jersey Number': 11,
+          'Jersey Name': 'JANE',
+          'Base Price': 200000,
+          'Profile Photo': '',
+        },
+      ];
+
+      const worksheet = XLSX.utils.json_to_sheet(templateRows);
+      worksheet['!cols'] = [
+        { wch: 20 }, // Player Name
+        { wch: 15 }, // Phone Number
+        { wch: 6 },  // Age
+        { wch: 18 }, // Player Role
+        { wch: 20 }, // Batting/Bowling Hand
+        { wch: 12 }, // T-Shirt Size
+        { wch: 14 }, // Jersey Number
+        { wch: 14 }, // Jersey Name
+        { wch: 12 }, // Base Price
+        { wch: 45 }, // Profile Photo
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Players');
+      XLSX.writeFile(workbook, 'player_import_template.xlsx');
+      toast.success('Template downloaded');
+    } catch {
+      toast.error('Failed to download template');
+    }
+  }, []);
 
   const handleImport = async () => {
     if (parsed.length === 0) {
@@ -453,7 +501,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             <div className="text-xs sm:text-sm text-slate-400 mb-3">
               Download our Excel template with all required columns and sample data.
             </div>
-            <Button variant="outline" size="sm" className="min-h-10 touch-target w-full sm:w-auto">
+            <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="min-h-10 touch-target w-full sm:w-auto">
               Download Template
             </Button>
           </div>

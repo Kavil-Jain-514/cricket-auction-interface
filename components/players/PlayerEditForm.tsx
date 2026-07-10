@@ -122,8 +122,7 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
                 id="age"
                 type="number"
                 required
-                min="15"
-                max="65"
+                min="1"
                 value={formData.age}
                 onChange={(e) => setFormData({ ...formData, age: parseInt(e.target.value) || 0 })}
                 className="mt-2 h-11 sm:h-12 text-base"
@@ -131,7 +130,7 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
             </div>
 
             <div>
-              <Label>Role(s) *</Label>
+              <Label>Role(s)</Label>
               <div className="mt-2 flex flex-wrap gap-2">
                 {PLAYER_ROLES.map((r) => (
                   <button
@@ -154,7 +153,6 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
                   </button>
                 ))}
               </div>
-              {formData.role.length === 0 && <p className="text-red-400 text-xs mt-1">Select at least one role</p>}
             </div>
 
             <div className="col-span-2 sm:col-span-1">

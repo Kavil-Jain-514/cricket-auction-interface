@@ -204,8 +204,7 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
                 <Input
                   id="captainAge"
                   type="number"
-                  min="15"
-                  max="50"
+                  min="1"
                   value={formData.captainAge || ''}
                   onChange={(e) => setFormData({
                     ...formData,

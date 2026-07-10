@@ -6,7 +6,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Doc, Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Upload, Users, Trash2, AlertTriangle, Download, Eye } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Users, Trash2, AlertTriangle, Download, Eye, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { PlayerCard } from '@/components/players/PlayerCard';
@@ -599,7 +599,14 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         {/* Import Modal */}
         {showImport && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto ipad-scroll">
-            <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full p-4 sm:p-6 my-4 sm:my-8">
+            <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full p-4 sm:p-6 my-4 sm:my-8 relative">
+              <button
+                onClick={() => setShowImport(false)}
+                aria-label="Close import players"
+                className="absolute top-3 right-3 sm:top-4 sm:right-4 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition touch-target"
+              >
+                <X className="w-5 h-5" />
+              </button>
               <PlayerImport
                 tournamentId={tournamentId}
                 onComplete={() => setShowImport(false)}
