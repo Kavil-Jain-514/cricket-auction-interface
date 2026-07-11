@@ -1,7 +1,7 @@
 // app/auction/[roomId]/page.tsx
 "use client";
 
-import React, { use, useRef, useMemo, useState, useEffect, useCallback } from 'react';
+import { use, useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
@@ -16,10 +16,11 @@ import { toast } from 'sonner';
 import { formatCurrency, getErrorMessage, getRoleDisplay } from '@/lib/utils';
 import { useSound } from '@/hooks/useSound';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
+import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { useUserRole } from '@/hooks/useUserRole';
 import dynamic from 'next/dynamic';
 import { PlayerIntroFlash } from '@/components/auction/PlayerIntroFlash';
-import { ViewerTeamsPanel } from '@/components/auction/ViewerTeamsPanel';
+import { ViewerActionBar, ViewerSheets, type ViewerSheetType } from '@/components/auction/ViewerPanels';
 import { AuctionLiveBids } from '@/components/auction/AuctionLiveBids';
 import { AdminTeamsPanel } from '@/components/auction/AdminTeamsPanel';
 
@@ -39,6 +40,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   // RBAC - Role Based Access Control
   const { isAdmin } = useUserRole();
 
+  // Which viewer sheet (sold / unsold / teams history) is open, if any.
+  const [activeSheet, setActiveSheet] = useState<ViewerSheetType | null>(null);
+
   // Convex queries and mutations
   // Split into a HOT query (room + live bids, re-sent on every bid/timer) and a
   // COLD query (full roster, only re-sent on sale/player-change). The roster is
@@ -55,6 +59,22 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           currentPlayerId: liveData.auctionRoom.currentPlayerId,
         }
       : 'skip'
+  );
+
+  // Latest SOLD/UNSOLD event — authoritative trigger + data for the viewer
+  // result popup (replaces the racy client-side ref reconstruction). Skipped
+  // for admins, who drive the popup directly from finalizePlayerSale.
+  const latestSaleEvent = useQuery(
+    api.auctions.getLatestSaleEvent,
+    isAdmin ? 'skip' : { auctionRoomId },
+  );
+
+  // Sold/unsold history — fetched lazily, only while a history sheet is open.
+  const auctionHistory = useQuery(
+    api.auctions.getAuctionHistory,
+    (activeSheet === 'sold' || activeSheet === 'unsold') && liveData
+      ? { tournamentId: liveData.auctionRoom.tournamentId }
+      : 'skip',
   );
 
   // Merge the two query results into the single shape the rest of the page expects.
@@ -124,16 +144,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const prevAuctionStatusRef = useRef<string | null>(null);
   const prevBidCountRef = useRef<number>(0);
   const prevCurrentPlayerIdRef = useRef<string | null>(null);
-  // Track player info for sold/unsold flash
-  const prevPlayerInfoRef = useRef<{
-    name: string;
-    photoUrl?: string;
-    teamName?: string;
-    teamColor?: string;
-    teamLogoUrl?: string;
-    amount?: number;
-    basePrice?: number;
-  } | null>(null);
+  // Last SOLD/UNSOLD event id already shown to this viewer. `undefined` means
+  // "not initialised yet" so late-joiners don't get a stale popup on first load.
+  const lastSaleEventIdRef = useRef<string | null | undefined>(undefined);
 
   const [result, setResult] = useState<{
     playerName: string;
@@ -300,98 +313,65 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     const currentStatus = auctionData?.auctionRoom?.status;
     const currentBidCount = auctionData?.recentBids?.length ?? 0;
     const currentPlayerIdNow = auctionData?.auctionRoom?.currentPlayerId;
-    const currentPlayer = auctionData?.currentPlayer;
-    const currentBidTeam = auctionData?.currentBidTeam;
-    const currentBidAmountNow = auctionData?.auctionRoom?.currentBidAmount;
 
     let flashToShow: typeof statusFlash = null;
-    let soldUnsoldResult: typeof result = null;
 
-    // Check for player sold/unsold (player was being auctioned and now no player is selected)
-    if (!soldUnsoldResult && !flashToShow && prevCurrentPlayerIdRef.current && !currentPlayerIdNow && prevPlayerInfoRef.current) {
-      if (prevPlayerInfoRef.current.teamName && prevPlayerInfoRef.current.amount) {
-        // Player was sold — capture for full result popup (same as admin)
-        soldUnsoldResult = {
-          playerName: prevPlayerInfoRef.current.name,
-          playerPhotoUrl: prevPlayerInfoRef.current.photoUrl,
-          teamName: prevPlayerInfoRef.current.teamName,
-          teamLogoUrl: prevPlayerInfoRef.current.teamLogoUrl,
-          amount: prevPlayerInfoRef.current.amount,
-          sold: true,
-          teamColor: prevPlayerInfoRef.current.teamColor,
-        };
-      } else {
-        // Player went unsold — capture for full result popup
-        soldUnsoldResult = {
-          playerName: prevPlayerInfoRef.current.name,
-          playerPhotoUrl: prevPlayerInfoRef.current.photoUrl,
-          teamName: null,
-          amount: prevPlayerInfoRef.current.basePrice ?? 0,
-          sold: false,
+    // When the current player clears, a sale was just finalized — the SOLD/UNSOLD
+    // popup is driven by the latestSaleEvent effect below. Skip banner detection
+    // for this tick so the bid-count dropping to 0 doesn't fire a spurious
+    // "reverted" banner on top of the sale popup.
+    const playerJustCleared =
+      Boolean(prevCurrentPlayerIdRef.current) && !currentPlayerIdNow;
+
+    if (!playerJustCleared) {
+      // Check for auction paused/resumed
+      if (!flashToShow && prevAuctionStatusRef.current && currentStatus !== prevAuctionStatusRef.current) {
+        if (currentStatus === 'paused') {
+          flashToShow = {
+            type: 'paused',
+            message: 'Auction Paused',
+          };
+        } else if (currentStatus === 'live' && prevAuctionStatusRef.current === 'paused') {
+          flashToShow = {
+            type: 'resumed',
+            message: 'Auction Resumed',
+          };
+        }
+      }
+
+      // Check for bid reverted (bid count decreased)
+      if (!flashToShow && prevBidCountRef.current > 0 && currentBidCount < prevBidCountRef.current) {
+        flashToShow = {
+          type: 'reverted',
+          message: 'Last Bid Reverted',
         };
       }
-    }
 
-    // Check for auction paused/resumed
-    if (!flashToShow && prevAuctionStatusRef.current && currentStatus !== prevAuctionStatusRef.current) {
-      if (currentStatus === 'paused') {
+      // Check for new bid (bid count increased)
+      if (!flashToShow && currentBidCount > prevBidCountRef.current && prevBidCountRef.current > 0) {
+        const latestBid = auctionData?.recentBids?.[0];
+        const biddingTeam = auctionData?.teams?.find(t => t._id === latestBid?.teamId);
+        if (latestBid && biddingTeam) {
+          flashToShow = {
+            type: 'new_bid',
+            message: 'New Bid!',
+            teamName: biddingTeam.name,
+            teamColor: biddingTeam.colorPrimary,
+            amount: latestBid.amount,
+          };
+        }
+      }
+
+      // Check for player reset/rebid (same player but bids cleared)
+      if (!flashToShow && currentPlayerIdNow &&
+        currentPlayerIdNow === prevCurrentPlayerIdRef.current &&
+        prevBidCountRef.current > 0 &&
+        currentBidCount === 0) {
         flashToShow = {
-          type: 'paused',
-          message: 'Auction Paused',
-        };
-      } else if (currentStatus === 'live' && prevAuctionStatusRef.current === 'paused') {
-        flashToShow = {
-          type: 'resumed',
-          message: 'Auction Resumed',
+          type: 'rebid',
+          message: 'Bidding Restarted',
         };
       }
-    }
-
-    // Check for bid reverted (bid count decreased)
-    if (!flashToShow && prevBidCountRef.current > 0 && currentBidCount < prevBidCountRef.current) {
-      flashToShow = {
-        type: 'reverted',
-        message: 'Last Bid Reverted',
-      };
-    }
-
-    // Check for new bid (bid count increased)
-    if (!flashToShow && currentBidCount > prevBidCountRef.current && prevBidCountRef.current > 0) {
-      const latestBid = auctionData?.recentBids?.[0];
-      const biddingTeam = auctionData?.teams?.find(t => t._id === latestBid?.teamId);
-      if (latestBid && biddingTeam) {
-        flashToShow = {
-          type: 'new_bid',
-          message: 'New Bid!',
-          teamName: biddingTeam.name,
-          teamColor: biddingTeam.colorPrimary,
-          amount: latestBid.amount,
-        };
-      }
-    }
-
-    // Check for player reset/rebid (same player but bids cleared)
-    if (!flashToShow && currentPlayerIdNow &&
-      currentPlayerIdNow === prevCurrentPlayerIdRef.current &&
-      prevBidCountRef.current > 0 &&
-      currentBidCount === 0) {
-      flashToShow = {
-        type: 'rebid',
-        message: 'Bidding Restarted',
-      };
-    }
-
-    // Update player info ref BEFORE updating player ID ref (to capture last state)
-    if (currentPlayerIdNow && currentPlayer) {
-      prevPlayerInfoRef.current = {
-        name: currentPlayer.name,
-        photoUrl: currentPlayer.photoUrl,
-        teamName: currentBidTeam?.name,
-        teamColor: currentBidTeam?.colorPrimary,
-        teamLogoUrl: currentBidTeam?.logoUrl,
-        amount: currentBidAmountNow,
-        basePrice: currentPlayer.basePrice,
-      };
     }
 
     // Update refs
@@ -399,29 +379,49 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     prevBidCountRef.current = currentBidCount;
     prevCurrentPlayerIdRef.current = currentPlayerIdNow ?? null;
 
-    // Show sold/unsold as full result popup (same experience as admin)
-    let rafFlash = 0;
-    if (soldUnsoldResult) {
-      rafFlash = requestAnimationFrame(() => {
-        setResult(soldUnsoldResult);
-        setShowResult(true);
-        if (soldUnsoldResult!.sold) {
-          play('sold', 0.7);
-        } else {
-          play('unsold', 0.5);
-        }
-      });
-    } else if (flashToShow) {
-      // Other flashes (paused, resumed, reverted, rebid, new_bid) stay as banners
-      rafFlash = requestAnimationFrame(() => {
-        showStatusFlash(flashToShow);
-      });
+    if (!flashToShow) return;
+    const rafFlash = requestAnimationFrame(() => {
+      showStatusFlash(flashToShow);
+    });
+    return () => cancelAnimationFrame(rafFlash);
+  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, showStatusFlash]);
+
+  // Viewer SOLD/UNSOLD result popup — driven by the authoritative server sale
+  // event (getLatestSaleEvent) rather than reconstructing the result from
+  // client-side ref timing across the separately-updating hot/cold queries.
+  useEffect(() => {
+    if (isAdmin) return;
+    if (latestSaleEvent === undefined) return; // still loading
+
+    const ev = latestSaleEvent; // null when no sale has happened yet
+    const eventId = ev?.eventId ?? null;
+
+    // First load: record the current event without showing it, so a viewer who
+    // joins mid-auction doesn't get a popup for a sale that already happened.
+    if (lastSaleEventIdRef.current === undefined) {
+      lastSaleEventIdRef.current = eventId;
+      return;
     }
 
-    return () => {
-      if (rafFlash) cancelAnimationFrame(rafFlash);
-    };
-  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, auctionData?.currentPlayer, auctionData?.currentBidTeam, auctionData?.auctionRoom?.currentBidAmount, showStatusFlash, play]);
+    if (!ev || eventId === lastSaleEventIdRef.current) return;
+    lastSaleEventIdRef.current = eventId;
+
+    const raf = requestAnimationFrame(() => {
+      setActiveSheet(null); // a sale takes focus — close any open history/teams sheet
+      setResult({
+        playerName: ev.playerName,
+        playerPhotoUrl: ev.playerPhotoUrl,
+        teamName: ev.teamName,
+        teamLogoUrl: ev.teamLogoUrl,
+        amount: ev.amount,
+        sold: ev.sold,
+        teamColor: ev.teamColor,
+      });
+      setShowResult(true);
+      play(ev.sold ? 'sold' : 'unsold', ev.sold ? 0.7 : 0.5);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isAdmin, latestSaleEvent, play]);
 
   // Auto-hide status flash after 3 seconds
   useEffect(() => {
@@ -487,7 +487,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     try {
       const res = await startNext({ auctionRoomId });
 
-      if (res.completed) {
+      if (res.success === false) {
+        toast.error(res.reason || "Could not load next player");
+      } else if (res.completed) {
         toast.success("Auction completed! All players have been auctioned.");
       } else {
         play('nextPlayer', 0.5);
@@ -601,31 +603,24 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-3 sm:py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 sm:gap-4 shrink-0">
-              {/* Tournament Logo */}
-              {auctionData.tournament?.logoUrl ? (
-                <div className="relative">
-                  <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={auctionData.tournament.logoUrl}
-                      alt={auctionData.tournament.name}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
-                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse" />
-                  </div>
+              {/* Tournament Logo — ImgWithFallback auto-recovers if the URL changes */}
+              <div className="relative">
+                <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
+                  <ImgWithFallback
+                    src={auctionData.tournament?.logoUrl}
+                    alt={auctionData.tournament?.name ?? 'Tournament'}
+                    className="w-full h-full object-cover"
+                    fallback={
+                      <div className="w-full h-full bg-linear-to-br from-yellow-500 to-orange-600 flex items-center justify-center">
+                        <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+                      </div>
+                    }
+                  />
                 </div>
-              ) : (
-                <div className="relative">
-                  <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-linear-to-br from-yellow-500 to-orange-600 flex items-center justify-center border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
-                    <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
-                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse" />
-                  </div>
+                <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
+                  <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse" />
                 </div>
-              )}
+              </div>
               <div className="hidden sm:block">
                 <h1 className="text-lg sm:text-xl lg:text-2xl font-bold truncate max-w-50 lg:max-w-none">
                   {auctionData.tournament?.name}
@@ -837,17 +832,19 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               </div>
             )}
 
-            {/* View Teams Button - Available for both Admin and Viewer */}
-            <Button
-              onClick={() => window.open(`/tournament/${auctionData.tournament?._id}/teams`, '_blank')}
-              variant="outline"
-              size="lg"
-              className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target border-slate-600 hover:bg-slate-800"
-              title="View all teams in new tab"
-            >
-              <Users className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-              <span className="hidden sm:inline">View Teams</span>
-            </Button>
+            {/* View Teams Button — admins only; viewers use the bottom action bar */}
+            {isAdmin && (
+              <Button
+                onClick={() => window.open(`/tournament/${auctionData.tournament?._id}/teams`, '_blank')}
+                variant="outline"
+                size="lg"
+                className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target border-slate-600 hover:bg-slate-800"
+                title="View all teams in new tab"
+              >
+                <Users className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                <span className="hidden sm:inline">View Teams</span>
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -915,8 +912,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         )}
       </AnimatePresence>
 
-      <main className="max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 pb-20 safe-bottom">
-        <div className={`grid gap-4 sm:gap-5 lg:gap-6 ${isAdmin ? 'grid-cols-12' : 'grid-cols-10'}`}>
+      <main className={`max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 safe-bottom ${isAdmin ? 'pb-20' : 'pb-32 sm:pb-36'}`}>
+        <div className={isAdmin ? 'grid gap-4 sm:gap-5 lg:gap-6 grid-cols-12' : ''}>
           {/* Teams Panel - Only shown to admins */}
           {isAdmin && (
             <AdminTeamsPanel
@@ -938,7 +935,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           )}
 
           {/* Center Stage */}
-          <div className={`order-1 ${isAdmin ? 'col-span-12 lg:col-span-6 lg:order-2' : 'col-span-10 lg:col-span-7'}`}>
+          <div className={isAdmin ? 'order-1 col-span-12 lg:col-span-6 lg:order-2' : 'w-full'}>
             {/* Timer - Cricket Ball Style - Admin only; viewers see it in the header */}
             {isAdmin && <div className="flex justify-center mb-4 sm:mb-6 lg:mb-8">
               <div className="relative w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32">
@@ -997,55 +994,57 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   exit={{ opacity: 0, y: -20 }}
                   className="bg-linear-to-br from-slate-800 to-slate-900 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-700 shadow-2xl"
                 >
-                  {/* Viewer Mode: Enlarged horizontal layout */}
+                  {/* Viewer Mode: full-width hero — focus on the player */}
                   {!isAdmin ? (
-                    <div className="flex flex-col lg:flex-row gap-6 lg:gap-10 items-center">
-                      {/* Large Player Photo */}
-                      <div className="w-full max-w-70 sm:max-w-xs lg:w-auto lg:max-w-none mx-auto shrink-0">
+                    <div className="flex flex-col lg:flex-row gap-6 lg:gap-12 items-center lg:items-stretch">
+                      {/* Hero Player Photo */}
+                      <div className="relative w-full max-w-xs sm:max-w-md lg:max-w-none lg:w-[42%] xl:w-[45%] mx-auto lg:mx-0 shrink-0">
+                        {currentPlayer.playerNumber && (
+                          <span className="absolute -top-3 -left-3 z-10 inline-flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-blue-600 text-white text-xl sm:text-2xl font-extrabold shadow-lg ring-4 ring-slate-900">
+                            #{currentPlayer.playerNumber}
+                          </span>
+                        )}
                         <PlayerAvatar
                           name={currentPlayer.name}
                           photoUrl={currentPlayer.photoUrl}
                           size="3xl"
-                          className="rounded-2xl w-full! h-auto! aspect-square"
+                          className="rounded-2xl lg:rounded-3xl w-full! h-auto! aspect-square shadow-2xl ring-2 ring-slate-600/50"
                         />
                       </div>
 
-                      {/* Player Details + Bid on the right */}
-                      <div className="flex-1 w-full">
-                        <div className="flex items-center justify-center lg:justify-start gap-3 mb-3 sm:mb-4">
-                          {currentPlayer.playerNumber && (
-                            <span className="inline-flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-blue-600 text-white text-xl sm:text-2xl font-bold shadow-lg">
-                              #{currentPlayer.playerNumber}
-                            </span>
-                          )}
-                          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold">
-                            {currentPlayer.name}
-                          </h2>
-                        </div>
+                      {/* Player Details + Bid — fills the remaining width */}
+                      <div className="flex-1 w-full flex flex-col justify-center min-w-0">
+                        <h2 className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-extrabold text-center lg:text-left mb-3 sm:mb-4 leading-none break-words">
+                          {currentPlayer.name}
+                        </h2>
 
-                        <div className="flex flex-wrap justify-center lg:justify-start gap-2 sm:gap-3 mb-5 sm:mb-6">
-                          <span className="px-4 py-2 bg-purple-600 rounded-full text-sm sm:text-base font-semibold">
+                        <div className="flex flex-wrap justify-center lg:justify-start gap-2 sm:gap-3 mb-5 sm:mb-6 lg:mb-8">
+                          <span className="px-4 py-2 lg:px-5 lg:py-2.5 bg-purple-600 rounded-full text-sm sm:text-base lg:text-lg font-semibold">
                             {getRoleDisplay(currentPlayer.role)}
                           </span>
-                          <span className="px-4 py-2 bg-slate-700 rounded-full text-sm sm:text-base">
-                            {currentPlayer.age} years
-                          </span>
-                          <span className="px-4 py-2 bg-slate-700 rounded-full text-sm sm:text-base">
-                            {currentPlayer.battingBowlingHand}
-                          </span>
+                          {currentPlayer.age ? (
+                            <span className="px-4 py-2 lg:px-5 lg:py-2.5 bg-slate-700 rounded-full text-sm sm:text-base lg:text-lg">
+                              {currentPlayer.age} years
+                            </span>
+                          ) : null}
+                          {currentPlayer.battingBowlingHand ? (
+                            <span className="px-4 py-2 lg:px-5 lg:py-2.5 bg-slate-700 rounded-full text-sm sm:text-base lg:text-lg">
+                              {currentPlayer.battingBowlingHand}
+                            </span>
+                          ) : null}
                         </div>
 
-                        {/* Current Bid Display - Compact for viewer */}
+                        {/* Current Bid — the focal number */}
                         <motion.div
-                          className="bg-linear-to-r from-yellow-600 to-orange-600 rounded-xl p-4 sm:p-5 text-center"
-                          animate={{ scale: [1, 1.01, 1] }}
+                          className="relative bg-linear-to-r from-yellow-600 to-orange-600 rounded-2xl lg:rounded-3xl p-5 sm:p-6 lg:p-8 text-center shadow-xl shadow-orange-900/30"
+                          animate={{ scale: [1, 1.015, 1] }}
                           transition={{ repeat: Infinity, duration: 2 }}
                         >
-                          <div className="text-xs sm:text-sm font-semibold mb-1 opacity-90">
+                          <div className="text-xs sm:text-sm lg:text-base font-semibold mb-1 lg:mb-2 opacity-90 tracking-widest">
                             {isFirstBid ? "STARTING PRICE" : "CURRENT BID"}
                           </div>
                           <motion.div
-                            className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-1"
+                            className="text-5xl sm:text-6xl lg:text-7xl xl:text-8xl font-extrabold leading-none"
                             key={currentBid}
                             initial={{ scale: 1.2 }}
                             animate={{ scale: 1 }}
@@ -1053,29 +1052,29 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                             {formatCurrency(currentBid)}
                           </motion.div>
                           {currentBidTeam && !isFirstBid && (
-                            <div className="text-xs sm:text-sm opacity-90">
-                              by {currentBidTeam.name}
+                            <div className="mt-2 lg:mt-3 text-sm sm:text-base lg:text-lg font-medium opacity-95">
+                              by <span className="font-bold">{currentBidTeam.name}</span>
                             </div>
                           )}
                         </motion.div>
 
-                        {/* Player Info - inline for viewer */}
-                        <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3 text-center">
-                          <div className="bg-slate-800/60 rounded-lg p-2 sm:p-3 border border-slate-700">
-                            <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5 sm:mb-1">Base</div>
-                            <div className="text-xs sm:text-sm font-semibold">
+                        {/* Base / Next / Bids */}
+                        <div className="mt-4 lg:mt-5 grid grid-cols-3 gap-2 sm:gap-3">
+                          <div className="bg-slate-800/60 rounded-xl p-3 lg:p-4 border border-slate-700 text-center">
+                            <div className="text-[10px] sm:text-xs lg:text-sm text-slate-400 mb-0.5 lg:mb-1">Base</div>
+                            <div className="text-sm sm:text-base lg:text-xl font-semibold">
                               {formatCurrency(currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000)}
                             </div>
                           </div>
-                          <div className="bg-slate-800/60 rounded-lg p-2 sm:p-3 border border-slate-700">
-                            <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5 sm:mb-1">Next</div>
-                            <div className="text-xs sm:text-sm font-semibold text-green-400">
+                          <div className="bg-slate-800/60 rounded-xl p-3 lg:p-4 border border-slate-700 text-center">
+                            <div className="text-[10px] sm:text-xs lg:text-sm text-slate-400 mb-0.5 lg:mb-1">Next Bid</div>
+                            <div className="text-sm sm:text-base lg:text-xl font-semibold text-green-400">
                               {formatCurrency(isFirstBid ? (currentPlayer.basePrice ?? auctionData?.tournament?.settings?.basePrice ?? 100000) : minNextBid)}
                             </div>
                           </div>
-                          <div className="bg-slate-800/60 rounded-lg p-2 sm:p-3 border border-slate-700">
-                            <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5 sm:mb-1">Bids</div>
-                            <div className="text-xs sm:text-sm font-semibold">{auctionData?.totalBidsCount || 0}</div>
+                          <div className="bg-slate-800/60 rounded-xl p-3 lg:p-4 border border-slate-700 text-center">
+                            <div className="text-[10px] sm:text-xs lg:text-sm text-slate-400 mb-0.5 lg:mb-1">Bids</div>
+                            <div className="text-sm sm:text-base lg:text-xl font-semibold">{auctionData?.totalBidsCount || 0}</div>
                           </div>
                         </div>
                       </div>
@@ -1107,12 +1106,16 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                         <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-purple-600 rounded-full text-xs sm:text-sm font-semibold">
                           {getRoleDisplay(currentPlayer.role)}
                         </span>
-                        <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
-                          {currentPlayer.age} years
-                        </span>
-                        <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
-                          {currentPlayer.battingBowlingHand}
-                        </span>
+                        {currentPlayer.age ? (
+                          <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
+                            {currentPlayer.age} years
+                          </span>
+                        ) : null}
+                        {currentPlayer.battingBowlingHand ? (
+                          <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
+                            {currentPlayer.battingBowlingHand}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -1165,16 +1168,6 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               )}
             </AnimatePresence>
           </div>
-
-          {/* Viewer Team Panel - right side on desktop */}
-          {!isAdmin && (
-            <ViewerTeamsPanel
-              teams={teams ?? []}
-              soldPlayers={soldPlayers}
-              maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15}
-              currentBidTeamId={currentBidTeam?._id}
-            />
-          )}
 
           {/* Live Feed - Side panel for admin */}
           {isAdmin ? (
@@ -1231,10 +1224,32 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         />
       )}
 
-      {/* Live Stats Crawler/Ticker — memoized to avoid re-renders on timer/bid changes */}
-      {!isAdmin && <TickerBar teams={teams} soldPlayers={soldPlayers} />}
+      {/* Viewer: fixed bottom action bar + history/teams sheets */}
+      {!isAdmin && (
+        <>
+          <ViewerActionBar
+            soldCount={soldPlayers?.length ?? 0}
+            unsoldCount={auctionData?.stats?.unsold ?? 0}
+            teamsCount={teams?.length ?? 0}
+            active={activeSheet}
+            onOpen={(sheet) => setActiveSheet((cur) => (cur === sheet ? null : sheet))}
+          />
+          <ViewerSheets
+            active={activeSheet}
+            onClose={() => setActiveSheet(null)}
+            history={
+              activeSheet === 'sold' || activeSheet === 'unsold'
+                ? auctionHistory
+                : undefined
+            }
+            teams={teams ?? []}
+            soldPlayers={soldPlayers}
+            maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15}
+            currentBidTeamId={currentBidTeam?._id}
+          />
+        </>
+      )}
 
-    
       {/* Admin Player Manager Modal */}
       {showPlayerManager && auctionData.tournament && (
         <AdminPlayerManager
@@ -1247,71 +1262,3 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     </div>
   );
 }
-
-// Memoized Ticker Bar — only re-renders when teams or soldPlayers change, not on timer/bid updates
-interface TickerBarProps {
-  teams: Array<{
-    _id: string;
-    name: string;
-    colorPrimary: string;
-    [key: string]: unknown;
-  }>;
-  soldPlayers: Array<{ _id: string; name: string; soldPrice?: number; teamId?: string; [key: string]: unknown }> | undefined;
-}
-
-const TickerBar = React.memo(function TickerBar({ teams, soldPlayers }: TickerBarProps) {
-  const tickerContent = useMemo(() => {
-    if (!soldPlayers || !teams) return [];
-    // Last 10 sold players in query order (no sale timestamp available; order is not guaranteed to reflect recency)
-    const sold = [...soldPlayers].filter(p => p.soldPrice && p.soldPrice > 0).slice(-10).reverse();
-    return sold.map(p => {
-      const team = teams.find(t => t._id === p.teamId);
-      return { ...p, teamName: team?.name, teamColor: team?.colorPrimary };
-    });
-  }, [soldPlayers, teams]);
-
-  if (tickerContent.length === 0) {
-    return (
-      <div className="fixed bottom-0 left-0 right-0 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 border-t-2 border-slate-600 py-3 sm:py-4 z-40 overflow-hidden">
-        <div className="flex items-center justify-center text-slate-500 text-sm">
-          No players sold yet
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed bottom-0 left-0 right-0 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 border-t-2 border-slate-600 py-3 sm:py-4 z-40 overflow-hidden">
-      <div className="relative flex items-center">
-        <div className="absolute left-0 w-8 sm:w-16 h-full bg-linear-to-r from-slate-900 to-transparent z-10" />
-        <div className="absolute right-0 w-8 sm:w-16 h-full bg-linear-to-l from-slate-900 to-transparent z-10" />
-        <motion.div
-          className="flex gap-4 sm:gap-6 px-4 sm:px-8 whitespace-nowrap"
-          animate={{ x: ["0%", "-50%"] }}
-          transition={{ x: { repeat: Infinity, repeatType: "loop", duration: Math.max(15, tickerContent.length * 4), ease: "linear" } }}
-        >
-          {[...Array(2)].map((_, loopIndex) => (
-            <div key={loopIndex} className="flex gap-4 sm:gap-6">
-              {tickerContent.map((player) => (
-                <div
-                  key={`${loopIndex}-${player._id}`}
-                  className="flex items-center gap-2 sm:gap-3 bg-slate-800/60 rounded-full px-4 sm:px-5 py-2 border border-slate-600 shrink-0"
-                >
-                  <span className="font-semibold text-white text-sm sm:text-base">{player.name as string}</span>
-                  <span className="text-slate-400 text-sm">•</span>
-                  <span className="text-yellow-400 font-bold text-sm sm:text-base">{formatCurrency(player.soldPrice || 0)}</span>
-                  {player.teamName && (
-                    <>
-                      <span className="text-slate-400 text-sm">→</span>
-                      <span className="text-sky-300 text-sm sm:text-base">{player.teamName}</span>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
-        </motion.div>
-      </div>
-    </div>
-  );
-});

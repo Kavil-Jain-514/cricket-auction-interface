@@ -1,6 +1,7 @@
 // convex/auctions.ts - Live auction mutations and queries
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
 import { requireAdmin, logAdminAction } from "./auth";
 
 /**
@@ -470,6 +471,19 @@ export const startNextPlayer = mutation({
       throw new Error("Auction must be live to get next player");
     }
 
+    // Guard: refuse to load a new player while one is still in auction.
+    // The UI disables the "Next" button, but that is client-only — two admin
+    // tabs (or a click that races the subscription update) could otherwise
+    // overwrite currentPlayerId and orphan the in-auction player. Finalize the
+    // current player first.
+    if (auctionRoom.currentPlayerId) {
+      return {
+        success: false,
+        completed: false,
+        reason: "A player is already in auction. Finalize the current player first.",
+      };
+    }
+
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
 
@@ -892,6 +906,142 @@ export const getAuctionRoster = query({
         inAuction: currentPlayer ? 1 : 0,
       },
     };
+  },
+});
+
+/**
+ * Latest SOLD / UNSOLD event for a room — the authoritative source for the
+ * viewer result popup. Viewers show the popup when a new event id appears,
+ * instead of reconstructing the result from client-side ref timing across the
+ * separately-updating hot/cold queries (which was racy). Enriched with the
+ * player photo and winning-team logo/color, which the raw event does not store.
+ *
+ * Only re-fans-out when a new sale event is written (or the tournament base
+ * price / player photo changes), NOT on every bid — the finalization events are
+ * infrequent, so the extra document reads here are cheap.
+ */
+export const getLatestSaleEvent = query({
+  args: { auctionRoomId: v.id("auctionRooms") },
+  handler: async (ctx, args) => {
+    // Scan a small recent window and pick the newest sold/unsold event. Between
+    // two sales there are only a handful of intervening events (player_started,
+    // pause/resume, restart), so a bounded window reliably contains the latest.
+    const recentEvents = await ctx.db
+      .query("auctionEvents")
+      .withIndex("by_room_timestamp", (q) =>
+        q.eq("auctionRoomId", args.auctionRoomId),
+      )
+      .order("desc")
+      .take(25);
+
+    const sale = recentEvents.find(
+      (e) => e.type === "player_sold" || e.type === "player_unsold",
+    );
+    if (!sale) return null;
+
+    const data = sale.data as {
+      playerId?: string;
+      teamId?: string;
+      amount?: number;
+      playerName?: string;
+      teamName?: string;
+    };
+    const sold = sale.type === "player_sold";
+
+    // Enrich with photo / team branding not stored on the event.
+    const player = data.playerId
+      ? await ctx.db.get(data.playerId as Id<"players">)
+      : null;
+    const team =
+      sold && data.teamId ? await ctx.db.get(data.teamId as Id<"teams">) : null;
+
+    // Unsold events don't carry an amount — fall back to the player's base price.
+    let amount = data.amount ?? 0;
+    if (!sold) {
+      const room = await ctx.db.get(args.auctionRoomId);
+      const tournament = room ? await ctx.db.get(room.tournamentId) : null;
+      amount =
+        player?.basePrice ?? tournament?.settings.basePrice ?? 100000;
+    }
+
+    return {
+      eventId: sale._id,
+      timestamp: sale.timestamp,
+      sold,
+      playerName: data.playerName ?? player?.name ?? "Player",
+      playerPhotoUrl: player?.photoUrl,
+      teamName: sold ? (data.teamName ?? team?.name ?? null) : null,
+      teamLogoUrl: team?.logoUrl,
+      teamColor: team?.colorPrimary,
+      amount,
+    };
+  },
+});
+
+/**
+ * SOLD + UNSOLD history for the viewer history sheets. Intended to be
+ * subscribed lazily (only while a history sheet is open) so it stays out of the
+ * always-on hot/cold payload. Sold entries are enriched with the winning team's
+ * name/color/logo and sorted by price (highest first).
+ */
+export const getAuctionHistory = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    // Query sold/unsold directly via the by_tournament_status compound index so
+    // we never read pending / in-auction players (cheaper for large rosters).
+    const [soldPlayers, unsoldPlayers, teams, tournament] = await Promise.all([
+      ctx.db
+        .query("players")
+        .withIndex("by_tournament_status", (q) =>
+          q.eq("tournamentId", args.tournamentId).eq("auctionStatus", "sold"),
+        )
+        .collect(),
+      ctx.db
+        .query("players")
+        .withIndex("by_tournament_status", (q) =>
+          q.eq("tournamentId", args.tournamentId).eq("auctionStatus", "unsold"),
+        )
+        .collect(),
+      ctx.db
+        .query("teams")
+        .withIndex("by_tournament", (q) =>
+          q.eq("tournamentId", args.tournamentId),
+        )
+        .collect(),
+      ctx.db.get(args.tournamentId),
+    ]);
+
+    const teamMap = new Map(teams.map((t) => [t._id, t]));
+    const tournamentBasePrice = tournament?.settings.basePrice ?? 100000;
+
+    const sold = soldPlayers
+      .map((p) => {
+        const team = p.teamId ? teamMap.get(p.teamId) : undefined;
+        return {
+          _id: p._id,
+          name: p.name,
+          role: p.role,
+          photoUrl: p.photoUrl,
+          soldPrice: p.soldPrice ?? 0,
+          teamId: p.teamId,
+          teamName: team?.name ?? null,
+          teamColor: team?.colorPrimary,
+          teamLogoUrl: team?.logoUrl,
+        };
+      })
+      .sort((a, b) => b.soldPrice - a.soldPrice);
+
+    // basePrice can be undefined on the player (inherited from tournament),
+    // so fall back to the tournament default the same way the rest of the app does.
+    const unsold = unsoldPlayers.map((p) => ({
+      _id: p._id,
+      name: p.name,
+      role: p.role,
+      photoUrl: p.photoUrl,
+      basePrice: p.basePrice ?? tournamentBasePrice,
+    }));
+
+    return { sold, unsold };
   },
 });
 
