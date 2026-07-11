@@ -978,6 +978,64 @@ export const getLatestSaleEvent = query({
   },
 });
 
+/**
+ * SOLD + UNSOLD history for the viewer history sheets. Intended to be
+ * subscribed lazily (only while a history sheet is open) so it stays out of the
+ * always-on hot/cold payload. Sold entries are enriched with the winning team's
+ * name/color/logo and sorted by price (highest first).
+ */
+export const getAuctionHistory = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    const [players, teams] = await Promise.all([
+      ctx.db
+        .query("players")
+        .withIndex("by_tournament", (q) =>
+          q.eq("tournamentId", args.tournamentId),
+        )
+        .collect(),
+      ctx.db
+        .query("teams")
+        .withIndex("by_tournament", (q) =>
+          q.eq("tournamentId", args.tournamentId),
+        )
+        .collect(),
+    ]);
+
+    const teamMap = new Map(teams.map((t) => [t._id, t]));
+
+    const sold = players
+      .filter((p) => p.auctionStatus === "sold")
+      .map((p) => {
+        const team = p.teamId ? teamMap.get(p.teamId) : undefined;
+        return {
+          _id: p._id,
+          name: p.name,
+          role: p.role,
+          photoUrl: p.photoUrl,
+          soldPrice: p.soldPrice ?? 0,
+          teamId: p.teamId,
+          teamName: team?.name ?? null,
+          teamColor: team?.colorPrimary,
+          teamLogoUrl: team?.logoUrl,
+        };
+      })
+      .sort((a, b) => b.soldPrice - a.soldPrice);
+
+    const unsold = players
+      .filter((p) => p.auctionStatus === "unsold")
+      .map((p) => ({
+        _id: p._id,
+        name: p.name,
+        role: p.role,
+        photoUrl: p.photoUrl,
+        basePrice: p.basePrice,
+      }));
+
+    return { sold, unsold };
+  },
+});
+
 // Get auction rooms for a tournament
 export const getAuctionRooms = query({
   args: { tournamentId: v.id("tournaments") },
