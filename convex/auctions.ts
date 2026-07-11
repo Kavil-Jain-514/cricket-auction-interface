@@ -978,6 +978,73 @@ export const getLatestSaleEvent = query({
   },
 });
 
+/**
+ * SOLD + UNSOLD history for the viewer history sheets. Intended to be
+ * subscribed lazily (only while a history sheet is open) so it stays out of the
+ * always-on hot/cold payload. Sold entries are enriched with the winning team's
+ * name/color/logo and sorted by price (highest first).
+ */
+export const getAuctionHistory = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    // Query sold/unsold directly via the by_tournament_status compound index so
+    // we never read pending / in-auction players (cheaper for large rosters).
+    const [soldPlayers, unsoldPlayers, teams, tournament] = await Promise.all([
+      ctx.db
+        .query("players")
+        .withIndex("by_tournament_status", (q) =>
+          q.eq("tournamentId", args.tournamentId).eq("auctionStatus", "sold"),
+        )
+        .collect(),
+      ctx.db
+        .query("players")
+        .withIndex("by_tournament_status", (q) =>
+          q.eq("tournamentId", args.tournamentId).eq("auctionStatus", "unsold"),
+        )
+        .collect(),
+      ctx.db
+        .query("teams")
+        .withIndex("by_tournament", (q) =>
+          q.eq("tournamentId", args.tournamentId),
+        )
+        .collect(),
+      ctx.db.get(args.tournamentId),
+    ]);
+
+    const teamMap = new Map(teams.map((t) => [t._id, t]));
+    const tournamentBasePrice = tournament?.settings.basePrice ?? 100000;
+
+    const sold = soldPlayers
+      .map((p) => {
+        const team = p.teamId ? teamMap.get(p.teamId) : undefined;
+        return {
+          _id: p._id,
+          name: p.name,
+          role: p.role,
+          photoUrl: p.photoUrl,
+          soldPrice: p.soldPrice ?? 0,
+          teamId: p.teamId,
+          teamName: team?.name ?? null,
+          teamColor: team?.colorPrimary,
+          teamLogoUrl: team?.logoUrl,
+        };
+      })
+      .sort((a, b) => b.soldPrice - a.soldPrice);
+
+    // basePrice can be undefined on the player (inherited from tournament),
+    // so fall back to the tournament default the same way the rest of the app does.
+    const unsold = unsoldPlayers.map((p) => ({
+      _id: p._id,
+      name: p.name,
+      role: p.role,
+      photoUrl: p.photoUrl,
+      basePrice: p.basePrice ?? tournamentBasePrice,
+    }));
+
+    return { sold, unsold };
+  },
+});
+
 // Get auction rooms for a tournament
 export const getAuctionRooms = query({
   args: { tournamentId: v.id("tournaments") },
