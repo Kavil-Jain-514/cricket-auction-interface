@@ -23,17 +23,12 @@ export function ImgWithFallback({
   fallback,
   referrerPolicy = 'no-referrer',
 }: ImgWithFallbackProps) {
-  const [error, setError] = useState(false);
-  // Reset the error flag when src changes (React's "adjust state during render"
-  // pattern) so the component is safe to reuse across players/results without
-  // a stale error suppressing a valid new image.
-  const [prevSrc, setPrevSrc] = useState(src);
-  if (src !== prevSrc) {
-    setPrevSrc(src);
-    setError(false);
-  }
+  // Track *which* src failed rather than a boolean. The error state then clears
+  // automatically when `src` changes (a different src won't match `erroredSrc`),
+  // so there is no render-phase setState and setState only runs in onError.
+  const [erroredSrc, setErroredSrc] = useState<string | null>(null);
 
-  if (!src || error) {
+  if (!src || erroredSrc === src) {
     return <>{fallback}</>;
   }
 
@@ -44,7 +39,7 @@ export function ImgWithFallback({
       alt={alt}
       className={className}
       referrerPolicy={referrerPolicy}
-      onError={() => setError(true)}
+      onError={() => setErroredSrc(src)}
     />
   );
 }

@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { formatCurrency, getErrorMessage, getRoleDisplay } from '@/lib/utils';
 import { useSound } from '@/hooks/useSound';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
+import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { useUserRole } from '@/hooks/useUserRole';
 import dynamic from 'next/dynamic';
 import { PlayerIntroFlash } from '@/components/auction/PlayerIntroFlash';
@@ -116,7 +117,6 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const [customBidAmounts, setCustomBidAmounts] = useState<Record<string, number>>({});
   const [showPlayerIntro, setShowPlayerIntro] = useState(false);
   const [showPlayerManager, setShowPlayerManager] = useState(false);
-  const [logoError, setLogoError] = useState(false);
   const lastPlayerIdRef = useRef<string | null>(null);
   const introTimerRef = useRef<NodeJS.Timeout | null>(null);
   const finalizingRef = useRef(false);
@@ -591,33 +591,24 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-3 sm:py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 sm:gap-4 shrink-0">
-              {/* Tournament Logo */}
-              {auctionData.tournament?.logoUrl && !logoError ? (
-                <div className="relative">
-                  <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={auctionData.tournament.logoUrl}
-                      alt={auctionData.tournament.name}
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                      onError={() => setLogoError(true)}
-                    />
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
-                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse" />
-                  </div>
+              {/* Tournament Logo — ImgWithFallback auto-recovers if the URL changes */}
+              <div className="relative">
+                <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
+                  <ImgWithFallback
+                    src={auctionData.tournament?.logoUrl}
+                    alt={auctionData.tournament?.name ?? 'Tournament'}
+                    className="w-full h-full object-cover"
+                    fallback={
+                      <div className="w-full h-full bg-linear-to-br from-yellow-500 to-orange-600 flex items-center justify-center">
+                        <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+                      </div>
+                    }
+                  />
                 </div>
-              ) : (
-                <div className="relative">
-                  <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-linear-to-br from-yellow-500 to-orange-600 flex items-center justify-center border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
-                    <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
-                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse" />
-                  </div>
+                <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
+                  <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse" />
                 </div>
-              )}
+              </div>
               <div className="hidden sm:block">
                 <h1 className="text-lg sm:text-xl lg:text-2xl font-bold truncate max-w-50 lg:max-w-none">
                   {auctionData.tournament?.name}

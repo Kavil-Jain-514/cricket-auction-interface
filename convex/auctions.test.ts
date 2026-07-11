@@ -7,7 +7,10 @@ import type { Id } from "./_generated/dataModel";
 
 // Discover the Convex function modules for the test runtime (this file lives in
 // the convex/ root, so the glob resolves against the functions directory).
-const modules = import.meta.glob("./**/*.*s");
+// Exclude test files so convex-test doesn't try to register them as functions.
+// NOTE: `_generated` MUST stay included — convex-test uses it to locate the
+// module root and errors if it's missing.
+const modules = import.meta.glob(["./**/*.{ts,js}", "!./**/*.test.{ts,js}"]);
 
 const ADMIN_IDENTITY = { email: "admin@test.com", subject: "admin|1" };
 
