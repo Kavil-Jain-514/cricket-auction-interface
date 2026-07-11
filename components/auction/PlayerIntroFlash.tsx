@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatCurrency, getRoleDisplay } from '@/lib/utils';
+import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 
 export interface PlayerIntroFlashProps {
   show: boolean;
@@ -58,20 +59,18 @@ export function PlayerIntroFlash({ show, player, tournamentBasePrice }: PlayerIn
             >
               <div className="relative inline-block">
                 <div className="w-48 h-48 sm:w-64 sm:h-64 lg:w-80 lg:h-80 rounded-2xl overflow-hidden border-4 border-purple-500 shadow-2xl shadow-purple-500/30 mx-auto">
-                  {player.photoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={player.photoUrl}
-                      alt={player.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-linear-to-br from-purple-600 to-blue-600 flex items-center justify-center">
-                      <span className="text-7xl sm:text-8xl lg:text-9xl font-bold text-white">
-                        {player.name.charAt(0)}
-                      </span>
-                    </div>
-                  )}
+                  <ImgWithFallback
+                    src={player.photoUrl}
+                    alt={player.name}
+                    className="w-full h-full object-cover"
+                    fallback={
+                      <div className="w-full h-full bg-linear-to-br from-purple-600 to-blue-600 flex items-center justify-center">
+                        <span className="text-7xl sm:text-8xl lg:text-9xl font-bold text-white">
+                          {player.name.charAt(0)}
+                        </span>
+                      </div>
+                    }
+                  />
                 </div>
                 {/* Glow effect */}
                 <div className="absolute inset-0 rounded-2xl bg-purple-500/20 blur-xl -z-10 scale-110" />

@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Trophy, Crown, Star, Medal, TrendingUp } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useEffect, useState } from 'react';
+import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { formatCurrency, getRoleDisplay } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -121,18 +122,16 @@ export function AuctionCompleteScreen({
           transition={{ delay: 0.5 }}
           className="flex items-center justify-center gap-4"
         >
-          {tournamentLogoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={tournamentLogoUrl}
-              alt={tournamentName}
-              className="w-12 h-12 md:w-16 md:h-16 rounded-xl object-cover border-2 border-yellow-500/50"
-            />
-          ) : (
-            <div className="w-12 h-12 md:w-16 md:h-16 rounded-xl bg-yellow-500/20 flex items-center justify-center">
-              <Trophy className="w-6 h-6 md:w-8 md:h-8 text-yellow-500" />
-            </div>
-          )}
+          <ImgWithFallback
+            src={tournamentLogoUrl}
+            alt={tournamentName}
+            className="w-12 h-12 md:w-16 md:h-16 rounded-xl object-cover border-2 border-yellow-500/50"
+            fallback={
+              <div className="w-12 h-12 md:w-16 md:h-16 rounded-xl bg-yellow-500/20 flex items-center justify-center">
+                <Trophy className="w-6 h-6 md:w-8 md:h-8 text-yellow-500" />
+              </div>
+            }
+          />
           <p className="text-2xl md:text-3xl text-slate-300 font-semibold">
             {tournamentName}
           </p>

@@ -57,6 +57,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       : 'skip'
   );
 
+  // Latest SOLD/UNSOLD event — authoritative trigger + data for the viewer
+  // result popup (replaces the racy client-side ref reconstruction). Skipped
+  // for admins, who drive the popup directly from finalizePlayerSale.
+  const latestSaleEvent = useQuery(
+    api.auctions.getLatestSaleEvent,
+    isAdmin ? 'skip' : { auctionRoomId },
+  );
+
   // Merge the two query results into the single shape the rest of the page expects.
   const auctionData = useMemo(() => {
     if (liveData === undefined) return undefined;
@@ -108,6 +116,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const [customBidAmounts, setCustomBidAmounts] = useState<Record<string, number>>({});
   const [showPlayerIntro, setShowPlayerIntro] = useState(false);
   const [showPlayerManager, setShowPlayerManager] = useState(false);
+  const [logoError, setLogoError] = useState(false);
   const lastPlayerIdRef = useRef<string | null>(null);
   const introTimerRef = useRef<NodeJS.Timeout | null>(null);
   const finalizingRef = useRef(false);
@@ -124,16 +133,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const prevAuctionStatusRef = useRef<string | null>(null);
   const prevBidCountRef = useRef<number>(0);
   const prevCurrentPlayerIdRef = useRef<string | null>(null);
-  // Track player info for sold/unsold flash
-  const prevPlayerInfoRef = useRef<{
-    name: string;
-    photoUrl?: string;
-    teamName?: string;
-    teamColor?: string;
-    teamLogoUrl?: string;
-    amount?: number;
-    basePrice?: number;
-  } | null>(null);
+  // Last SOLD/UNSOLD event id already shown to this viewer. `undefined` means
+  // "not initialised yet" so late-joiners don't get a stale popup on first load.
+  const lastSaleEventIdRef = useRef<string | null | undefined>(undefined);
 
   const [result, setResult] = useState<{
     playerName: string;
@@ -300,98 +302,65 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     const currentStatus = auctionData?.auctionRoom?.status;
     const currentBidCount = auctionData?.recentBids?.length ?? 0;
     const currentPlayerIdNow = auctionData?.auctionRoom?.currentPlayerId;
-    const currentPlayer = auctionData?.currentPlayer;
-    const currentBidTeam = auctionData?.currentBidTeam;
-    const currentBidAmountNow = auctionData?.auctionRoom?.currentBidAmount;
 
     let flashToShow: typeof statusFlash = null;
-    let soldUnsoldResult: typeof result = null;
 
-    // Check for player sold/unsold (player was being auctioned and now no player is selected)
-    if (!soldUnsoldResult && !flashToShow && prevCurrentPlayerIdRef.current && !currentPlayerIdNow && prevPlayerInfoRef.current) {
-      if (prevPlayerInfoRef.current.teamName && prevPlayerInfoRef.current.amount) {
-        // Player was sold — capture for full result popup (same as admin)
-        soldUnsoldResult = {
-          playerName: prevPlayerInfoRef.current.name,
-          playerPhotoUrl: prevPlayerInfoRef.current.photoUrl,
-          teamName: prevPlayerInfoRef.current.teamName,
-          teamLogoUrl: prevPlayerInfoRef.current.teamLogoUrl,
-          amount: prevPlayerInfoRef.current.amount,
-          sold: true,
-          teamColor: prevPlayerInfoRef.current.teamColor,
-        };
-      } else {
-        // Player went unsold — capture for full result popup
-        soldUnsoldResult = {
-          playerName: prevPlayerInfoRef.current.name,
-          playerPhotoUrl: prevPlayerInfoRef.current.photoUrl,
-          teamName: null,
-          amount: prevPlayerInfoRef.current.basePrice ?? 0,
-          sold: false,
+    // When the current player clears, a sale was just finalized — the SOLD/UNSOLD
+    // popup is driven by the latestSaleEvent effect below. Skip banner detection
+    // for this tick so the bid-count dropping to 0 doesn't fire a spurious
+    // "reverted" banner on top of the sale popup.
+    const playerJustCleared =
+      Boolean(prevCurrentPlayerIdRef.current) && !currentPlayerIdNow;
+
+    if (!playerJustCleared) {
+      // Check for auction paused/resumed
+      if (!flashToShow && prevAuctionStatusRef.current && currentStatus !== prevAuctionStatusRef.current) {
+        if (currentStatus === 'paused') {
+          flashToShow = {
+            type: 'paused',
+            message: 'Auction Paused',
+          };
+        } else if (currentStatus === 'live' && prevAuctionStatusRef.current === 'paused') {
+          flashToShow = {
+            type: 'resumed',
+            message: 'Auction Resumed',
+          };
+        }
+      }
+
+      // Check for bid reverted (bid count decreased)
+      if (!flashToShow && prevBidCountRef.current > 0 && currentBidCount < prevBidCountRef.current) {
+        flashToShow = {
+          type: 'reverted',
+          message: 'Last Bid Reverted',
         };
       }
-    }
 
-    // Check for auction paused/resumed
-    if (!flashToShow && prevAuctionStatusRef.current && currentStatus !== prevAuctionStatusRef.current) {
-      if (currentStatus === 'paused') {
+      // Check for new bid (bid count increased)
+      if (!flashToShow && currentBidCount > prevBidCountRef.current && prevBidCountRef.current > 0) {
+        const latestBid = auctionData?.recentBids?.[0];
+        const biddingTeam = auctionData?.teams?.find(t => t._id === latestBid?.teamId);
+        if (latestBid && biddingTeam) {
+          flashToShow = {
+            type: 'new_bid',
+            message: 'New Bid!',
+            teamName: biddingTeam.name,
+            teamColor: biddingTeam.colorPrimary,
+            amount: latestBid.amount,
+          };
+        }
+      }
+
+      // Check for player reset/rebid (same player but bids cleared)
+      if (!flashToShow && currentPlayerIdNow &&
+        currentPlayerIdNow === prevCurrentPlayerIdRef.current &&
+        prevBidCountRef.current > 0 &&
+        currentBidCount === 0) {
         flashToShow = {
-          type: 'paused',
-          message: 'Auction Paused',
-        };
-      } else if (currentStatus === 'live' && prevAuctionStatusRef.current === 'paused') {
-        flashToShow = {
-          type: 'resumed',
-          message: 'Auction Resumed',
+          type: 'rebid',
+          message: 'Bidding Restarted',
         };
       }
-    }
-
-    // Check for bid reverted (bid count decreased)
-    if (!flashToShow && prevBidCountRef.current > 0 && currentBidCount < prevBidCountRef.current) {
-      flashToShow = {
-        type: 'reverted',
-        message: 'Last Bid Reverted',
-      };
-    }
-
-    // Check for new bid (bid count increased)
-    if (!flashToShow && currentBidCount > prevBidCountRef.current && prevBidCountRef.current > 0) {
-      const latestBid = auctionData?.recentBids?.[0];
-      const biddingTeam = auctionData?.teams?.find(t => t._id === latestBid?.teamId);
-      if (latestBid && biddingTeam) {
-        flashToShow = {
-          type: 'new_bid',
-          message: 'New Bid!',
-          teamName: biddingTeam.name,
-          teamColor: biddingTeam.colorPrimary,
-          amount: latestBid.amount,
-        };
-      }
-    }
-
-    // Check for player reset/rebid (same player but bids cleared)
-    if (!flashToShow && currentPlayerIdNow &&
-      currentPlayerIdNow === prevCurrentPlayerIdRef.current &&
-      prevBidCountRef.current > 0 &&
-      currentBidCount === 0) {
-      flashToShow = {
-        type: 'rebid',
-        message: 'Bidding Restarted',
-      };
-    }
-
-    // Update player info ref BEFORE updating player ID ref (to capture last state)
-    if (currentPlayerIdNow && currentPlayer) {
-      prevPlayerInfoRef.current = {
-        name: currentPlayer.name,
-        photoUrl: currentPlayer.photoUrl,
-        teamName: currentBidTeam?.name,
-        teamColor: currentBidTeam?.colorPrimary,
-        teamLogoUrl: currentBidTeam?.logoUrl,
-        amount: currentBidAmountNow,
-        basePrice: currentPlayer.basePrice,
-      };
     }
 
     // Update refs
@@ -399,29 +368,48 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     prevBidCountRef.current = currentBidCount;
     prevCurrentPlayerIdRef.current = currentPlayerIdNow ?? null;
 
-    // Show sold/unsold as full result popup (same experience as admin)
-    let rafFlash = 0;
-    if (soldUnsoldResult) {
-      rafFlash = requestAnimationFrame(() => {
-        setResult(soldUnsoldResult);
-        setShowResult(true);
-        if (soldUnsoldResult!.sold) {
-          play('sold', 0.7);
-        } else {
-          play('unsold', 0.5);
-        }
-      });
-    } else if (flashToShow) {
-      // Other flashes (paused, resumed, reverted, rebid, new_bid) stay as banners
-      rafFlash = requestAnimationFrame(() => {
-        showStatusFlash(flashToShow);
-      });
+    if (!flashToShow) return;
+    const rafFlash = requestAnimationFrame(() => {
+      showStatusFlash(flashToShow);
+    });
+    return () => cancelAnimationFrame(rafFlash);
+  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, showStatusFlash]);
+
+  // Viewer SOLD/UNSOLD result popup — driven by the authoritative server sale
+  // event (getLatestSaleEvent) rather than reconstructing the result from
+  // client-side ref timing across the separately-updating hot/cold queries.
+  useEffect(() => {
+    if (isAdmin) return;
+    if (latestSaleEvent === undefined) return; // still loading
+
+    const ev = latestSaleEvent; // null when no sale has happened yet
+    const eventId = ev?.eventId ?? null;
+
+    // First load: record the current event without showing it, so a viewer who
+    // joins mid-auction doesn't get a popup for a sale that already happened.
+    if (lastSaleEventIdRef.current === undefined) {
+      lastSaleEventIdRef.current = eventId;
+      return;
     }
 
-    return () => {
-      if (rafFlash) cancelAnimationFrame(rafFlash);
-    };
-  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, auctionData?.currentPlayer, auctionData?.currentBidTeam, auctionData?.auctionRoom?.currentBidAmount, showStatusFlash, play]);
+    if (!ev || eventId === lastSaleEventIdRef.current) return;
+    lastSaleEventIdRef.current = eventId;
+
+    const raf = requestAnimationFrame(() => {
+      setResult({
+        playerName: ev.playerName,
+        playerPhotoUrl: ev.playerPhotoUrl,
+        teamName: ev.teamName,
+        teamLogoUrl: ev.teamLogoUrl,
+        amount: ev.amount,
+        sold: ev.sold,
+        teamColor: ev.teamColor,
+      });
+      setShowResult(true);
+      play(ev.sold ? 'sold' : 'unsold', ev.sold ? 0.7 : 0.5);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isAdmin, latestSaleEvent, play]);
 
   // Auto-hide status flash after 3 seconds
   useEffect(() => {
@@ -487,7 +475,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     try {
       const res = await startNext({ auctionRoomId });
 
-      if (res.completed) {
+      if (res.success === false) {
+        toast.error(res.reason || "Could not load next player");
+      } else if (res.completed) {
         toast.success("Auction completed! All players have been auctioned.");
       } else {
         play('nextPlayer', 0.5);
@@ -602,7 +592,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 sm:gap-4 shrink-0">
               {/* Tournament Logo */}
-              {auctionData.tournament?.logoUrl ? (
+              {auctionData.tournament?.logoUrl && !logoError ? (
                 <div className="relative">
                   <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl overflow-hidden border-2 border-yellow-500/50 shadow-lg shadow-yellow-500/20">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -610,6 +600,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       src={auctionData.tournament.logoUrl}
                       alt={auctionData.tournament.name}
                       className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                      onError={() => setLogoError(true)}
                     />
                   </div>
                   <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
@@ -1001,12 +993,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   {!isAdmin ? (
                     <div className="flex flex-col lg:flex-row gap-6 lg:gap-10 items-center">
                       {/* Large Player Photo */}
-                      <div className="w-full max-w-70 sm:max-w-xs lg:w-auto lg:max-w-none mx-auto shrink-0">
+                      <div className="w-full max-w-xs sm:max-w-sm lg:max-w-lg xl:max-w-xl mx-auto lg:mx-0 shrink-0">
                         <PlayerAvatar
                           name={currentPlayer.name}
                           photoUrl={currentPlayer.photoUrl}
                           size="3xl"
-                          className="rounded-2xl w-full! h-auto! aspect-square"
+                          className="rounded-2xl w-full! h-auto! aspect-square shadow-2xl ring-2 ring-slate-600/50"
                         />
                       </div>
 
@@ -1027,12 +1019,16 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                           <span className="px-4 py-2 bg-purple-600 rounded-full text-sm sm:text-base font-semibold">
                             {getRoleDisplay(currentPlayer.role)}
                           </span>
-                          <span className="px-4 py-2 bg-slate-700 rounded-full text-sm sm:text-base">
-                            {currentPlayer.age} years
-                          </span>
-                          <span className="px-4 py-2 bg-slate-700 rounded-full text-sm sm:text-base">
-                            {currentPlayer.battingBowlingHand}
-                          </span>
+                          {currentPlayer.age ? (
+                            <span className="px-4 py-2 bg-slate-700 rounded-full text-sm sm:text-base">
+                              {currentPlayer.age} years
+                            </span>
+                          ) : null}
+                          {currentPlayer.battingBowlingHand ? (
+                            <span className="px-4 py-2 bg-slate-700 rounded-full text-sm sm:text-base">
+                              {currentPlayer.battingBowlingHand}
+                            </span>
+                          ) : null}
                         </div>
 
                         {/* Current Bid Display - Compact for viewer */}
@@ -1107,12 +1103,16 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                         <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-purple-600 rounded-full text-xs sm:text-sm font-semibold">
                           {getRoleDisplay(currentPlayer.role)}
                         </span>
-                        <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
-                          {currentPlayer.age} years
-                        </span>
-                        <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
-                          {currentPlayer.battingBowlingHand}
-                        </span>
+                        {currentPlayer.age ? (
+                          <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
+                            {currentPlayer.age} years
+                          </span>
+                        ) : null}
+                        {currentPlayer.battingBowlingHand ? (
+                          <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
+                            {currentPlayer.battingBowlingHand}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </div>

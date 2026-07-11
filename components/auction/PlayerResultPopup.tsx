@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Trophy, XCircle, Sparkles } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useEffect } from 'react';
+import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { formatCurrency } from '@/lib/utils';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { TeamLogo } from '@/components/ui/team-logo';
@@ -105,16 +106,12 @@ export function PlayerResultPopup({
                   transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
                   className="inline-block mb-6"
                 >
-                  {tournamentLogoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={tournamentLogoUrl}
-                      alt="Tournament"
-                      className="w-32 h-32 object-contain rounded-2xl"
-                    />
-                  ) : (
-                    <Trophy className="w-32 h-32 text-yellow-500" />
-                  )}
+                  <ImgWithFallback
+                    src={tournamentLogoUrl}
+                    alt="Tournament"
+                    className="w-32 h-32 object-contain rounded-2xl"
+                    fallback={<Trophy className="w-32 h-32 text-yellow-500" />}
+                  />
                 </motion.div>
 
                 <motion.h1
