@@ -28,6 +28,7 @@ interface TeamData {
   players: Player[];
   tournamentName?: string;
   logoUrl?: string;
+  groupLabel?: string; // e.g. "Group A (A1)" — only set once the draw is locked
 }
 
 
@@ -139,6 +140,19 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
   doc.setFont("helvetica", "normal");
   const ownerText = `Owner: ${team.ownerName || "N/A"}${team.sponsorName ? ` | Sponsor: ${team.sponsorName}` : ""}`;
   doc.text(ownerText, textStartX, y + 30);
+
+  // Group badge (top-right of header, only present once the draw is locked)
+  if (team.groupLabel) {
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    const labelW = doc.getTextWidth(team.groupLabel);
+    const badgeW = labelW + 10;
+    const badgeX = pageWidth - margin - badgeW;
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(badgeX, 8, badgeW, 9, 2, 2, "F");
+    doc.setTextColor(primaryColor.r, primaryColor.g, primaryColor.b);
+    doc.text(team.groupLabel, badgeX + 5, 14.5);
+  }
 
   y = 55;
 
