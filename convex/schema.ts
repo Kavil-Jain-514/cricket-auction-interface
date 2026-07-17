@@ -62,6 +62,9 @@ export default defineSchema({
     ownerName: v.string(),
     sponsorName: v.optional(v.string()),
     // Captain details
+    // When the captain is chosen from the tournament's players, this links to
+    // that player and the display fields below are denormalized from them.
+    captainPlayerId: v.optional(v.id("players")),
     captainName: v.optional(v.string()),
     captainPhotoUrl: v.optional(v.string()),
     captainAge: v.optional(v.number()),

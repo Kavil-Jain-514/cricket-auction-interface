@@ -43,6 +43,12 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
     return teams.find(t => t._id === teamId)?.name;
   }, [teams]);
 
+  // Players chosen as a team captain get a "C" tag
+  const captainPlayerIds = useMemo(
+    () => new Set((teams ?? []).flatMap(t => t.captainPlayerId ? [t.captainPlayerId] : [])),
+    [teams]
+  );
+
   const players = allPlayers?.filter(p => {
     const statusMatch = filterStatus === 'all' || p.auctionStatus === filterStatus;
     const roleMatch = filterRole === 'all' || getRoles(p.role).includes(filterRole);
@@ -581,6 +587,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
               <PlayerCard
                 key={player._id}
                 player={player}
+                isCaptain={captainPlayerIds.has(player._id)}
                 onClick={() => setSelectedPlayer(player)}
               />
             ))}

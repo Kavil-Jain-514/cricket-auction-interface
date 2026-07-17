@@ -1,6 +1,35 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin } from "./auth";
+import { Doc } from "./_generated/dataModel";
+
+/**
+ * Denormalize captain display fields from a player doc so existing UI and
+ * PDF exports keep working unchanged when the captain is picked from players.
+ */
+function deriveCaptainFields(player: Doc<"players">) {
+  const primaryRole = Array.isArray(player.role) ? player.role[0] : player.role;
+  let captainRole: "Batter" | "Bowler" | "All-Rounder" | undefined;
+  if (
+    primaryRole === "Batter" ||
+    primaryRole === "Bowler" ||
+    primaryRole === "All-Rounder"
+  ) {
+    captainRole = primaryRole;
+  } else if (primaryRole === "All Rounder") {
+    captainRole = "All-Rounder";
+  }
+  // Other roles (e.g. Wicket Keeper) have no captainRole equivalent
+  return {
+    captainName: player.name,
+    captainPhotoUrl: player.photoUrl,
+    captainAge: player.age,
+    captainRole,
+    captainHand: player.battingBowlingHand.includes("Right")
+      ? ("Right" as const)
+      : ("Left" as const),
+  };
+}
 
 export const create = mutation({
   args: {
@@ -12,6 +41,7 @@ export const create = mutation({
     colorPrimary: v.string(),
     colorSecondary: v.string(),
     // Captain details
+    captainPlayerId: v.optional(v.id("players")),
     captainName: v.optional(v.string()),
     captainPhotoUrl: v.optional(v.string()),
     captainAge: v.optional(v.number()),
@@ -59,6 +89,30 @@ export const create = mutation({
       throw new Error(`Team "${args.name}" already exists in this tournament`);
     }
 
+    // Captain chosen from players: validate and derive display fields
+    let captainFields = {
+      captainName: args.captainName,
+      captainPhotoUrl: args.captainPhotoUrl,
+      captainAge: args.captainAge,
+      captainRole: args.captainRole,
+      captainHand: args.captainHand,
+    };
+    if (args.captainPlayerId) {
+      const captain = await ctx.db.get(args.captainPlayerId);
+      if (!captain) throw new Error("Selected captain player not found");
+      if (captain.tournamentId !== args.tournamentId) {
+        throw new Error("Captain must be a player in this tournament");
+      }
+      if (
+        existingTeams.some((t) => t.captainPlayerId === args.captainPlayerId)
+      ) {
+        throw new Error(
+          `${captain.name} is already the captain of another team`,
+        );
+      }
+      captainFields = deriveCaptainFields(captain);
+    }
+
     const teamId = await ctx.db.insert("teams", {
       tournamentId: args.tournamentId,
       name: args.name,
@@ -67,11 +121,8 @@ export const create = mutation({
       logoUrl: args.logoUrl,
       colorPrimary: args.colorPrimary,
       colorSecondary: args.colorSecondary,
-      captainName: args.captainName,
-      captainPhotoUrl: args.captainPhotoUrl,
-      captainAge: args.captainAge,
-      captainRole: args.captainRole,
-      captainHand: args.captainHand,
+      captainPlayerId: args.captainPlayerId,
+      ...captainFields,
       purseRemaining: tournament.settings.basePurse,
       purseSpent: 0,
       createdAt: Date.now(),
@@ -125,6 +176,8 @@ export const update = mutation({
     colorPrimary: v.optional(v.string()),
     colorSecondary: v.optional(v.string()),
     // Captain details
+    // null explicitly clears the player link; undefined leaves it unchanged
+    captainPlayerId: v.optional(v.union(v.id("players"), v.null())),
     captainName: v.optional(v.string()),
     captainPhotoUrl: v.optional(v.string()),
     captainAge: v.optional(v.number()),
@@ -153,12 +206,41 @@ export const update = mutation({
       throw new Error("Cannot edit team after tournament is completed");
     }
 
-    const { id, ...updates } = args;
-
-    await ctx.db.patch(id, {
+    const { id, captainPlayerId, ...updates } = args;
+    const patch: Partial<Doc<"teams">> = {
       ...updates,
       updatedAt: Date.now(),
-    });
+    };
+
+    if (captainPlayerId === null) {
+      // Explicitly unlink the player; manual captain fields (if any) still apply
+      patch.captainPlayerId = undefined;
+    } else if (captainPlayerId !== undefined) {
+      const captain = await ctx.db.get(captainPlayerId);
+      if (!captain) throw new Error("Selected captain player not found");
+      if (captain.tournamentId !== team.tournamentId) {
+        throw new Error("Captain must be a player in this tournament");
+      }
+      const otherTeams = await ctx.db
+        .query("teams")
+        .withIndex("by_tournament", (q) =>
+          q.eq("tournamentId", team.tournamentId),
+        )
+        .collect();
+      if (
+        otherTeams.some(
+          (t) => t._id !== team._id && t.captainPlayerId === captainPlayerId,
+        )
+      ) {
+        throw new Error(
+          `${captain.name} is already the captain of another team`,
+        );
+      }
+      patch.captainPlayerId = captainPlayerId;
+      Object.assign(patch, deriveCaptainFields(captain));
+    }
+
+    await ctx.db.patch(id, patch);
 
     return { success: true };
   },

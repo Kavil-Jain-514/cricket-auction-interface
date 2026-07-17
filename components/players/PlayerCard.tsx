@@ -15,9 +15,11 @@ import { useUserRole } from '@/hooks/useUserRole';
 interface PlayerCardProps {
   player: Doc<"players">;
   onClick?: () => void;
+  /** True when this player is a team captain — shows a "C" tag */
+  isCaptain?: boolean;
 }
 
-export function PlayerCard({ player, onClick }: PlayerCardProps) {
+export function PlayerCard({ player, onClick, isCaptain }: PlayerCardProps) {
   const [showEdit, setShowEdit] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const deletePlayer = useMutation(api.players.deletePlayer);
@@ -79,11 +81,21 @@ export function PlayerCard({ player, onClick }: PlayerCardProps) {
 
         {/* Player Avatar */}
         <div className="flex items-start gap-2.5 sm:gap-3 mb-3">
-          <PlayerAvatar
-            name={player.name}
-            photoUrl={player.photoUrl}
-            size="lg"
-          />
+          <div className="relative shrink-0">
+            <PlayerAvatar
+              name={player.name}
+              photoUrl={player.photoUrl}
+              size="lg"
+            />
+            {isCaptain && (
+              <span
+                title="Team Captain"
+                className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-yellow-500 text-slate-950 text-[11px] font-extrabold flex items-center justify-center border-2 border-slate-900 shadow"
+              >
+                C
+              </span>
+            )}
+          </div>
 
           <div className="flex-1 min-w-0 pr-16 sm:pr-20">
             <h3 className="font-bold text-base sm:text-lg truncate">{player.name}</h3>

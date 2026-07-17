@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
+import { getRoles, getRoleDisplay } from '@/lib/utils';
 import { X, Crown, Users, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +40,8 @@ const PRESET_COLORS = [
 
 export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
   const createTeam = useMutation(api.teams.create);
+  const players = useQuery(api.players.listByTournament, { tournamentId });
+  const teams = useQuery(api.teams.listByTournament, { tournamentId });
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -51,12 +54,42 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
     colorPrimary: PRESET_COLORS[0].primary,
     colorSecondary: PRESET_COLORS[0].secondary,
     // Captain details
+    captainPlayerId: '' as string,
     captainName: '',
     captainPhotoUrl: '',
     captainAge: undefined as number | undefined,
     captainRole: '' as '' | 'Batter' | 'Bowler' | 'All-Rounder',
     captainHand: '' as '' | 'Right' | 'Left',
   });
+
+  // Players already captaining another team can't be picked again
+  const takenCaptainIds = new Set(
+    (teams ?? []).flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])),
+  );
+  const selectablePlayers = (players ?? []).filter((p) => !takenCaptainIds.has(p._id));
+  const captainFromPlayer = formData.captainPlayerId !== '';
+
+  const handleCaptainSelect = (value: string) => {
+    if (value === 'manual') {
+      setFormData({ ...formData, captainPlayerId: '' });
+      return;
+    }
+    const player = players?.find((p) => p._id === value);
+    if (!player) return;
+    const primaryRole = getRoles(player.role)[0];
+    setFormData({
+      ...formData,
+      captainPlayerId: value,
+      // Preview of what the server will store (it re-derives these itself)
+      captainName: player.name,
+      captainPhotoUrl: player.photoUrl || '',
+      captainAge: player.age,
+      captainRole: (['Batter', 'Bowler', 'All-Rounder'].includes(primaryRole)
+        ? primaryRole
+        : '') as '' | 'Batter' | 'Bowler' | 'All-Rounder',
+      captainHand: player.battingBowlingHand.includes('Right') ? 'Right' : 'Left',
+    });
+  };
 
   const validateStep1 = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -122,6 +155,9 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
         logoUrl: formData.logoUrl || undefined,
         colorPrimary: formData.colorPrimary,
         colorSecondary: formData.colorSecondary,
+        captainPlayerId: formData.captainPlayerId
+          ? (formData.captainPlayerId as Id<"players">)
+          : undefined,
         captainName: formData.captainName || undefined,
         captainPhotoUrl: formData.captainPhotoUrl || undefined,
         captainAge: formData.captainAge,
@@ -330,8 +366,36 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                 </div>
 
                 <p className="text-sm text-slate-400 -mt-2 mb-4">
-                  Add details about your team captain. You can skip this step and add later.
+                  Choose a captain from the tournament&apos;s players, or enter details manually.
+                  You can skip this step and add later.
                 </p>
+
+                {/* Captain from players */}
+                <div>
+                  <Label>Select Captain from Players</Label>
+                  <Select
+                    value={formData.captainPlayerId || 'manual'}
+                    onValueChange={handleCaptainSelect}
+                  >
+                    <SelectTrigger className="mt-2 min-h-11">
+                      <SelectValue placeholder="Choose a player" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="manual">None — enter details manually</SelectItem>
+                      {selectablePlayers.map((player) => (
+                        <SelectItem key={player._id} value={player._id}>
+                          {player.name} ({getRoleDisplay(player.role)})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {captainFromPlayer && (
+                    <p className="text-xs text-yellow-500/90 mt-2">
+                      Captain details are filled from this player&apos;s profile. They&apos;ll get
+                      a &quot;C&quot; tag in the players list.
+                    </p>
+                  )}
+                </div>
 
                 {/* Captain Row 1: Name and Age */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -342,6 +406,7 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                       value={formData.captainName}
                       onChange={(e) => setFormData({ ...formData, captainName: e.target.value })}
                       placeholder="e.g., Virat Kohli"
+                      disabled={captainFromPlayer}
                       className="mt-2 min-h-11"
                     />
                   </div>
@@ -357,6 +422,7 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                         captainAge: e.target.value ? parseInt(e.target.value) : undefined 
                       })}
                       placeholder="e.g., 35"
+                      disabled={captainFromPlayer}
                       className="mt-2 min-h-11"
                     />
                   </div>
@@ -369,6 +435,7 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                     <Select
                       value={formData.captainRole}
                       onValueChange={(value) => setFormData({ ...formData, captainRole: value as 'Batter' | 'Bowler' | 'All-Rounder' })}
+                      disabled={captainFromPlayer}
                     >
                       <SelectTrigger className="mt-2 min-h-11">
                         <SelectValue placeholder="Select role" />
@@ -386,6 +453,7 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                     <Select
                       value={formData.captainHand}
                       onValueChange={(value) => setFormData({ ...formData, captainHand: value as 'Right' | 'Left' })}
+                      disabled={captainFromPlayer}
                     >
                       <SelectTrigger className="mt-2 min-h-11">
                         <SelectValue placeholder="Select hand" />
@@ -398,19 +466,21 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                   </div>
                 </div>
 
-                {/* Captain Photo */}
-                <div>
-                  <Label>Captain Photo</Label>
-                  <div className="mt-2">
-                    <ImageUpload
-                      value={formData.captainPhotoUrl}
-                      onChange={(url) => setFormData({ ...formData, captainPhotoUrl: url || '' })}
-                      folder="players"
-                      aspectRatio="square"
-                      className="max-w-48"
-                    />
+                {/* Captain Photo — from the player's profile when one is selected */}
+                {!captainFromPlayer && (
+                  <div>
+                    <Label>Captain Photo</Label>
+                    <div className="mt-2">
+                      <ImageUpload
+                        value={formData.captainPhotoUrl}
+                        onChange={(url) => setFormData({ ...formData, captainPhotoUrl: url || '' })}
+                        folder="players"
+                        aspectRatio="square"
+                        className="max-w-48"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Step 2 Actions */}
                 <div className="pt-4 sm:pt-6 flex flex-col-reverse sm:flex-row gap-3">

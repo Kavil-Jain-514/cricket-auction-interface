@@ -295,6 +295,25 @@ export const deletePlayer = mutation({
       throw new Error("Cannot delete player currently in auction");
     }
 
+    // Unlink from any team that had this player as captain (the denormalized
+    // captain display fields are kept, matching manual-entry behavior)
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_tournament", (q) =>
+        q.eq("tournamentId", player.tournamentId),
+      )
+      .collect();
+    await Promise.all(
+      teams
+        .filter((t) => t.captainPlayerId === args.id)
+        .map((t) =>
+          ctx.db.patch(t._id, {
+            captainPlayerId: undefined,
+            updatedAt: Date.now(),
+          }),
+        ),
+    );
+
     await ctx.db.delete(args.id);
     return { success: true };
   },
@@ -326,6 +345,25 @@ export const deleteAllByTournament = mutation({
       : players.filter(
           (p) => p.auctionStatus !== "sold" && p.auctionStatus !== "in_auction",
         );
+
+    // Unlink deleted players from any team captaincy
+    const deletedIds = new Set(playersToDelete.map((p) => p._id));
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_tournament", (q) =>
+        q.eq("tournamentId", args.tournamentId),
+      )
+      .collect();
+    await Promise.all(
+      teams
+        .filter((t) => t.captainPlayerId && deletedIds.has(t.captainPlayerId))
+        .map((t) =>
+          ctx.db.patch(t._id, {
+            captainPlayerId: undefined,
+            updatedAt: Date.now(),
+          }),
+        ),
+    );
 
     // Delete in parallel for performance
     await Promise.all(playersToDelete.map((p) => ctx.db.delete(p._id)));
