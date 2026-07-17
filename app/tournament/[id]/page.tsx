@@ -5,7 +5,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
@@ -32,6 +32,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const [deleting, setDeleting] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const auctionRooms = useQuery(api.auctions.getAuctionRooms, { tournamentId });
+  const groupDraw = useQuery(api.groupDraws.getByTournament, { tournamentId });
 
   const canResumeAuction = () => {
     if (!tournament || !players) return false;
@@ -304,7 +305,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
         </div>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 lg:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 lg:gap-6">
           <Link href={`/tournament/${tournamentId}/teams`}>
             <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5 sm:p-6 lg:p-8 hover:border-blue-500 active:scale-[0.98] transition cursor-pointer group">
               <div className="flex items-center justify-between mb-3 sm:mb-4">
@@ -343,6 +344,29 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             </div>
           </Link>
 
+
+          <Link href={`/tournament/${tournamentId}/groups`}>
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5 sm:p-6 lg:p-8 hover:border-purple-500 active:scale-[0.98] transition cursor-pointer group">
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <div className="p-2.5 sm:p-3 bg-purple-500/20 rounded-xl">
+                  <Layers className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 text-purple-500 group-hover:scale-110 transition" />
+                </div>
+                <span className="text-lg sm:text-xl font-bold text-purple-400">
+                  {groupDraw
+                    ? `${groupDraw.numGroups} group${groupDraw.numGroups !== 1 ? 's' : ''}`
+                    : 'Not drawn'}
+                </span>
+              </div>
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">Group Draw</h3>
+              <p className="text-slate-400 mb-3 sm:mb-4 text-sm sm:text-base">
+                Randomly allot teams to groups with a live draw
+              </p>
+              <div className="flex items-center gap-2 text-purple-400 text-sm sm:text-base font-medium">
+                <span>{groupDraw ? 'View Groups' : 'Run Group Draw'}</span>
+                <ArrowLeft className="w-4 h-4 rotate-180" />
+              </div>
+            </div>
+          </Link>
 
           {/* Uncomment and use if you want the stats card */}
           {/*

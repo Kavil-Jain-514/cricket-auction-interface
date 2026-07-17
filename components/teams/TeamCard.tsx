@@ -29,8 +29,14 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
   const players = useQuery(api.players.listByTournament, {
     tournamentId,
   });
+  const groupDraw = useQuery(api.groupDraws.getByTournament, { tournamentId });
   const deleteTeam = useMutation(api.teams.deleteTeam);
   const teamPlayers = players?.filter(p => p.teamId === team._id) || [];
+  // Only show group assignment once the organizer has confirmed & locked the draw
+  const groupAssignment =
+    groupDraw?.status === 'locked'
+      ? groupDraw.assignments.find(a => a.teamId === team._id)
+      : undefined;
   const pursePercentage = (team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100;
   const { isAdmin } = useUserRole();
 
@@ -52,6 +58,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
         captainAge: team.captainAge,
         captainRole: team.captainRole,
         captainHand: team.captainHand,
+        groupLabel: groupAssignment ? `Group ${groupAssignment.group} (${groupAssignment.slotLabel})` : undefined,
         players: teamPlayers.map(p => ({
           name: p.name,
           age: p.age,
@@ -137,7 +144,14 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
               size="md"
             />
             <div className="min-w-0">
-              <h3 className="text-lg sm:text-xl font-bold truncate">{team.name}</h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-lg sm:text-xl font-bold truncate">{team.name}</h3>
+                {groupAssignment && (
+                  <span className="shrink-0 px-2 py-0.5 rounded-md text-[10px] sm:text-xs font-bold text-purple-300 bg-purple-500/10 border border-purple-500/30">
+                    Group {groupAssignment.group} · {groupAssignment.slotLabel}
+                  </span>
+                )}
+              </div>
               <p className="text-xs sm:text-sm text-slate-400 truncate">Owner: {team.ownerName}</p>
               {team.sponsorName && (
                 <p className="text-xs text-slate-500 truncate">Sponsor: {team.sponsorName}</p>

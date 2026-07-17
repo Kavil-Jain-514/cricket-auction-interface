@@ -11,6 +11,7 @@
 import type * as admin from "../admin.js";
 import type * as auctions from "../auctions.js";
 import type * as auth from "../auth.js";
+import type * as groupDraws from "../groupDraws.js";
 import type * as players from "../players.js";
 import type * as teams from "../teams.js";
 import type * as tournaments from "../tournaments.js";
@@ -25,6 +26,7 @@ declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   auctions: typeof auctions;
   auth: typeof auth;
+  groupDraws: typeof groupDraws;
   players: typeof players;
   teams: typeof teams;
   tournaments: typeof tournaments;

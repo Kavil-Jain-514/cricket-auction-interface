@@ -133,7 +133,7 @@ export default function HomePage() {
               <ArrowRight className="ml-2 w-5 h-5" />
             </Button>
           </Link>
-          <Link href="/demo">
+          <Link href="https://www.youtube.com/watch?v=4IhxMAE4b_g" target="_blank" rel="noopener noreferrer">
             <Button size="lg" variant="outline" className="text-lg px-8 border-slate-600 hover:bg-slate-800">
               Watch Demo
             </Button>

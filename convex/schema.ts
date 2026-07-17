@@ -137,6 +137,26 @@ export default defineSchema({
     // Compound index: Find players by tournament + status (for startNextPlayer)
     .index("by_tournament_status", ["tournamentId", "auctionStatus"]),
 
+  // Group Draws - random allotment of teams into groups (one per tournament).
+  // Assignments are computed server-side in a single mutation and persisted
+  // whole, so every viewer sees the same final result.
+  groupDraws: defineTable({
+    tournamentId: v.id("tournaments"),
+    numGroups: v.number(),
+    status: v.union(v.literal("drawn"), v.literal("locked")),
+    assignments: v.array(
+      v.object({
+        teamId: v.id("teams"),
+        group: v.string(), // "A", "B", ...
+        slot: v.number(), // 1-based position within the group
+        slotLabel: v.string(), // "A1", "B3", ...
+      }),
+    ),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_tournament", ["tournamentId"]),
+
   // Auction Rooms (Live Auction Sessions)
   // ONLY updated on: start, pause, resume, player change, complete
   // NOT updated on every bid (bids go to liveBids table)
