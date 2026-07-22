@@ -10,6 +10,12 @@ interface PlayerAvatarProps {
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
   className?: string;
   showBorder?: boolean;
+  /**
+   * Mark this as the LCP / focal image (e.g. the auction hero). Loads eagerly at
+   * high fetch priority so the current player's photo paints fast on 4G, instead
+   * of lingering on the initials fallback. (P1-4)
+   */
+  priority?: boolean;
 }
 
 const sizeClasses = {
@@ -45,6 +51,7 @@ export function PlayerAvatar({
   size = 'md',
   className,
   showBorder = true,
+  priority = false,
 }: PlayerAvatarProps) {
   const [imageError, setImageError] = useState(false);
   const initials = getPlayerInitials(name);
@@ -68,6 +75,9 @@ export function PlayerAvatar({
           alt={name}
           className="w-full h-full object-cover"
           referrerPolicy="no-referrer"
+          fetchPriority={priority ? 'high' : undefined}
+          loading={priority ? 'eager' : undefined}
+          decoding="async"
           onError={() => setImageError(true)}
         />
       ) : (

@@ -973,6 +973,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                           name={currentPlayer.name}
                           photoUrl={currentPlayer.photoUrl}
                           size="3xl"
+                          priority
                           className="rounded-2xl lg:rounded-3xl w-full! h-auto! aspect-square shadow-2xl ring-2 ring-slate-600/50"
                         />
                       </div>
@@ -1052,6 +1053,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       name={currentPlayer.name}
                       photoUrl={currentPlayer.photoUrl}
                       size="2xl"
+                      priority
                       className="rounded-xl sm:rounded-2xl mx-auto sm:mx-0"
                     />
 
