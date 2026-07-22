@@ -48,6 +48,20 @@ export default defineSchema({
     logoUrl: v.optional(v.string()),
     startDate: v.optional(v.number()),
     endDate: v.optional(v.number()),
+    // Denormalized player-status counts, maintained on the write side by
+    // syncTournamentAuctionCounts (convex/auctionCounts.ts) so the hot
+    // getAuctionRoster fan-out doesn't have to scan the players table.
+    // Optional: absent on legacy tournaments until the backfill runs; the
+    // roster query falls back to a live scan when this is undefined.
+    auctionCounts: v.optional(
+      v.object({
+        pending: v.number(),
+        sold: v.number(),
+        unsold: v.number(),
+        inAuction: v.number(),
+        minPendingBasePrice: v.optional(v.number()), // undefined when no pending players
+      }),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

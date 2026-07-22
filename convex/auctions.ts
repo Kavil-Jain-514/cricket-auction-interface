@@ -1,8 +1,10 @@
 // convex/auctions.ts - Live auction mutations and queries
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { requireAdmin, logAdminAction } from "./auth";
+import { syncTournamentAuctionCounts } from "./auctionCounts";
 
 /**
  * Create a new auction room for a tournament.
@@ -411,6 +413,23 @@ export const finalizePlayerSale = mutation({
         }),
         ...allLiveBids.map((bid) => ctx.db.delete(bid._id)),
       ]);
+
+      // Best-effort WhatsApp notification to the sold player. Scheduled AFTER
+      // the sale is committed so a messaging failure can never roll back the
+      // sale. No-ops gracefully if the player has no phone or Twilio is unset.
+      await ctx.scheduler.runAfter(
+        0,
+        internal.notifications.sendPlayerSoldWhatsApp,
+        {
+          playerName: player.name,
+          phoneNumber: player.phoneNumber,
+          tournamentName: tournament.name,
+          teamName: team.name,
+          ownerName: team.ownerName,
+          captainName: team.captainName,
+          soldPrice: winningBid.amount,
+        },
+      );
     } else {
       // PLAYER UNSOLD
       await Promise.all([
@@ -431,6 +450,10 @@ export const finalizePlayerSale = mutation({
         }),
       ]);
     }
+
+    // Refresh denormalized counts now that this player left "in_auction" for
+    // "sold"/"unsold" (keeps getAuctionRoster's stats + bid limits correct).
+    await syncTournamentAuctionCounts(ctx, auctionRoom.tournamentId);
 
     await logAdminAction(ctx, {
       userId: admin._id,
@@ -629,6 +652,9 @@ export const startNextPlayer = mutation({
       }),
     ]);
 
+    // The picked player just moved pending/unsold -> in_auction; refresh counts.
+    await syncTournamentAuctionCounts(ctx, auctionRoom.tournamentId);
+
     return { success: true, player: nextPlayer };
   },
 });
@@ -811,51 +837,92 @@ export const getAuctionRoster = query({
     currentPlayerId: v.optional(v.id("players")),
   },
   handler: async (ctx, args) => {
-    const [currentPlayer, teams, tournament, allPlayers] = await Promise.all([
-      args.currentPlayerId ? ctx.db.get(args.currentPlayerId) : null,
-      ctx.db
-        .query("teams")
-        .withIndex("by_tournament", (q) =>
-          q.eq("tournamentId", args.tournamentId),
-        )
-        .collect(),
-      ctx.db.get(args.tournamentId),
-      ctx.db
-        .query("players")
-        .withIndex("by_tournament", (q) =>
-          q.eq("tournamentId", args.tournamentId),
-        )
-        .collect(),
-    ]);
+    // Read only what the fan-out truly needs: teams, the current player, the
+    // tournament (which carries denormalized counts), and the SOLD players
+    // (needed for the complete screen, squad sheets, and per-team counts).
+    // Pending/unsold players are NOT scanned here — their counts and the
+    // minimum pending base price come from tournament.auctionCounts, maintained
+    // write-side by syncTournamentAuctionCounts. This keeps the query O(sold)
+    // instead of O(all players) on every sale fan-out.
+    const [currentPlayer, teams, tournament, soldPlayersRaw] =
+      await Promise.all([
+        args.currentPlayerId ? ctx.db.get(args.currentPlayerId) : null,
+        ctx.db
+          .query("teams")
+          .withIndex("by_tournament", (q) =>
+            q.eq("tournamentId", args.tournamentId),
+          )
+          .collect(),
+        ctx.db.get(args.tournamentId),
+        ctx.db
+          .query("players")
+          .withIndex("by_tournament_status", (q) =>
+            q
+              .eq("tournamentId", args.tournamentId)
+              .eq("auctionStatus", "sold"),
+          )
+          .collect(),
+      ]);
 
-    const pendingPlayers = allPlayers.filter(
-      (p) => p.auctionStatus === "pending",
-    );
     // Trim sold players to only the fields needed by the client (complete screen + purse map).
-    const soldPlayers = allPlayers
-      .filter((p) => p.auctionStatus === "sold")
-      .map((p) => ({
-        _id: p._id,
-        name: p.name,
-        role: p.role,
-        soldPrice: p.soldPrice,
-        teamId: p.teamId,
-      }));
-    const unsoldPlayers = allPlayers.filter(
-      (p) => p.auctionStatus === "unsold",
-    );
+    const soldPlayers = soldPlayersRaw.map((p) => ({
+      _id: p._id,
+      name: p.name,
+      role: p.role,
+      soldPrice: p.soldPrice,
+      teamId: p.teamId,
+    }));
 
-    // Calculate maxAllowedBid for each team based on squad completion requirements
     const maxPlayersPerTeam = tournament?.settings.maxPlayersPerTeam || 15;
     const tournamentBasePrice = tournament?.settings.basePrice ?? 100000;
-    const minBasePrice =
-      pendingPlayers.length > 0
-        ? Math.min(
-            ...pendingPlayers.map((p) => p.basePrice ?? tournamentBasePrice),
+
+    // Pending/unsold counts + min pending base price from the denormalized
+    // counts. Fall back to a live scan for tournaments created before the
+    // backfill ran (auctionCounts still undefined).
+    let pendingCount: number;
+    let unsoldCount: number;
+    let minPendingBasePrice: number | undefined;
+    const counts = tournament?.auctionCounts;
+    if (counts) {
+      pendingCount = counts.pending;
+      unsoldCount = counts.unsold;
+      minPendingBasePrice = counts.minPendingBasePrice;
+    } else {
+      const [pendingPlayers, unsoldPlayers] = await Promise.all([
+        ctx.db
+          .query("players")
+          .withIndex("by_tournament_status", (q) =>
+            q
+              .eq("tournamentId", args.tournamentId)
+              .eq("auctionStatus", "pending"),
           )
-        : currentPlayer
-          ? (currentPlayer.basePrice ?? tournamentBasePrice)
-          : tournamentBasePrice;
+          .collect(),
+        ctx.db
+          .query("players")
+          .withIndex("by_tournament_status", (q) =>
+            q
+              .eq("tournamentId", args.tournamentId)
+              .eq("auctionStatus", "unsold"),
+          )
+          .collect(),
+      ]);
+      pendingCount = pendingPlayers.length;
+      unsoldCount = unsoldPlayers.length;
+      minPendingBasePrice =
+        pendingPlayers.length > 0
+          ? Math.min(
+              ...pendingPlayers.map((p) => p.basePrice ?? tournamentBasePrice),
+            )
+          : undefined;
+    }
+
+    // Same semantics as before: min pending base price, else the current
+    // player's base price, else the tournament default.
+    const minBasePrice =
+      minPendingBasePrice ??
+      (currentPlayer
+        ? (currentPlayer.basePrice ?? tournamentBasePrice)
+        : tournamentBasePrice);
 
     // Build team player counts from soldPlayers already fetched above — avoids N+1 per-team queries
     const teamPlayerCounts = new Map<string, number>();
@@ -896,13 +963,13 @@ export const getAuctionRoster = query({
       minBasePrice,
       stats: {
         total:
-          pendingPlayers.length +
+          pendingCount +
           soldPlayers.length +
-          unsoldPlayers.length +
+          unsoldCount +
           (currentPlayer ? 1 : 0),
-        pending: pendingPlayers.length,
+        pending: pendingCount,
         sold: soldPlayers.length,
-        unsold: unsoldPlayers.length,
+        unsold: unsoldCount,
         inAuction: currentPlayer ? 1 : 0,
       },
     };
@@ -1187,6 +1254,9 @@ export const restartAuction = mutation({
       ...bids.map((bid) => () => ctx.db.delete(bid._id)),
       ...events.map((event) => () => ctx.db.delete(event._id)),
     ]);
+
+    // All players are back to "pending" — recompute counts from scratch.
+    await syncTournamentAuctionCounts(ctx, auctionRoom.tournamentId);
 
     return { success: true, message: "Auction has been reset" };
   },

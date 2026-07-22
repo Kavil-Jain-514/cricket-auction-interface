@@ -2,6 +2,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, logAdminAction } from "./auth";
+import { syncTournamentAuctionCounts } from "./auctionCounts";
 
 // Helper: format purse amount for error messages
 function formatPurse(amount: number): string {
@@ -312,6 +313,9 @@ export const updatePlayerStatus = mutation({
       },
       tournamentId: player.tournamentId,
     });
+
+    // Status changed (pending/sold/unsold) — refresh denormalized counts.
+    await syncTournamentAuctionCounts(ctx, player.tournamentId);
 
     return {
       success: true,

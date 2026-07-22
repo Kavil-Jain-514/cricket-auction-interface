@@ -221,11 +221,12 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       // Helper to draw a player card
       const drawPlayerCard = (player: Doc<"players">, x: number, y: number) => {
         const primaryRole = getRoles(player.role)[0];
+        const hasRole = Boolean(primaryRole && primaryRole.trim());
         const roleColor = primaryRole === 'Batter' ? [59, 130, 246] : // blue
           primaryRole === 'Bowler' ? [249, 115, 22] : // orange
             primaryRole?.includes('All') ? [147, 51, 234] : // purple
               primaryRole === 'Wicket Keeper' ? [16, 185, 129] : // emerald
-                [34, 197, 94]; // green
+                [100, 116, 139]; // slate-500 (neutral) when player type is unavailable
 
         // Card background and border
         pdf.setDrawColor(roleColor[0], roleColor[1], roleColor[2]);
@@ -276,6 +277,19 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           pdf.text(numberText, photoX + 1.5, photoY + 3.3);
         }
 
+        // Captain badge - top-right of photo ("C" tag)
+        if (captainPlayerIds.has(player._id)) {
+          const badgeSize = 4.5;
+          const badgeX = photoX + actualPhotoWidth - badgeSize;
+          const badgeY = photoY;
+          pdf.setFillColor(234, 179, 8); // yellow-500
+          pdf.roundedRect(badgeX, badgeY, badgeSize, badgeSize, 1.5, 1.5, 'F');
+          pdf.setFontSize(7);
+          pdf.setFont('helvetica', 'bold');
+          pdf.setTextColor(15, 23, 42); // slate-900
+          pdf.text('C', badgeX + badgeSize / 2, badgeY + 3.3, { align: 'center' });
+        }
+
 
         // Text content - right of photo
         const textX = photoX + actualPhotoWidth + 2.5;
@@ -303,16 +317,18 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         const separator = phoneText ? '  |  ' : '';
         pdf.text(`${ageText}${separator}${phoneText}`, textX, y + 9 + linesOffset);
 
-        // Player type - smallest font, below age
-        pdf.setFontSize(6);
-        pdf.setFillColor(roleColor[0], roleColor[1], roleColor[2]);
-        const roleDisplayText = getRoleDisplay(player.role);
-        const roleBadgeWidth = pdf.getTextWidth(roleDisplayText) + 4;
-        const roleBadgeY = y + 11.5 + linesOffset;
-        pdf.roundedRect(textX, roleBadgeY, roleBadgeWidth, 4, 0.8, 0.8, 'F');
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text(roleDisplayText, textX + 2, roleBadgeY + 3);
+        // Player type - smallest font, below age (only when a role is available)
+        if (hasRole) {
+          pdf.setFontSize(6);
+          pdf.setFillColor(roleColor[0], roleColor[1], roleColor[2]);
+          const roleDisplayText = getRoleDisplay(player.role);
+          const roleBadgeWidth = pdf.getTextWidth(roleDisplayText) + 4;
+          const roleBadgeY = y + 11.5 + linesOffset;
+          pdf.roundedRect(textX, roleBadgeY, roleBadgeWidth, 4, 0.8, 0.8, 'F');
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFont('helvetica', 'bold');
+          pdf.text(roleDisplayText, textX + 2, roleBadgeY + 3);
+        }
 
         // Player Batting/Bowling Hand
         pdf.setFontSize(6);
@@ -357,7 +373,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
     } finally {
       setIsGeneratingPDF(false);
     }
-  }, [allPlayers, tournament]);
+  }, [allPlayers, tournament, captainPlayerIds]);
 
 
   return (

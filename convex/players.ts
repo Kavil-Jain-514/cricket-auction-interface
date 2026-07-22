@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin } from "./auth";
+import { syncTournamentAuctionCounts } from "./auctionCounts";
 
 // Shared validator for T-shirt size — reused across create, bulkImport, and update
 const tshirtSizeValidator = v.optional(
@@ -92,6 +93,9 @@ export const create = mutation({
       updatedAt: Date.now(),
     });
 
+    // New pending player — refresh denormalized counts / min pending base price.
+    await syncTournamentAuctionCounts(ctx, args.tournamentId);
+
     return playerId;
   },
 });
@@ -162,6 +166,10 @@ export const bulkImport = mutation({
     );
 
     const playerIds = await Promise.all(insertPromises);
+
+    // Bulk pending insert — refresh denormalized counts once for the batch.
+    await syncTournamentAuctionCounts(ctx, args.tournamentId);
+
     return { count: playerIds.length, ids: playerIds };
   },
 });
@@ -269,6 +277,10 @@ export const update = mutation({
       updatedAt: Date.now(),
     });
 
+    // basePrice may have changed on a pending player — refresh min pending base
+    // price (cheap no-op write when nothing count-relevant actually changed).
+    await syncTournamentAuctionCounts(ctx, player.tournamentId);
+
     return { success: true };
   },
 });
@@ -315,6 +327,10 @@ export const deletePlayer = mutation({
     );
 
     await ctx.db.delete(args.id);
+
+    // Player removed from the pool — refresh denormalized counts.
+    await syncTournamentAuctionCounts(ctx, player.tournamentId);
+
     return { success: true };
   },
 });
@@ -367,6 +383,9 @@ export const deleteAllByTournament = mutation({
 
     // Delete in parallel for performance
     await Promise.all(playersToDelete.map((p) => ctx.db.delete(p._id)));
+
+    // Bulk removal — refresh denormalized counts once.
+    await syncTournamentAuctionCounts(ctx, args.tournamentId);
 
     return {
       success: true,
