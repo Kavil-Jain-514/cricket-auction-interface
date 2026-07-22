@@ -22,6 +22,7 @@ import { PlayerIntroFlash } from '@/components/auction/PlayerIntroFlash';
 import { ViewerActionBar, ViewerSheets, type ViewerSheetType } from '@/components/auction/ViewerPanels';
 import { AuctionLiveBids } from '@/components/auction/AuctionLiveBids';
 import { AdminTeamsPanel } from '@/components/auction/AdminTeamsPanel';
+import { ConnectionStatus } from '@/components/ui/connection-status';
 
 // Lazy-load heavy components that are only used conditionally
 const PlayerResultPopup = dynamic(() => import('@/components/auction/PlayerResultPopup').then(m => ({ default: m.PlayerResultPopup })), { ssr: false });
@@ -571,6 +572,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden">
+      {/* Reconnecting indicator — surfaces silent socket drops (P1-1) */}
+      <ConnectionStatus />
+
       {/* Cricket Stadium Background Effects */}
       <div className="fixed inset-0 pointer-events-none">
         {/* Cricket field green gradient at bottom */}
