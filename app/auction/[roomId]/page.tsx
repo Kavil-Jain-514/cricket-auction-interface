@@ -7,14 +7,13 @@ import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  SkipForward, Trophy,
+  Trophy,
   Users, Gavel, RotateCcw, RotateCw, Play, Pause, RefreshCcw,
   Eye, Settings2, UserX
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { formatCurrency, getErrorMessage, getRoleDisplay } from '@/lib/utils';
-import { useSound } from '@/hooks/useSound';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -123,15 +122,17 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const resumeAuction = useMutation(api.auctions.resumeAuction);
   const restartAuction = useMutation(api.auctions.restartAuction);
 
-  const [timeLeft, setTimeLeft] = useState(30);
   const [bidding, setBidding] = useState<Id<"teams"> | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [customBidAmounts, setCustomBidAmounts] = useState<Record<string, number>>({});
   const [showPlayerIntro, setShowPlayerIntro] = useState(false);
   const [showPlayerManager, setShowPlayerManager] = useState(false);
+  const [showUnsoldRoundBanner, setShowUnsoldRoundBanner] = useState(false);
   const lastPlayerIdRef = useRef<string | null>(null);
   const introTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const finalizingRef = useRef(false);
+  const loadingNextRef = useRef(false);
+  const prevPhaseRef = useRef<string | null>(null);
+  const unsoldBannerTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Viewer mode status flash notifications
   const [statusFlash, setStatusFlash] = useState<{
@@ -158,12 +159,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     sold: boolean;
     teamColor?: string;
   } | null>(null);
-  const { play } = useSound();
-
-  // Timer management with better precision
   const handleFinalize = useCallback(async () => {
     if (!isAdmin) return; // Only admins can finalize
-    if (showResult) return; // Prevent multiple auto-finalizes
+    if (showResult) return; // Prevent finalizing twice for the same player
     // Capture current bid state BEFORE calling finalize mutation
     const hadBidder = Boolean(auctionData?.currentBidTeam);
     const bidAmount = auctionData?.auctionRoom?.currentBidAmount ?? 0;
@@ -198,66 +196,28 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         teamColor: winningTeam?.colorPrimary,
       });
       setShowResult(true);
-      if (isSold) {
-        play('sold', 0.7);
-      } else {
-        play('unsold', 0.5);
-      }
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to finalize"));
     }
-  }, [isAdmin, showResult, finalizePlayer, auctionRoomId, auctionData, play]);
+  }, [isAdmin, showResult, finalizePlayer, auctionRoomId, auctionData]);
 
-  // Timer effect - only runs when auction is live and has a timer
+  // Flash a big "Unsold Players Auction" banner when the auction transitions
+  // from the main round into the unsold round (for everyone watching live).
   useEffect(() => {
-    // Don't run timer when paused or no timer set
-    if (auctionData?.auctionRoom?.status !== 'live') {
-      return;
+    const phase = auctionData?.auctionRoom?.auctionPhase ?? null;
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+    if (prev && prev !== 'unsold' && phase === 'unsold') {
+      const raf = requestAnimationFrame(() => setShowUnsoldRoundBanner(true));
+      if (unsoldBannerTimerRef.current) clearTimeout(unsoldBannerTimerRef.current);
+      unsoldBannerTimerRef.current = setTimeout(() => setShowUnsoldRoundBanner(false), 5000);
+      return () => cancelAnimationFrame(raf);
     }
+  }, [auctionData?.auctionRoom?.auctionPhase]);
 
-    if (!auctionData?.auctionRoom?.bidTimerEndsAt) {
-      return;
-    }
-
-    const updateTimer = () => {
-      // Double-check we're still live before updating
-      if (auctionData?.auctionRoom?.status !== 'live') return;
-
-      const remaining = Math.max(
-        0,
-        Math.ceil((auctionData.auctionRoom.bidTimerEndsAt! - Date.now()) / 1000)
-      );
-
-      // Only update state if value changed (prevents unnecessary re-renders)
-      setTimeLeft((prev) => (prev !== remaining ? remaining : prev));
-
-      // Auto-finalize when timer reaches 0 AND auction is still live
-      // Guard with finalizingRef to prevent double-finalize from rapid re-renders
-      if (remaining === 0 &&
-        auctionData.auctionRoom.status === 'live' &&
-        auctionData.auctionRoom.currentPlayerId &&
-        !showResult &&
-        !finalizingRef.current) {
-        finalizingRef.current = true;
-        handleFinalize().finally(() => { finalizingRef.current = false; });
-      }
-
-      // Play timer warning sound at 10 seconds
-      if (remaining === 10) {
-        play('timer', 0.3);
-      }
-    };
-
-    // Run immediately then on interval (500ms is smooth enough, reduces CPU)
-    updateTimer();
-    const interval = setInterval(updateTimer, 500);
-    return () => clearInterval(interval);
-  }, [auctionData?.auctionRoom?.bidTimerEndsAt, auctionData?.auctionRoom?.currentPlayerId, auctionData?.auctionRoom?.status, handleFinalize, play, showResult]);
-
-  // Show paused time when auction is paused (computed, not in effect)
-  const displayTimeLeft = auctionData?.auctionRoom?.status === 'paused' && auctionData?.auctionRoom?.pausedTimeRemaining
-    ? auctionData.auctionRoom.pausedTimeRemaining
-    : timeLeft;
+  useEffect(() => () => {
+    if (unsoldBannerTimerRef.current) clearTimeout(unsoldBannerTimerRef.current);
+  }, []);
 
   // Player intro flash effect - shows when a new player comes up
   useEffect(() => {
@@ -419,10 +379,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         teamColor: ev.teamColor,
       });
       setShowResult(true);
-      play(ev.sold ? 'sold' : 'unsold', ev.sold ? 0.7 : 0.5);
     });
     return () => cancelAnimationFrame(raf);
-  }, [isAdmin, latestSaleEvent, play]);
+  }, [isAdmin, latestSaleEvent]);
 
   // Auto-hide status flash after 3 seconds
   useEffect(() => {
@@ -459,8 +418,6 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     if (bidding === teamId) return;
     if (auctionData?.auctionRoom?.status !== 'live') return;
 
-    // Play sound immediately for responsiveness
-    play('bid', 0.5);
     setBidding(teamId);
 
     // Clear bidding state after a short delay (allows quick successive bids from different teams)
@@ -481,25 +438,30 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to place bid"));
     }
-  }, [bidding, auctionData?.auctionRoom?.status, placeBid, auctionRoomId, play]);
+  }, [bidding, auctionData?.auctionRoom?.status, placeBid, auctionRoomId]);
 
 
   const handleNextPlayer = useCallback(async () => {
+    // Guard against overlapping loads (auto-loader effect + subscription lag).
+    if (loadingNextRef.current) return;
+    loadingNextRef.current = true;
     try {
       const res = await startNext({ auctionRoomId });
 
       if (res.success === false) {
-        toast.error(res.reason || "Could not load next player");
+        // "already in auction" means a concurrent load won the race — benign.
+        if (res.reason && !res.reason.includes("already in auction")) {
+          toast.error(res.reason);
+        }
       } else if (res.completed) {
         toast.success("Auction completed! All players have been auctioned.");
-      } else {
-        play('nextPlayer', 0.5);
-        toast.success("Next player loaded!");
       }
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to load next player"));
+    } finally {
+      loadingNextRef.current = false;
     }
-  }, [startNext, auctionRoomId, play]);
+  }, [startNext, auctionRoomId]);
 
   const handleRevertBid = useCallback(async () => {
     if (!confirm("Are you sure you want to revert the last bid?")) return;
@@ -531,6 +493,19 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       toast.error(getErrorMessage(error, "Failed to mark player as final unsold"));
     }
   }, [markFinalUnsold, auctionRoomId]);
+
+  // Auto-load the next player whenever the auction is live with no one in the
+  // ring and no result popup open. This replaces the manual "Next" button:
+  // covers the first player after Start, advancing after each sale, and
+  // resuming a live room that has no current player.
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (auctionData?.auctionRoom?.status !== 'live') return;
+    if (auctionData?.auctionRoom?.currentPlayerId) return;
+    if (showResult) return;
+    const t = setTimeout(() => { handleNextPlayer(); }, 200);
+    return () => clearTimeout(t);
+  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.auctionRoom?.currentPlayerId, showResult, handleNextPlayer]);
 
   // Wait for both the hot payload and the initial roster before first paint so
   // teams/current-player aren't momentarily empty. Subsequent bid/timer updates
@@ -580,6 +555,19 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const minNextBid = currentBid + (auctionData.tournament?.settings.minBidIncrement || 25000);
 
   const isFirstBid = !recentBids || recentBids.length === 0;
+
+  // Auction progress counter ("X / N"). During the main round it counts every
+  // player put up (total minus those still pending); during the unsold round it
+  // counts against the snapshot of how many players were unsold when it began.
+  const isUnsoldRound = auctionRoom.auctionPhase === 'unsold';
+  const stats = auctionData.stats;
+  const progressTotal = isUnsoldRound
+    ? (auctionRoom.unsoldRoundTotal ?? 0)
+    : (stats?.total ?? 0);
+  const progressCurrent = isUnsoldRound
+    ? Math.min(progressTotal, Math.max(1, progressTotal - (stats?.unsold ?? 0)))
+    : Math.max(0, (stats?.total ?? 0) - (stats?.pending ?? 0));
+  const showProgress = Boolean(currentPlayer) && progressTotal > 0;
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden">
@@ -673,7 +661,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 {/* Restart Current Player */}
                 <Button
                   onClick={async () => {
-                    if (!confirm("Restart bidding for this player? All bids will be cleared and timer will reset.")) return;
+                    if (!confirm("Restart bidding for this player? All bids will be cleared.")) return;
                     try {
                       await restartCurrentPlayer({ auctionRoomId });
                       toast.success('Player bidding restarted!');
@@ -697,9 +685,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     onClick={async () => {
                       try {
                         await startAuction({ auctionRoomId });
+                        // The auto-loader effect picks up the first player once the
+                        // room goes live — no manual "Next" needed.
                         toast.success('Auction started!');
-                      } catch {
-                        toast.error('Failed to start auction');
+                      } catch (error) {
+                        toast.error(getErrorMessage(error, 'Failed to start auction'));
                       }
                     }}
                     variant="default"
@@ -809,48 +799,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     <span className="hidden sm:inline">Final Unsold</span>
                   </Button>
                 )}
-                <Button
-                  onClick={handleNextPlayer}
-                  disabled={auctionRoom.currentPlayerId !== undefined || auctionRoom.status !== 'live'}
-                  size="lg"
-                  className="h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
-                >
-                  <SkipForward className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                  <span className="hidden sm:inline">Next</span>
-                </Button>
               </div>
             ) : (
-              /* Viewer Mode: Compact Timer + Bid11Pro Branding */
+              /* Viewer Mode: Bid11Pro Branding */
               <div className="flex items-center gap-3 sm:gap-5">
-                {/* Compact countdown timer */}
-                <div className="relative w-11 h-11 sm:w-14 sm:h-14 shrink-0">
-                  <div className={`absolute inset-0 rounded-full blur-md transition-colors ${displayTimeLeft <= 10 ? 'bg-red-500/40' : 'bg-orange-500/20'}`} />
-                  <svg className="w-full h-full transform -rotate-90 relative z-10" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="42" stroke="currentColor" strokeWidth="12" fill="none" className="text-slate-700" />
-                    <motion.circle
-                      cx="50" cy="50" r="42"
-                      stroke="currentColor" strokeWidth="12" fill="none"
-                      className={displayTimeLeft <= 10 ? "text-red-500" : "text-orange-500"}
-                      strokeDasharray={2 * Math.PI * 42}
-                      strokeDashoffset={2 * Math.PI * 42 * (1 - displayTimeLeft / (auctionData.tournament?.settings.bidTimerSeconds || 30))}
-                      strokeLinecap="round"
-                      transition={{ duration: 0.1, ease: "linear" }}
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center z-20">
-                    <motion.span
-                      className={`text-sm sm:text-base font-extrabold ${displayTimeLeft <= 10 ? 'text-red-400' : 'text-orange-300'}`}
-                      animate={{ scale: displayTimeLeft <= 5 && displayTimeLeft > 0 ? [1, 1.15, 1] : 1 }}
-                      transition={{ repeat: displayTimeLeft <= 5 && displayTimeLeft > 0 ? Infinity : 0, duration: 0.8 }}
-                    >
-                      {displayTimeLeft}
-                    </motion.span>
-                  </div>
-                </div>
-
-                {/* Divider */}
-                <div className="hidden sm:block h-9 w-px bg-slate-700" />
-
                 {/* Bid11Pro Branding */}
                 <div className="hidden sm:flex flex-col">
                   <span className="text-lg sm:text-xl font-extrabold tracking-tight bg-linear-to-r from-yellow-400 via-orange-400 to-orange-500 bg-clip-text text-transparent leading-tight">
@@ -973,53 +925,22 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
           {/* Center Stage */}
           <div className={isAdmin ? 'order-1 col-span-12 lg:col-span-6 lg:order-2' : 'w-full'}>
-            {/* Timer - Cricket Ball Style - Admin only; viewers see it in the header */}
-            {isAdmin && <div className="flex justify-center mb-4 sm:mb-6 lg:mb-8">
-              <div className="relative w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32">
-                {/* Glow effect */}
-                <div className={`absolute inset-0 rounded-full blur-xl transition-colors ${displayTimeLeft <= 10 ? 'bg-red-500/30' : 'bg-orange-500/20'
-                  }`} />
-                <svg className="w-full h-full transform -rotate-90 relative z-10" viewBox="0 0 100 100">
-                  {/* Background circle - cricket ball red */}
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="45"
-                    stroke="currentColor"
-                    strokeWidth="8"
-                    fill="none"
-                    className="text-red-900/50"
-                  />
-                  {/* Progress circle */}
-                  <motion.circle
-                    cx="50"
-                    cy="50"
-                    r="45"
-                    stroke="currentColor"
-                    strokeWidth="8"
-                    fill="none"
-                    className={displayTimeLeft <= 10 ? "text-red-500" : "text-orange-500"}
-                    strokeDasharray={2 * Math.PI * 45}
-                    strokeDashoffset={2 * Math.PI * 45 * (1 - displayTimeLeft / (auctionData.tournament?.settings.bidTimerSeconds || 30))}
-                    strokeLinecap="round"
-                    transition={{ duration: 0.1, ease: "linear" }}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center z-20">
-                  <div className="text-center">
-                    <motion.div
-                      className={`text-3xl sm:text-4xl lg:text-5xl font-bold ${displayTimeLeft <= 10 ? 'text-red-500' : 'text-orange-400'
-                        }`}
-                      animate={{ scale: displayTimeLeft <= 5 && displayTimeLeft > 0 ? [1, 1.1, 1] : 1 }}
-                      transition={{ repeat: displayTimeLeft <= 5 && displayTimeLeft > 0 ? Infinity : 0, duration: 1 }}
-                    >
-                      {displayTimeLeft}
-                    </motion.div>
-                    <div className="text-xs text-slate-400 mt-0.5 sm:mt-1">seconds</div>
-                  </div>
+
+            {/* Auction progress counter — visible to admins and viewers */}
+            {showProgress && (
+              <div className="flex justify-center mb-3 sm:mb-4">
+                <div className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border backdrop-blur-sm shadow-lg ${isUnsoldRound
+                  ? 'bg-red-500/15 border-red-500/40 text-red-300'
+                  : 'bg-blue-500/15 border-blue-500/40 text-blue-200'}`}>
+                  <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider opacity-80">
+                    {isUnsoldRound ? 'Unsold Round' : 'Player'}
+                  </span>
+                  <span className="text-sm sm:text-base font-extrabold tabular-nums">
+                    {progressCurrent}<span className="opacity-50">/</span>{progressTotal}
+                  </span>
                 </div>
               </div>
-            </div>}
+            )}
 
             {/* Player Card */}
             <AnimatePresence mode="wait">
@@ -1188,7 +1109,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <Trophy className="w-14 h-14 sm:w-16 sm:h-16 lg:w-20 lg:h-20 mx-auto mb-3 sm:mb-4 opacity-50" />
                   {isAdmin ? (
                     <p className="text-base sm:text-lg lg:text-xl mb-4">
-                      Click &quot;Next Player&quot; to start auction
+                      {auctionRoom.status === 'waiting'
+                        ? 'Click "Start" to begin the auction'
+                        : 'Loading next player...'}
                     </p>
                   ) : (
                     <div className="space-y-2">
@@ -1235,19 +1158,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           teamColor={result.teamColor}
           avatarSize={isAdmin ? 'xl' : '2xl'}
           interactive={isAdmin}
-          onClose={async () => {
+          onClose={() => {
+            // Closing the result clears the popup; the auto-loader effect then
+            // advances to the next player (admins only).
             setShowResult(false);
-            // Only admins auto-advance to the next player
-            if (isAdmin) {
-              setTimeout(async () => {
-                if (
-                  auctionData?.auctionRoom?.status === 'live' &&
-                  (auctionData?.stats?.pending > 0 || auctionData?.stats?.unsold > 0 || auctionData?.stats?.inAuction > 0)
-                ) {
-                  await handleNextPlayer();
-                }
-              }, 100);
-            }
           }}
         />
       )}
@@ -1260,6 +1174,56 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           tournamentBasePrice={auctionData.tournament?.settings.basePrice ?? 100000}
         />
       )}
+
+      {/* Unsold Round Transition Flash — big, flashy announcement */}
+      <AnimatePresence>
+        {showUnsoldRoundBanner && (
+          <motion.div
+            className="fixed inset-0 z-70 flex items-center justify-center bg-slate-950/80 backdrop-blur-md px-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowUnsoldRoundBanner(false)}
+          >
+            <motion.div
+              className="relative text-center"
+              initial={{ scale: 0.6, y: 30 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 18 }}
+            >
+              <motion.div
+                className="absolute -inset-8 rounded-[2.5rem] bg-red-500/25 blur-3xl"
+                animate={{ opacity: [0.4, 0.9, 0.4] }}
+                transition={{ repeat: Infinity, duration: 1.4 }}
+              />
+              <div className="relative rounded-3xl border border-red-500/50 bg-linear-to-br from-red-600/30 to-orange-600/20 px-8 py-8 sm:px-16 sm:py-12 shadow-2xl">
+                <motion.p
+                  className="text-xs sm:text-sm font-bold uppercase tracking-[0.3em] text-red-300 mb-3"
+                  animate={{ opacity: [0.6, 1, 0.6] }}
+                  transition={{ repeat: Infinity, duration: 1.2 }}
+                >
+                  All players auctioned
+                </motion.p>
+                <motion.h2
+                  className="text-4xl sm:text-6xl lg:text-7xl font-extrabold text-white drop-shadow-[0_2px_20px_rgba(239,68,68,0.6)]"
+                  animate={{ scale: [1, 1.04, 1] }}
+                  transition={{ repeat: Infinity, duration: 1.1 }}
+                >
+                  UNSOLD PLAYERS
+                  <br />
+                  AUCTION
+                </motion.h2>
+                {(auctionRoom.unsoldRoundTotal ?? 0) > 0 && (
+                  <p className="mt-4 text-base sm:text-xl font-semibold text-orange-200">
+                    {auctionRoom.unsoldRoundTotal} player{auctionRoom.unsoldRoundTotal === 1 ? '' : 's'} up for re-auction
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Viewer: fixed bottom action bar + history/teams sheets */}
       {!isAdmin && (

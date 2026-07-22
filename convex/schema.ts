@@ -198,6 +198,12 @@ export default defineSchema({
     // Timer info - set when player starts, not on each bid
     bidTimerEndsAt: v.optional(v.number()),
     pausedTimeRemaining: v.optional(v.number()),
+    // Auction round for the viewer progress counter. "main" = first pass over
+    // all players; "unsold" = re-auctioning the players who went unsold.
+    auctionPhase: v.optional(v.union(v.literal("main"), v.literal("unsold"))),
+    // Number of players that were unsold when the unsold round began — the
+    // denominator for the "X / N" counter during the unsold round.
+    unsoldRoundTotal: v.optional(v.number()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),

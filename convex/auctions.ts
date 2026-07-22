@@ -55,6 +55,9 @@ export const startAuction = mutation({
       ctx.db.patch(args.auctionRoomId, {
         status: "live",
         updatedAt: now,
+        // Fresh start: the main round, no unsold-round snapshot yet.
+        auctionPhase: "main",
+        unsoldRoundTotal: undefined,
       }),
       // Ensure tournament status is 'active' so viewers can access the auction
       ctx.db.patch(auctionRoom.tournamentId, {
@@ -663,6 +666,8 @@ export const startNextPlayer = mutation({
     ).filter((p) => !captainPlayerIds.has(p._id));
 
     let nextPlayer = null;
+    let pickedFromUnsold = false;
+    let unsoldPoolSize = 0;
 
     if (pendingPlayers.length > 0) {
       // Shuffle and pick a random player from pending
@@ -681,8 +686,11 @@ export const startNextPlayer = mutation({
           .collect()
       ).filter((p) => !captainPlayerIds.has(p._id));
 
+      unsoldPoolSize = unsoldPlayers.length;
+
       if (unsoldPlayers.length > 0) {
         // Shuffle and pick a random player from unsold
+        pickedFromUnsold = true;
         const randomIndex = Math.floor(Math.random() * unsoldPlayers.length);
         nextPlayer = unsoldPlayers[randomIndex];
       }
@@ -707,6 +715,22 @@ export const startNextPlayer = mutation({
     const bidTimerSeconds = tournament.settings.bidTimerSeconds || 30;
     const now = Date.now();
 
+    // Track the auction round for the viewer progress counter. When the unsold
+    // round begins (first time we pick from the unsold pool), snapshot how many
+    // players were unsold so the "X / N" counter has a stable denominator.
+    const phasePatch: {
+      auctionPhase: "main" | "unsold";
+      unsoldRoundTotal?: number;
+    } = pickedFromUnsold
+      ? {
+          auctionPhase: "unsold",
+          unsoldRoundTotal:
+            auctionRoom.auctionPhase === "unsold"
+              ? auctionRoom.unsoldRoundTotal
+              : unsoldPoolSize,
+        }
+      : { auctionPhase: "main" };
+
     await Promise.all([
       ctx.db.patch(nextPlayer._id, {
         auctionStatus: "in_auction",
@@ -716,6 +740,7 @@ export const startNextPlayer = mutation({
         currentPlayerId: nextPlayer._id,
         bidTimerEndsAt: now + bidTimerSeconds * 1000,
         updatedAt: now,
+        ...phasePatch,
       }),
       ctx.db.insert("auctionEvents", {
         auctionRoomId: args.auctionRoomId,
@@ -1332,6 +1357,8 @@ export const restartAuction = mutation({
         currentPlayerId: undefined,
         bidTimerEndsAt: undefined,
         pausedTimeRemaining: undefined,
+        auctionPhase: "main",
+        unsoldRoundTotal: undefined,
         updatedAt: now,
       }),
       ctx.db.patch(auctionRoom.tournamentId, {
