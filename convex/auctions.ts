@@ -449,7 +449,13 @@ export const finalizePlayerSale = mutation({
         ctx.db.insert("auctionEvents", {
           auctionRoomId: args.auctionRoomId,
           type: "player_unsold",
-          data: { playerId: currentPlayerId, playerName: player.name },
+          // basePrice is stored on the event so getLatestSaleEvent can show the
+          // unsold amount WITHOUT reading the (per-bid-mutated) room doc. (P1-2)
+          data: {
+            playerId: currentPlayerId,
+            playerName: player.name,
+            basePrice: playerBasePrice,
+          },
           timestamp: now,
         }),
       ]);
@@ -509,6 +515,12 @@ export const markPlayerFinalUnsold = mutation({
     const player = await ctx.db.get(currentPlayerId);
     if (!player) throw new Error("Player not found");
 
+    // Resolve the effective base price now so it can be stored on the event
+    // (lets getLatestSaleEvent avoid a per-bid room read — P1-2).
+    const tournament = await ctx.db.get(auctionRoom.tournamentId);
+    const playerBasePrice =
+      player.basePrice ?? tournament?.settings.basePrice ?? 100000;
+
     // Clear any live bids placed on this player before removing them.
     const liveBids = await ctx.db
       .query("liveBids")
@@ -534,6 +546,7 @@ export const markPlayerFinalUnsold = mutation({
         data: {
           playerId: currentPlayerId,
           playerName: player.name,
+          basePrice: playerBasePrice,
           final: true,
         },
         timestamp: now,
@@ -1143,6 +1156,7 @@ export const getLatestSaleEvent = query({
       playerId?: string;
       teamId?: string;
       amount?: number;
+      basePrice?: number;
       playerName?: string;
       teamName?: string;
     };
@@ -1155,13 +1169,14 @@ export const getLatestSaleEvent = query({
     const team =
       sold && data.teamId ? await ctx.db.get(data.teamId as Id<"teams">) : null;
 
-    // Unsold events don't carry an amount — fall back to the player's base price.
+    // Unsold events carry the resolved base price in `data.basePrice` (written by
+    // finalizePlayerSale / markPlayerFinalUnsold). Reading it here — instead of
+    // the auctionRoom doc — keeps this query OUT of the per-bid room-patch
+    // invalidation set, so it no longer re-fans to every viewer on each bid
+    // after an unsold result. (P1-2). Fallbacks cover legacy events.
     let amount = data.amount ?? 0;
     if (!sold) {
-      const room = await ctx.db.get(args.auctionRoomId);
-      const tournament = room ? await ctx.db.get(room.tournamentId) : null;
-      amount =
-        player?.basePrice ?? tournament?.settings.basePrice ?? 100000;
+      amount = data.basePrice ?? player?.basePrice ?? 100000;
     }
 
     return {

@@ -285,6 +285,21 @@ describe("finalizePlayerSale — purse settlement", () => {
     });
   });
 
+  // P1-2: the unsold sale event carries the resolved base price so the viewer
+  // popup query (getLatestSaleEvent) does not need to read the per-bid-mutated
+  // room doc. Verify the amount surfaces correctly from the event data.
+  test("getLatestSaleEvent reports the unsold base price without the room read", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId } = await setup(t, { basePrice: 100_000 });
+    await putPlayerInAuction(t, { tournamentId, roomId }); // player inherits 100k
+
+    await asAdmin.mutation(api.auctions.finalizePlayerSale, { auctionRoomId: roomId });
+
+    const ev = await t.query(api.auctions.getLatestSaleEvent, { auctionRoomId: roomId });
+    expect(ev).toMatchObject({ sold: false, amount: 100_000 });
+  });
+
   test("UNSOLD: no bids leaves purses untouched and marks the player unsold", async () => {
     const t = convexTest(schema, modules);
     const asAdmin = t.withIdentity(ADMIN_IDENTITY);
