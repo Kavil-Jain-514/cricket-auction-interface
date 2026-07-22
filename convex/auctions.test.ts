@@ -208,14 +208,18 @@ describe("placeBid — bid validation", () => {
     expect(atCap).toMatchObject({ success: true });
   });
 
-  test("rejects bids after the timer has expired", async () => {
+  // P0-1: The auction is auctioneer-paced (a human calls the bid and finalizes
+  // manually), so a legitimately-called bid that arrives after the display timer
+  // has elapsed must still be accepted. The server no longer gates bids on
+  // `bidTimerEndsAt`; the timer is a UI countdown only.
+  test("accepts a valid bid even after the timer window has elapsed", async () => {
     const t = convexTest(schema, modules);
     const asAdmin = t.withIdentity(ADMIN_IDENTITY);
     const { tournamentId, roomId, teamA } = await setup(t);
     await putPlayerInAuction(t, {
       tournamentId,
       roomId,
-      bidTimerEndsAt: Date.now() - 1_000, // already expired
+      bidTimerEndsAt: Date.now() - 60_000, // timer elapsed a minute ago
     });
 
     const res = await asAdmin.mutation(api.auctions.placeBid, {
@@ -223,7 +227,7 @@ describe("placeBid — bid validation", () => {
       teamId: teamA,
       amount: 100_000,
     });
-    expect(res).toMatchObject({ success: false });
+    expect(res).toMatchObject({ success: true });
   });
 
   test("rejects bids from non-admins", async () => {

@@ -199,10 +199,11 @@ export const placeBid = mutation({
       return { success: false, reason: "No player currently in auction" };
     }
 
-    // Timer-expiry guard: reject bids that arrive after the server deadline
-    if (auctionRoom.bidTimerEndsAt && Date.now() > auctionRoom.bidTimerEndsAt) {
-      return { success: false, reason: "Bidding time has expired" };
-    }
+    // NOTE: No server-side timer-expiry guard. This auction is auctioneer-paced —
+    // a human calls each bid and finalizes manually — so a legitimately-called
+    // bid that lands after `bidTimerEndsAt` (e.g. a long player introduction or a
+    // mid-bidding lull) must still be accepted. `bidTimerEndsAt` is a UI countdown
+    // only; it must never silently drop a real bid. (See AUDIT.md P0-1.)
 
     const team = await ctx.db.get(args.teamId);
     if (!team) throw new Error("Team not found");
