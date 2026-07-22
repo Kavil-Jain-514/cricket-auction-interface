@@ -57,6 +57,30 @@ NUM_VIEWERS=30 node harness/chaos.mjs
 | client divergence after chaos | 0 | `chaos.mjs` |
 | duplicate bid acceptance | 0 | `chaos.mjs` |
 
+## Distributed / high-N measurement (dev-load.mjs, dev-viewers.mjs)
+
+Measuring 250 subscribers **in one process** is fine for correctness, but on the
+dev deployment we found fan-out latency at 250 concurrent viewers (p95 ≈ 1.2s)
+that is **real server-side latency**, not a single-event-loop artifact — proven
+by splitting 250 connections across 5 processes and seeing identical numbers
+per shard. Use these two env-driven scripts to reproduce / run against prod:
+
+- `dev-load.mjs` — CLI-identity writer (no deploy key; acts as `ADMIN_EMAIL` via
+  `npx convex run --identity`). Set `CONVEX_TARGET=prod` to target production.
+  Env: `CONVEX_URL ROOM_ID TEAM_ID ADMIN_EMAIL [NUM_VIEWERS LADDERS LADDER]`.
+- `dev-viewers.mjs` — viewer-only shard (no writer); prints its own percentiles.
+  Env: `CONVEX_URL ROOM_ID SHARD NUM_VIEWERS WINDOW_MS [LADDER]`.
+
+Distributed run (250 = 5×50, each its own event loop) while one writer drives bids:
+```bash
+for s in 1 2 3 4 5; do SHARD=$s NUM_VIEWERS=50 WINDOW_MS=95000 \
+  CONVEX_URL=... ROOM_ID=... node harness/dev-viewers.mjs & done
+sleep 14
+NUM_VIEWERS=0 LADDERS=5 CONVEX_URL=... ROOM_ID=... TEAM_ID=... ADMIN_EMAIL=... \
+  node harness/dev-load.mjs
+wait
+```
+
 ## Notes & caveats
 
 - **One process, one clock.** All viewers run in a single Node process, so
