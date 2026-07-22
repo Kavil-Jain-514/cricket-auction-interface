@@ -76,6 +76,18 @@ export const PLAYER_ROLES = ["Batter", "Bowler", "All-Rounder", "Wicket Keeper"]
 export type PlayerRole = (typeof PLAYER_ROLES)[number];
 
 /**
+ * Set of player ids that are team captains. Captains are pre-assigned and never
+ * auctioned, so they must be excluded from every pending/sold/total count.
+ */
+export function getCaptainPlayerIds(
+  teams: ReadonlyArray<{ captainPlayerId?: string }> | undefined | null,
+): Set<string> {
+  return new Set(
+    (teams ?? []).flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])),
+  );
+}
+
+/**
  * Normalize player role to an array. Handles both legacy single string
  * ("Batter") and new array format (["Batter", "Wicket Keeper"]).
  */

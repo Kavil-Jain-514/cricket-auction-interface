@@ -476,6 +476,87 @@ export const finalizePlayerSale = mutation({
 });
 
 /**
+ * Mark the player currently in auction as FINAL UNSOLD — a terminal state.
+ *
+ * Used during the unsold (second) round when an admin decides a player will not
+ * play for any team. The player is removed from the auction pool entirely:
+ * startNextPlayer only draws from "pending" / "unsold", so a "final_unsold"
+ * player is never picked again, and the counts/history queries ignore it too.
+ */
+export const markPlayerFinalUnsold = mutation({
+  args: {
+    auctionRoomId: v.id("auctionRooms"),
+  },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+
+    const auctionRoom = await ctx.db.get(args.auctionRoomId);
+    if (!auctionRoom) throw new Error("Auction room not found");
+
+    if (auctionRoom.status !== "live") {
+      return { success: false, reason: "Auction is not live" };
+    }
+
+    const currentPlayerId = auctionRoom.currentPlayerId;
+    if (!currentPlayerId) {
+      return { success: false, reason: "No player in auction" };
+    }
+
+    const player = await ctx.db.get(currentPlayerId);
+    if (!player) throw new Error("Player not found");
+
+    // Clear any live bids placed on this player before removing them.
+    const liveBids = await ctx.db
+      .query("liveBids")
+      .withIndex("by_player", (q) => q.eq("playerId", currentPlayerId))
+      .collect();
+
+    const now = Date.now();
+    await Promise.all([
+      ctx.db.patch(currentPlayerId, {
+        auctionStatus: "final_unsold",
+        teamId: undefined,
+        soldPrice: undefined,
+        updatedAt: now,
+      }),
+      ctx.db.patch(args.auctionRoomId, {
+        currentPlayerId: undefined,
+        bidTimerEndsAt: undefined,
+        updatedAt: now,
+      }),
+      ctx.db.insert("auctionEvents", {
+        auctionRoomId: args.auctionRoomId,
+        type: "player_unsold",
+        data: {
+          playerId: currentPlayerId,
+          playerName: player.name,
+          final: true,
+        },
+        timestamp: now,
+      }),
+      ...liveBids.map((bid) => ctx.db.delete(bid._id)),
+    ]);
+
+    // Player left "in_auction" for the terminal "final_unsold" state — refresh
+    // the denormalized counts so stats + bid limits stay correct.
+    await syncTournamentAuctionCounts(ctx, auctionRoom.tournamentId);
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "player_final_unsold",
+      targetType: "player",
+      targetId: currentPlayerId,
+      newData: { playerName: player.name },
+      tournamentId: auctionRoom.tournamentId,
+      auctionRoomId: args.auctionRoomId,
+    });
+
+    return { success: true, playerName: player.name };
+  },
+});
+
+/**
  * Pick and start the next player from the pending pool (random selection).
  * Falls back to unsold players if no pending players remain.
  * Marks the auction/tournament as completed when all squads are full or no players are left.
@@ -562,15 +643,24 @@ export const startNextPlayer = mutation({
       }
     }
 
-    // Get all pending players and pick randomly
-    const pendingPlayers = await ctx.db
-      .query("players")
-      .withIndex("by_tournament_status", (q) =>
-        q
-          .eq("tournamentId", auctionRoom.tournamentId)
-          .eq("auctionStatus", "pending"),
-      )
-      .collect();
+    // Team captains are pre-assigned and must never be put up for auction.
+    const captainPlayerIds = new Set(
+      teams
+        .map((t) => t.captainPlayerId)
+        .filter((id): id is NonNullable<typeof id> => Boolean(id)),
+    );
+
+    // Get all pending players and pick randomly (excluding captains)
+    const pendingPlayers = (
+      await ctx.db
+        .query("players")
+        .withIndex("by_tournament_status", (q) =>
+          q
+            .eq("tournamentId", auctionRoom.tournamentId)
+            .eq("auctionStatus", "pending"),
+        )
+        .collect()
+    ).filter((p) => !captainPlayerIds.has(p._id));
 
     let nextPlayer = null;
 
@@ -580,14 +670,16 @@ export const startNextPlayer = mutation({
       nextPlayer = pendingPlayers[randomIndex];
     } else {
       // No pending players, check for unsold players (second round)
-      const unsoldPlayers = await ctx.db
-        .query("players")
-        .withIndex("by_tournament_status", (q) =>
-          q
-            .eq("tournamentId", auctionRoom.tournamentId)
-            .eq("auctionStatus", "unsold"),
-        )
-        .collect();
+      const unsoldPlayers = (
+        await ctx.db
+          .query("players")
+          .withIndex("by_tournament_status", (q) =>
+            q
+              .eq("tournamentId", auctionRoom.tournamentId)
+              .eq("auctionStatus", "unsold"),
+          )
+          .collect()
+      ).filter((p) => !captainPlayerIds.has(p._id));
 
       if (unsoldPlayers.length > 0) {
         // Shuffle and pick a random player from unsold
@@ -864,14 +956,22 @@ export const getAuctionRoster = query({
           .collect(),
       ]);
 
+    // Captains are pre-assigned and never auctioned — exclude them from every
+    // count/list here (mirrors syncTournamentAuctionCounts on the write side).
+    const captainPlayerIds = new Set(
+      teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])),
+    );
+
     // Trim sold players to only the fields needed by the client (complete screen + purse map).
-    const soldPlayers = soldPlayersRaw.map((p) => ({
-      _id: p._id,
-      name: p.name,
-      role: p.role,
-      soldPrice: p.soldPrice,
-      teamId: p.teamId,
-    }));
+    const soldPlayers = soldPlayersRaw
+      .filter((p) => !captainPlayerIds.has(p._id))
+      .map((p) => ({
+        _id: p._id,
+        name: p.name,
+        role: p.role,
+        soldPrice: p.soldPrice,
+        teamId: p.teamId,
+      }));
 
     const maxPlayersPerTeam = tournament?.settings.maxPlayersPerTeam || 15;
     const tournamentBasePrice = tournament?.settings.basePrice ?? 100000;
@@ -906,12 +1006,19 @@ export const getAuctionRoster = query({
           )
           .collect(),
       ]);
-      pendingCount = pendingPlayers.length;
-      unsoldCount = unsoldPlayers.length;
+      const pendingNonCaptains = pendingPlayers.filter(
+        (p) => !captainPlayerIds.has(p._id),
+      );
+      pendingCount = pendingNonCaptains.length;
+      unsoldCount = unsoldPlayers.filter(
+        (p) => !captainPlayerIds.has(p._id),
+      ).length;
       minPendingBasePrice =
-        pendingPlayers.length > 0
+        pendingNonCaptains.length > 0
           ? Math.min(
-              ...pendingPlayers.map((p) => p.basePrice ?? tournamentBasePrice),
+              ...pendingNonCaptains.map(
+                (p) => p.basePrice ?? tournamentBasePrice,
+              ),
             )
           : undefined;
     }
@@ -1081,7 +1188,13 @@ export const getAuctionHistory = query({
     const teamMap = new Map(teams.map((t) => [t._id, t]));
     const tournamentBasePrice = tournament?.settings.basePrice ?? 100000;
 
+    // Captains are never auctioned — keep them out of sold/unsold history.
+    const captainPlayerIds = new Set(
+      teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])),
+    );
+
     const sold = soldPlayers
+      .filter((p) => !captainPlayerIds.has(p._id))
       .map((p) => {
         const team = p.teamId ? teamMap.get(p.teamId) : undefined;
         return {
@@ -1100,13 +1213,15 @@ export const getAuctionHistory = query({
 
     // basePrice can be undefined on the player (inherited from tournament),
     // so fall back to the tournament default the same way the rest of the app does.
-    const unsold = unsoldPlayers.map((p) => ({
-      _id: p._id,
-      name: p.name,
-      role: p.role,
-      photoUrl: p.photoUrl,
-      basePrice: p.basePrice ?? tournamentBasePrice,
-    }));
+    const unsold = unsoldPlayers
+      .filter((p) => !captainPlayerIds.has(p._id))
+      .map((p) => ({
+        _id: p._id,
+        name: p.name,
+        role: p.role,
+        photoUrl: p.photoUrl,
+        basePrice: p.basePrice ?? tournamentBasePrice,
+      }));
 
     return { sold, unsold };
   },

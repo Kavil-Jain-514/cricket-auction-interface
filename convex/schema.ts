@@ -136,6 +136,10 @@ export default defineSchema({
       v.literal("in_auction"),
       v.literal("sold"),
       v.literal("unsold"),
+      // Terminal state: player removed from the auction entirely. Set by an admin
+      // during the unsold (second) round. Never re-enters the pending/unsold pool
+      // and does not play for any team.
+      v.literal("final_unsold"),
     ),
     stats: v.optional(
       v.object({

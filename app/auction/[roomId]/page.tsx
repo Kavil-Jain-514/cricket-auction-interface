@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   SkipForward, Trophy,
   Users, Gavel, RotateCcw, RotateCw, Play, Pause, RefreshCcw,
-  Eye, Settings2
+  Eye, Settings2, UserX
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -114,6 +114,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
   const placeBid = useMutation(api.auctions.placeBid);
   const finalizePlayer = useMutation(api.auctions.finalizePlayerSale);
+  const markFinalUnsold = useMutation(api.auctions.markPlayerFinalUnsold);
   const startNext = useMutation(api.auctions.startNextPlayer);
   const revertBid = useMutation(api.auctions.revertLastBid);
   const restartCurrentPlayer = useMutation(api.auctions.restartCurrentPlayer);
@@ -511,6 +512,26 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     }
   }, [revertBid, auctionRoomId]);
 
+  const handleFinalUnsold = useCallback(async () => {
+    if (
+      !confirm(
+        "Mark this player as FINAL UNSOLD? They will be removed from the auction and won't play for any team. They won't be auctioned again unless you restore them from Manage Players.",
+      )
+    )
+      return;
+
+    try {
+      const res = await markFinalUnsold({ auctionRoomId });
+      if (res.success === false) {
+        toast.error(res.reason || "Could not mark player as final unsold");
+      } else {
+        toast.success(`${res.playerName ?? "Player"} marked as final unsold`);
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to mark player as final unsold"));
+    }
+  }, [markFinalUnsold, auctionRoomId]);
+
   // Wait for both the hot payload and the initial roster before first paint so
   // teams/current-player aren't momentarily empty. Subsequent bid/timer updates
   // only touch `liveData`, so the roster stays warm and never re-triggers this.
@@ -770,6 +791,22 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   >
                     <Gavel className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
                     <span className="hidden sm:inline">Finalize</span>
+                  </Button>
+                )}
+
+                {/* Final Unsold: only during the second (unsold) round, once the
+                    pending pool is exhausted. Removes the player from the auction. */}
+                {isAdmin && auctionData.stats?.pending === 0 && (
+                  <Button
+                    onClick={handleFinalUnsold}
+                    disabled={!currentPlayer || auctionRoom.status !== 'live'}
+                    variant="outline"
+                    size="lg"
+                    title="Remove this player from the auction (won't play for any team)"
+                    className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300 h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
+                  >
+                    <UserX className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                    <span className="hidden sm:inline">Final Unsold</span>
                   </Button>
                 )}
                 <Button

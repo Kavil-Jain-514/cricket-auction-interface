@@ -50,23 +50,32 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
   );
 
   const players = allPlayers?.filter(p => {
-    const statusMatch = filterStatus === 'all' || p.auctionStatus === filterStatus;
+    // Captains are pre-assigned and never auctioned. Keep them out of the
+    // status-filtered views (pending/sold/…) so the list matches the status
+    // counts below; they remain visible (with the "C" tag) under the "All" tab.
+    const statusMatch = filterStatus === 'all'
+      ? true
+      : p.auctionStatus === filterStatus && !captainPlayerIds.has(p._id);
     const roleMatch = filterRole === 'all' || getRoles(p.role).includes(filterRole);
     return statusMatch && roleMatch;
   }
   );
 
-  const stats = useMemo(() => ({
-    total: allPlayers?.length || 0,
-    pending: allPlayers?.filter(p => p.auctionStatus === 'pending').length || 0,
-    inAuction: allPlayers?.filter(p => p.auctionStatus === 'in_auction').length || 0,
-    sold: allPlayers?.filter(p => p.auctionStatus === 'sold').length || 0,
-    unsold: allPlayers?.filter(p => p.auctionStatus === 'unsold').length || 0,
-    batters: allPlayers?.filter(p => getRoles(p.role).includes('Batter')).length || 0,
-    bowlers: allPlayers?.filter(p => getRoles(p.role).includes('Bowler')).length || 0,
-    allRounders: allPlayers?.filter(p => getRoles(p.role).includes('All-Rounder')).length || 0,
-    wicketKeepers: allPlayers?.filter(p => getRoles(p.role).includes('Wicket Keeper')).length || 0,
-  }), [allPlayers]);
+  // Auction status counts exclude captains (they never enter the auction).
+  const stats = useMemo(() => {
+    const auctionable = (allPlayers ?? []).filter(p => !captainPlayerIds.has(p._id));
+    return {
+      total: allPlayers?.length || 0,
+      pending: auctionable.filter(p => p.auctionStatus === 'pending').length,
+      inAuction: auctionable.filter(p => p.auctionStatus === 'in_auction').length,
+      sold: auctionable.filter(p => p.auctionStatus === 'sold').length,
+      unsold: auctionable.filter(p => p.auctionStatus === 'unsold').length,
+      batters: allPlayers?.filter(p => getRoles(p.role).includes('Batter')).length || 0,
+      bowlers: allPlayers?.filter(p => getRoles(p.role).includes('Bowler')).length || 0,
+      allRounders: allPlayers?.filter(p => getRoles(p.role).includes('All-Rounder')).length || 0,
+      wicketKeepers: allPlayers?.filter(p => getRoles(p.role).includes('Wicket Keeper')).length || 0,
+    };
+  }, [allPlayers, captainPlayerIds]);
 
   // Download all players as PDF
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);

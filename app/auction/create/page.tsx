@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { ArrowLeft, Play, Trophy } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import { getCaptainPlayerIds } from '@/lib/utils';
 
 function CreateAuctionContent() {
   const router = useRouter();
@@ -36,6 +37,11 @@ function CreateAuctionContent() {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Captains are pre-assigned and never auctioned — exclude them from the
+  // player counts and start-auction validation shown on this page.
+  const captainPlayerIds = getCaptainPlayerIds(teams);
+  const auctionablePlayers = (players ?? []).filter(p => !captainPlayerIds.has(p._id));
+
   useEffect(() => {
     if (tournament) {
       setName(`${tournament.name} - Live Auction`);
@@ -55,7 +61,7 @@ function CreateAuctionContent() {
       return;
     }
 
-    if (!players || players.length === 0) {
+    if (auctionablePlayers.length === 0) {
       toast.error('You need to add players before starting');
       return;
     }
@@ -99,7 +105,7 @@ function CreateAuctionContent() {
     );
   }
 
-  const pendingPlayers = players?.filter(p => p.auctionStatus === 'pending').length || 0;
+  const pendingPlayers = auctionablePlayers.filter(p => p.auctionStatus === 'pending').length;
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
@@ -137,7 +143,7 @@ function CreateAuctionContent() {
               </div>
               <div>
                 <span className="text-slate-400">Total Players:</span>
-                <span className="ml-2 font-medium">{players?.length || 0}</span>
+                <span className="ml-2 font-medium">{auctionablePlayers.length}</span>
               </div>
               <div>
                 <span className="text-slate-400">Pending:</span>
@@ -155,7 +161,7 @@ function CreateAuctionContent() {
             </div>
           )}
 
-          {players && players.length === 0 && (
+          {players && auctionablePlayers.length === 0 && (
             <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-4 mb-6">
               <p className="text-red-400 text-sm">
                 ⚠️ You need to add players before starting an auction.
@@ -163,7 +169,7 @@ function CreateAuctionContent() {
             </div>
           )}
 
-          {pendingPlayers === 0 && players && players.length > 0 && (
+          {pendingPlayers === 0 && auctionablePlayers.length > 0 && (
             <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 mb-6">
               <p className="text-yellow-400 text-sm">
                 ⚠️ No pending players. All players have been auctioned.
@@ -192,7 +198,7 @@ function CreateAuctionContent() {
               </Link>
               <Button 
                 type="submit" 
-                disabled={loading || !teams || teams.length < 2 || !players || players.length === 0}
+                disabled={loading || !teams || teams.length < 2 || auctionablePlayers.length === 0}
                 className="flex-1"
               >
                 {loading ? (

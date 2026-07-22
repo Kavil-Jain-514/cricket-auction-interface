@@ -7,7 +7,7 @@ import { Id } from '@/convex/_generated/dataModel';
 import { X, Search, UserCheck, UserX, ArrowRightLeft, DollarSign, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatCurrency, getErrorMessage, getRoleDisplay } from '@/lib/utils';
+import { formatCurrency, getErrorMessage, getRoleDisplay, getCaptainPlayerIds } from '@/lib/utils';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TeamLogo } from '@/components/ui/team-logo';
@@ -19,7 +19,11 @@ interface AdminPlayerManagerProps {
     onClose: () => void;
 }
 
-type StatusFilter = 'all' | 'sold' | 'unsold' | 'pending';
+type StatusFilter = 'all' | 'sold' | 'unsold' | 'pending' | 'final_unsold';
+
+// Human-readable label for an auction status (raw values are snake_case).
+const statusLabel = (status: string) =>
+    status === 'final_unsold' ? 'final unsold' : status;
 
 interface EditState {
     playerId: Id<"players">;
@@ -42,14 +46,18 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
     const [editState, setEditState] = useState<EditState | null>(null);
     const [saving, setSaving] = useState(false);
 
+    // Captains are pre-assigned and never auctioned — exclude them from status
+    // views and counts (they remain visible under the "All" tab).
+    const captainPlayerIds = useMemo(() => getCaptainPlayerIds(teams), [teams]);
+
     // Filtered and sorted players
     const filteredPlayers = useMemo(() => {
         if (!players) return [];
         let list = [...players];
 
-        // Filter by status
+        // Filter by status (captains excluded from every non-"all" view)
         if (statusFilter !== 'all') {
-            list = list.filter(p => p.auctionStatus === statusFilter);
+            list = list.filter(p => p.auctionStatus === statusFilter && !captainPlayerIds.has(p._id));
         }
 
         // Filter by search
@@ -58,12 +66,12 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
             list = list.filter(p => p.name.toLowerCase().includes(q));
         }
 
-        // Sort: sold first, then unsold, then pending
-        const statusOrder: Record<string, number> = { sold: 0, unsold: 1, in_auction: 2, pending: 3 };
+        // Sort: sold first, then unsold, then pending, then final unsold
+        const statusOrder: Record<string, number> = { sold: 0, unsold: 1, in_auction: 2, pending: 3, final_unsold: 4 };
         list.sort((a, b) => (statusOrder[a.auctionStatus] ?? 9) - (statusOrder[b.auctionStatus] ?? 9));
 
         return list;
-    }, [players, statusFilter, search]);
+    }, [players, statusFilter, search, captainPlayerIds]);
 
     const getTeamName = (teamId?: Id<"teams">) => {
         if (!teamId || !teams) return '—';
@@ -81,6 +89,7 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
             unsold: 'bg-red-600/20 text-red-400 border-red-600/30',
             pending: 'bg-slate-600/20 text-slate-400 border-slate-600/30',
             in_auction: 'bg-yellow-600/20 text-yellow-400 border-yellow-600/30',
+            final_unsold: 'bg-red-900/30 text-red-300 border-red-800/40',
         };
         return styles[status] || styles.pending;
     };
@@ -126,14 +135,17 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
     };
 
     const counts = useMemo(() => {
-        if (!players) return { sold: 0, unsold: 0, pending: 0, total: 0 };
+        if (!players) return { sold: 0, unsold: 0, pending: 0, finalUnsold: 0, total: 0 };
+        // Status counts exclude captains; "total" is the full managed roster.
+        const auctionable = players.filter(p => !captainPlayerIds.has(p._id));
         return {
-            sold: players.filter(p => p.auctionStatus === 'sold').length,
-            unsold: players.filter(p => p.auctionStatus === 'unsold').length,
-            pending: players.filter(p => p.auctionStatus === 'pending').length,
+            sold: auctionable.filter(p => p.auctionStatus === 'sold').length,
+            unsold: auctionable.filter(p => p.auctionStatus === 'unsold').length,
+            pending: auctionable.filter(p => p.auctionStatus === 'pending').length,
+            finalUnsold: auctionable.filter(p => p.auctionStatus === 'final_unsold').length,
             total: players.length,
         };
-    }, [players]);
+    }, [players, captainPlayerIds]);
 
     return (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
@@ -163,6 +175,9 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                         { key: 'sold' as StatusFilter, label: 'Sold', count: counts.sold },
                         { key: 'unsold' as StatusFilter, label: 'Unsold', count: counts.unsold },
                         { key: 'pending' as StatusFilter, label: 'Pending', count: counts.pending },
+                        ...(counts.finalUnsold > 0
+                            ? [{ key: 'final_unsold' as StatusFilter, label: 'Final Unsold', count: counts.finalUnsold }]
+                            : []),
                     ]).map(tab => (
                         <button
                             key={tab.key}
@@ -217,7 +232,7 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                                             <div className="flex items-center gap-2">
                                                 <span className="font-semibold text-sm truncate">{player.name}</span>
                                                 <span className={`px-2 py-0.5 text-xs rounded border font-medium ${statusBadge(player.auctionStatus)}`}>
-                                                    {player.auctionStatus}
+                                                    {statusLabel(player.auctionStatus)}
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
@@ -280,7 +295,7 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                                                         >
                                                             <UserCheck className="w-4 h-4" />
                                                         </button>
-                                                        {player.auctionStatus === 'unsold' && (
+                                                        {(player.auctionStatus === 'unsold' || player.auctionStatus === 'final_unsold') && (
                                                             <button
                                                                 onClick={() => startEdit(player._id, 'status', { newStatus: 'pending' })}
                                                                 className="p-1.5 rounded-lg bg-slate-600/10 text-slate-400 hover:bg-slate-600/20 transition"

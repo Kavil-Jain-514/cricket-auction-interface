@@ -41,10 +41,22 @@ export async function syncTournamentAuctionCounts(
   const tournament = await ctx.db.get(tournamentId);
   if (!tournament) return; // tournament was deleted — nothing to sync
 
-  const players = await ctx.db
-    .query("players")
-    .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId))
-    .collect();
+  const [players, teams] = await Promise.all([
+    ctx.db
+      .query("players")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId))
+      .collect(),
+    ctx.db
+      .query("teams")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId))
+      .collect(),
+  ]);
+
+  // Team captains are pre-assigned and never auctioned, so they must not appear
+  // in ANY count (pending/sold/unsold/inAuction) or affect minPendingBasePrice.
+  const captainPlayerIds = new Set(
+    teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])),
+  );
 
   const defaultBasePrice = tournament.settings.basePrice ?? 100000;
 
@@ -55,6 +67,7 @@ export async function syncTournamentAuctionCounts(
   let minPendingBasePrice: number | undefined = undefined;
 
   for (const p of players) {
+    if (captainPlayerIds.has(p._id)) continue; // captains are outside the auction
     switch (p.auctionStatus) {
       case "pending": {
         pending++;

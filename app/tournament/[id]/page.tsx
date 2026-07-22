@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from 'react';
+import { use, useMemo, useState } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { formatCurrency, getErrorMessage } from '@/lib/utils';
+import { formatCurrency, getErrorMessage, getCaptainPlayerIds } from '@/lib/utils';
 import { TournamentSettingsModal } from '@/components/tournament/TournamentSettingsModal';
 import { useUserRole } from '@/hooks/useUserRole';
 
@@ -29,6 +29,15 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const deleteTournament = useMutation(api.tournaments.deleteTournament);
   const restartAuction = useMutation(api.auctions.restartAuction);
 
+  // Team captains are pre-assigned and never auctioned, so they're excluded from
+  // every count shown on the dashboard (total / pending / sold).
+  const auctionablePlayers = useMemo(() => {
+    if (!players) return [];
+    const captainIds = getCaptainPlayerIds(teams);
+    return players.filter((p) => !captainIds.has(p._id));
+  }, [players, teams]);
+  const playerCount = auctionablePlayers.length;
+
   const [deleting, setDeleting] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const auctionRooms = useQuery(api.auctions.getAuctionRooms, { tournamentId });
@@ -37,8 +46,9 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const canResumeAuction = () => {
     if (!tournament || !players) return false;
 
-    // Check if tournament is active or has pending players
-    const hasPendingPlayers = players.some(p => p.auctionStatus === 'pending');
+    // Check if tournament is active or has pending players (captains excluded —
+    // they are never auctioned, so a captain-only pool isn't "pending").
+    const hasPendingPlayers = auctionablePlayers.some(p => p.auctionStatus === 'pending');
     const isActive = tournament.status === 'active';
 
     return (isActive || hasPendingPlayers) && auctionRooms && auctionRooms.length > 0;
@@ -60,7 +70,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
       toast.error('You need at least 2 teams to start an auction');
       return;
     }
-    if (!players || players.length === 0) {
+    if (auctionablePlayers.length === 0) {
       toast.error('You need to add players before starting');
       return;
     }
@@ -125,8 +135,8 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
     );
   }
 
-  const pendingPlayers = players?.filter(p => p.auctionStatus === 'pending').length || 0;
-  const soldPlayers = players?.filter(p => p.auctionStatus === 'sold').length || 0;
+  const pendingPlayers = auctionablePlayers.filter(p => p.auctionStatus === 'pending').length;
+  const soldPlayers = auctionablePlayers.filter(p => p.auctionStatus === 'sold').length;
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
@@ -280,7 +290,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               </div>
               <span className="text-slate-400 text-xs sm:text-sm">Total Players</span>
             </div>
-            <div className="text-xl sm:text-2xl lg:text-3xl font-bold">{players?.length || 0}</div>
+            <div className="text-xl sm:text-2xl lg:text-3xl font-bold">{playerCount}</div>
           </div>
 
           <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6">
@@ -314,12 +324,12 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 </div>
                 <span className="text-2xl sm:text-3xl font-bold text-blue-400">{teams?.length || 0}</span>
               </div>
-              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">Manage Teams</h3>
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">{isAdmin ? 'Manage Teams' : 'View Teams'}</h3>
               <p className="text-slate-400 mb-3 sm:mb-4 text-sm sm:text-base">
                 Add, edit, and organize your tournament teams
               </p>
               <div className="flex items-center gap-2 text-blue-400 text-sm sm:text-base font-medium">
-                <span>Manage Teams</span>
+                <span>{isAdmin ? 'Manage Teams' : 'View Teams'}</span>
                 <ArrowLeft className="w-4 h-4 rotate-180" />
               </div>
             </div>
@@ -331,14 +341,14 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 <div className="p-2.5 sm:p-3 bg-green-500/20 rounded-xl">
                   <UserPlus className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 text-green-500 group-hover:scale-110 transition" />
                 </div>
-                <span className="text-2xl sm:text-3xl font-bold text-green-400">{players?.length || 0}</span>
+                <span className="text-2xl sm:text-3xl font-bold text-green-400">{playerCount}</span>
               </div>
-              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">Manage Players</h3>
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">{isAdmin ? 'Manage Players' : 'View Players'}</h3>
               <p className="text-slate-400 mb-3 sm:mb-4 text-sm sm:text-base">
                 Add players, import from Excel, set base prices
               </p>
               <div className="flex items-center gap-2 text-green-400 text-sm sm:text-base font-medium">
-                <span>Manage Players</span>
+                <span>{isAdmin ? 'Manage Players' : 'View Players'}</span>
                 <ArrowLeft className="w-4 h-4 rotate-180" />
               </div>
             </div>
