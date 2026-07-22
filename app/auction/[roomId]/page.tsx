@@ -273,7 +273,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     if (isAdmin) return; // Only for viewers
 
     const currentStatus = auctionData?.auctionRoom?.status;
-    const currentBidCount = auctionData?.recentBids?.length ?? 0;
+    // Use the true bid count, not recentBids.length — the latter is capped at 10
+    // by getLiveAuction, so new-bid/revert/rebid flashes silently stopped firing
+    // once a player drew >10 bids. (P1-6)
+    const currentBidCount = auctionData?.totalBidsCount ?? 0;
     const currentPlayerIdNow = auctionData?.auctionRoom?.currentPlayerId;
 
     let flashToShow: typeof statusFlash = null;
@@ -346,7 +349,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       showStatusFlash(flashToShow);
     });
     return () => cancelAnimationFrame(rafFlash);
-  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, showStatusFlash]);
+  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.totalBidsCount, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, showStatusFlash]);
 
   // Viewer SOLD/UNSOLD result popup — driven by the authoritative server sale
   // event (getLatestSaleEvent) rather than reconstructing the result from
