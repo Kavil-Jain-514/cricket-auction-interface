@@ -230,6 +230,35 @@ describe("placeBid — bid validation", () => {
     expect(res).toMatchObject({ success: true });
   });
 
+  // Core correctness claim from the audit: concurrent bids can't both win at the
+  // same price. Whichever commits first sets currentBid; the other then fails the
+  // min-increment check. Exactly one bid is accepted and recorded.
+  test("two concurrent bids at the same amount: exactly one is accepted", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA, teamB } = await setup(t);
+    const playerId = await putPlayerInAuction(t, { tournamentId, roomId });
+
+    const amount = 100_000; // == base price: first is legal, a second at the same amount is not
+    const [r1, r2] = await Promise.all([
+      asAdmin.mutation(api.auctions.placeBid, { auctionRoomId: roomId, teamId: teamA, amount }),
+      asAdmin.mutation(api.auctions.placeBid, { auctionRoomId: roomId, teamId: teamB, amount }),
+    ]);
+
+    const accepted = [r1, r2].filter((r) => r?.success).length;
+    expect(accepted).toBe(1);
+
+    // Exactly one live bid, at `amount`.
+    await t.run(async (ctx) => {
+      const bids = await ctx.db
+        .query("liveBids")
+        .withIndex("by_player", (q) => q.eq("playerId", playerId))
+        .collect();
+      expect(bids).toHaveLength(1);
+      expect(bids[0].amount).toBe(amount);
+    });
+  });
+
   test("rejects bids from non-admins", async () => {
     const t = convexTest(schema, modules);
     const { tournamentId, roomId, teamA } = await setup(t);
