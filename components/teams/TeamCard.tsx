@@ -15,13 +15,21 @@ import { toast } from 'sonner';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { generateTeamPdf } from '@/lib/generateTeamPdf';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 interface TeamCardProps {
   team: Doc<"teams">;
   tournamentId: Id<"tournaments">;
+  /**
+   * Whether an auction is currently live for this tournament. Lifted to the
+   * parent list page so the `getAuctionRooms` query runs once for the whole
+   * grid instead of once per card. `undefined` means the rooms query is still
+   * loading — delete stays gated until we positively know it is `false`.
+   */
+  isAuctionLive: boolean | undefined;
 }
 
-export function TeamCard({ team, tournamentId }: TeamCardProps) {
+export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
   const [showEdit, setShowEdit] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -39,9 +47,15 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
       : undefined;
   const pursePercentage = (team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100;
   const { isAdmin } = useUserRole();
+  const confirm = useConfirm();
 
   // Check if can edit/delete (admin only, not for completed tournaments)
   const canModify = isAdmin && tournament && tournament.status !== "completed";
+  // Deleting is additionally blocked while the auction is live — see
+  // convex/teams.ts:deleteTeam for why (in-flight bid / live-viewer state).
+  // Require a positive `false` so we don't briefly enable delete before the
+  // rooms query has resolved (`undefined` while loading).
+  const canDelete = canModify && isAuctionLive === false;
 
   const handleDownloadPdf = async () => {
     toast.info('Generating PDF...');
@@ -80,7 +94,11 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to delete ${team.name}? This action cannot be undone.`)) {
+    if (!(await confirm({
+      title: `Delete ${team.name}?`,
+      description: 'Any players sold to this team will be released back to the auction pool. This action cannot be undone.',
+      confirmText: 'Delete Team',
+    }))) {
       return;
     }
 
@@ -123,9 +141,9 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDelete(); }}
-                  disabled={deleting}
+                  disabled={deleting || !canDelete}
                   className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 touch-target"
-                  title="Delete Team"
+                  title={canDelete ? "Delete Team" : "Cannot delete a team while the auction is live"}
                 >
                   <Trash2 className="w-6 h-4" />
                 </button>

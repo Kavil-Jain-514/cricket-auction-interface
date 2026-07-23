@@ -264,6 +264,21 @@ export const deleteTeam = mutation({
       throw new Error("Cannot delete team after tournament is completed");
     }
 
+    // Deleting a team mid-auction can corrupt in-flight state: if this team
+    // holds the current leading bid, finalizePlayerSale would later fail
+    // trying to resolve a winning team that no longer exists, and releasing
+    // this team's sold players back to "pending" would desync live viewers'
+    // stats/team lists in real time. Require the auction be paused first.
+    const liveRooms = await ctx.db
+      .query("auctionRooms")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", team.tournamentId))
+      .collect();
+    if (liveRooms.some((room) => room.status === "live")) {
+      throw new Error(
+        "Cannot delete a team while the auction is live — pause or complete the auction first",
+      );
+    }
+
     // Check if team has players - release them first
     const players = await ctx.db
       .query("players")

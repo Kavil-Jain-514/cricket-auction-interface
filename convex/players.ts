@@ -355,31 +355,30 @@ export const deleteAllByTournament = mutation({
       )
       .collect();
 
-    // Filter out sold players unless explicitly included
-    const playersToDelete = args.includesSold
-      ? players.filter((p) => p.auctionStatus !== "in_auction")
-      : players.filter(
-          (p) => p.auctionStatus !== "sold" && p.auctionStatus !== "in_auction",
-        );
-
-    // Unlink deleted players from any team captaincy
-    const deletedIds = new Set(playersToDelete.map((p) => p._id));
+    // Captains are pre-assigned and never auctioned — every other bulk
+    // player view/count in this app excludes them (see getAuctionRoster,
+    // syncTournamentAuctionCounts). Bulk delete must match, or the
+    // confirmation dialog's counts (which already exclude captains)
+    // would understate what actually gets deleted.
     const teams = await ctx.db
       .query("teams")
       .withIndex("by_tournament", (q) =>
         q.eq("tournamentId", args.tournamentId),
       )
       .collect();
-    await Promise.all(
-      teams
-        .filter((t) => t.captainPlayerId && deletedIds.has(t.captainPlayerId))
-        .map((t) =>
-          ctx.db.patch(t._id, {
-            captainPlayerId: undefined,
-            updatedAt: Date.now(),
-          }),
-        ),
+    const captainPlayerIds = new Set(
+      teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])),
     );
+
+    // Filter out sold players unless explicitly included, and always skip captains
+    const playersToDelete = (
+      args.includesSold
+        ? players.filter((p) => p.auctionStatus !== "in_auction")
+        : players.filter(
+            (p) =>
+              p.auctionStatus !== "sold" && p.auctionStatus !== "in_auction",
+          )
+    ).filter((p) => !captainPlayerIds.has(p._id));
 
     // Delete in parallel for performance
     await Promise.all(playersToDelete.map((p) => ctx.db.delete(p._id)));

@@ -11,6 +11,7 @@ import { Navbar } from '@/components/layout/Navbar';
 import { toast } from 'sonner';
 import { getErrorMessage } from '@/lib/utils';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { GroupDrawSetup } from '@/components/groups/GroupDrawSetup';
 import { GroupDrawReveal } from '@/components/groups/GroupDrawReveal';
 import { GroupTable } from '@/components/groups/GroupTable';
@@ -19,6 +20,7 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
   const { id } = use(params);
   const tournamentId = id as Id<"tournaments">;
   const { isAdmin } = useUserRole();
+  const confirm = useConfirm();
 
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
@@ -52,14 +54,23 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
 
   const handleReshuffle = async () => {
     if (!draw) return;
-    if (!confirm('Re-shuffle the draw? This clears the previous group assignments and cannot be undone.')) {
+    if (!(await confirm({
+      title: 'Re-shuffle the draw?',
+      description: 'This clears the previous group assignments and cannot be undone.',
+      confirmText: 'Re-shuffle',
+    }))) {
       return;
     }
     await startDraw(draw.numGroups);
   };
 
   const handleLock = async () => {
-    if (!confirm('Lock the group draw? Assignments cannot be re-shuffled after locking.')) {
+    if (!(await confirm({
+      title: 'Lock the group draw?',
+      description: 'Assignments cannot be re-shuffled after locking.',
+      confirmText: 'Confirm & Lock',
+      variant: 'default',
+    }))) {
       return;
     }
     try {
@@ -71,7 +82,11 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
   };
 
   const handleReset = async () => {
-    if (!confirm('Reset the group draw? This deletes all group assignments so you can configure a new draw.')) {
+    if (!(await confirm({
+      title: 'Reset the group draw?',
+      description: 'This deletes all group assignments so you can configure a new draw.',
+      confirmText: 'Reset Draw',
+    }))) {
       return;
     }
     try {
@@ -111,13 +126,17 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
                 </div>
               )}
 
-              {/* Admin actions on an existing draw */}
+              {/* Admin actions on an existing draw. Re-shuffle re-runs runDraw,
+                  which the backend always rejects once the tournament is
+                  completed — gate it here too so it doesn't sit clickable
+                  next to Lock/Reset (which have no such restriction). */}
               {isAdmin && draw && draw.status === 'drawn' && (
                 <>
                   <Button
                     variant="outline"
                     onClick={handleReshuffle}
-                    disabled={running}
+                    disabled={running || tournament?.status === 'completed'}
+                    title={tournament?.status === 'completed' ? 'Cannot re-shuffle after the tournament is completed' : undefined}
                     className="border-orange-600 text-orange-500 hover:bg-orange-600 hover:text-white h-11 px-4 text-sm"
                   >
                     <RotateCcw className="w-4 h-4 mr-2" />
@@ -166,6 +185,14 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
               locked={draw.status === 'locked'}
             />
           </>
+        ) : isAdmin && tournament?.status === 'completed' ? (
+          <div className="text-center py-16 sm:py-20 px-4">
+            <Shuffle className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 text-slate-700" />
+            <h3 className="text-lg sm:text-xl font-semibold mb-2">Tournament Completed</h3>
+            <p className="text-slate-400 text-sm sm:text-base">
+              A group draw can no longer be run — this tournament is already completed.
+            </p>
+          </div>
         ) : isAdmin ? (
           teams && teams.length > 0 ? (
             <GroupDrawSetup teamCount={teams.length} onRun={startDraw} running={running} />

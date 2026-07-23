@@ -20,6 +20,12 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
   
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
+  const auctionRooms = useQuery(api.auctions.getAuctionRooms, { tournamentId });
+  // `undefined` while the query loads so cards keep delete gated until we
+  // positively know whether an auction is live.
+  const isAuctionLive = auctionRooms === undefined
+    ? undefined
+    : auctionRooms.some((room) => room.status === "live");
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
@@ -85,7 +91,7 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {teams.map((team) => (
-                <TeamCard key={team._id} team={team} tournamentId={tournamentId} />
+                <TeamCard key={team._id} team={team} tournamentId={tournamentId} isAuctionLive={isAuctionLive} />
               ))}
             </div>
           </>

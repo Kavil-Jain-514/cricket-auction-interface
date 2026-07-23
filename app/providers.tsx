@@ -5,6 +5,7 @@ import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { ReactNode, useEffect, useRef } from "react";
 import { Toaster } from "sonner";
 import { api } from "@/convex/_generated/api";
+import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 
 
 const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL! as string);
@@ -55,7 +56,9 @@ export function Providers({ children }: { children: ReactNode }) {
       }}
     >
       <ConvexClientProvider>
-        {children}
+        <ConfirmProvider>
+          {children}
+        </ConfirmProvider>
         <Toaster
           position="top-right"
           toastOptions={{
