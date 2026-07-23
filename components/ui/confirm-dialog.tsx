@@ -53,6 +53,10 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const resolverRef = useRef<((value: boolean) => void) | null>(null);
 
   const confirm = useCallback<ConfirmFn>((opts) => {
+    // If a dialog is already open, resolve its pending promise as false before
+    // replacing it — otherwise that caller's `await confirm(...)` would hang
+    // forever, and its resolver would be silently overwritten.
+    resolverRef.current?.(false);
     setOptions(opts);
     return new Promise<boolean>((resolve) => {
       resolverRef.current = resolve;
@@ -65,16 +69,16 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     setOptions(null);
   }, []);
 
-  // Escape cancels, Enter confirms — standard dialog keyboard semantics.
+  // Escape cancels globally. Enter is intentionally NOT handled here: a global
+  // Enter would confirm even when focus is on Cancel or when the user hits
+  // Enter out of habit. Instead the Confirm button is autoFocus'd, so Enter is
+  // handled by the focused button and confirms only when Confirm has focus.
   useEffect(() => {
     if (!options) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         close(false);
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        close(true);
       }
     };
     window.addEventListener("keydown", onKey);

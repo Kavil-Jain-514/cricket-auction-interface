@@ -20,9 +20,16 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 interface TeamCardProps {
   team: Doc<"teams">;
   tournamentId: Id<"tournaments">;
+  /**
+   * Whether an auction is currently live for this tournament. Lifted to the
+   * parent list page so the `getAuctionRooms` query runs once for the whole
+   * grid instead of once per card. `undefined` means the rooms query is still
+   * loading — delete stays gated until we positively know it is `false`.
+   */
+  isAuctionLive: boolean | undefined;
 }
 
-export function TeamCard({ team, tournamentId }: TeamCardProps) {
+export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
   const [showEdit, setShowEdit] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -31,9 +38,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
     tournamentId,
   });
   const groupDraw = useQuery(api.groupDraws.getByTournament, { tournamentId });
-  const auctionRooms = useQuery(api.auctions.getAuctionRooms, { tournamentId });
   const deleteTeam = useMutation(api.teams.deleteTeam);
-  const isAuctionLive = auctionRooms?.some((room) => room.status === "live") ?? false;
   const teamPlayers = players?.filter(p => p.teamId === team._id) || [];
   // Only show group assignment once the organizer has confirmed & locked the draw
   const groupAssignment =
@@ -48,7 +53,9 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
   const canModify = isAdmin && tournament && tournament.status !== "completed";
   // Deleting is additionally blocked while the auction is live — see
   // convex/teams.ts:deleteTeam for why (in-flight bid / live-viewer state).
-  const canDelete = canModify && !isAuctionLive;
+  // Require a positive `false` so we don't briefly enable delete before the
+  // rooms query has resolved (`undefined` while loading).
+  const canDelete = canModify && isAuctionLive === false;
 
   const handleDownloadPdf = async () => {
     toast.info('Generating PDF...');
