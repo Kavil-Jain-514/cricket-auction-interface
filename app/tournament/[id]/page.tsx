@@ -5,7 +5,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye, Layers } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye, Layers, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
@@ -67,6 +67,25 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
 
     const activeRoom = auctionRooms[0];
     router.push(`/auction/${activeRoom._id}`);
+  };
+
+  // Copy a shareable link to the live auction viewer so admins can hand it out
+  // to anyone who wants to watch (the /auction/[roomId] page is view-accessible
+  // to non-admins).
+  const handleCopyAuctionLink = async () => {
+    if (!auctionRooms || auctionRooms.length === 0) {
+      toast.error('No auction room found');
+      return;
+    }
+
+    const activeRoom = auctionRooms[0];
+    const url = `${window.location.origin}/auction/${activeRoom._id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Auction link copied to clipboard');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to copy link'));
+    }
   };
 
   const handleStartAuction = () => {
@@ -274,6 +293,19 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 >
                   <Eye className="w-4 h-4 mr-2" />
                   View Results
+                </Button>
+              )}
+
+              {/* Copy Auction Link - share the live auction viewer URL with
+                  anyone who wants to watch. Shown whenever a room exists. */}
+              {auctionRooms && auctionRooms.length > 0 && (
+                <Button
+                  onClick={handleCopyAuctionLink}
+                  variant="outline"
+                  className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white h-11 px-4 sm:px-5 text-sm"
+                >
+                  <Link2 className="w-4 h-4 mr-2" />
+                  Copy Auction Link
                 </Button>
               )}
 
