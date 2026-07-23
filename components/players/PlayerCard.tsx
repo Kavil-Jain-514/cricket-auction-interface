@@ -25,8 +25,13 @@ export function PlayerCard({ player, onClick, isCaptain }: PlayerCardProps) {
   const deletePlayer = useMutation(api.players.deletePlayer);
   const { isAdmin } = useUserRole();
 
-  // Can modify if admin AND player is pending/unsold (not sold or in_auction)
+  // Can edit if admin AND player is pending/unsold (not sold or in_auction) —
+  // editing attributes of a final_unsold (terminal) player isn't meaningful.
   const canModify = isAdmin && (player.auctionStatus === "pending" || player.auctionStatus === "unsold");
+  // Deleting is allowed for final_unsold too — deletePlayer permits it
+  // (only sold/in_auction are blocked), so leaving no way to remove these
+  // from the UI was a capability gap, not an intentional restriction.
+  const canDelete = canModify || player.auctionStatus === "final_unsold";
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -59,23 +64,27 @@ export function PlayerCard({ player, onClick, isCaptain }: PlayerCardProps) {
         className={`bg-slate-800/50 border border-slate-700 rounded-xl p-3 sm:p-4 hover:border-blue-500 transition relative ${onClick ? 'cursor-pointer' : ''}`}
       >
         {/* Action Buttons */}
-        {canModify && (
+        {(canModify || canDelete) && (
           <div className="absolute top-2 right-2 sm:top-3 sm:right-3 flex gap-1.5">
-            <button
-              onClick={handleEdit}
-              className="p-2 sm:p-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition touch-target"
-              title="Edit Player"
-            >
-              <Edit className="w-6 h-4" />
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 touch-target"
-              title="Delete Player"
-            >
-              <Trash2 className="w-6 h-4" />
-            </button>
+            {canModify && (
+              <button
+                onClick={handleEdit}
+                className="p-2 sm:p-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition touch-target"
+                title="Edit Player"
+              >
+                <Edit className="w-6 h-4" />
+              </button>
+            )}
+            {canDelete && (
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 touch-target"
+                title="Delete Player"
+              >
+                <Trash2 className="w-6 h-4" />
+              </button>
+            )}
           </div>
         )}
 

@@ -8,7 +8,12 @@ import { syncTournamentAuctionCounts } from "./auctionCounts";
 
 /**
  * Create a new auction room for a tournament.
- * One tournament can have multiple rooms but typically only one is live at a time.
+ *
+ * Every client flow (resume, restart, viewer links) assumes exactly one room
+ * per tournament and always resolves to auctionRooms[0] — restarting reuses
+ * the same room rather than creating another. Enforce that invariant
+ * server-side (not just in the UI) so two admins racing to create a room at
+ * the same time can't both succeed and leave a second, unreachable room.
  */
 export const createAuctionRoom = mutation({
   args: {
@@ -17,6 +22,16 @@ export const createAuctionRoom = mutation({
   },
   handler: async (ctx, args) => {
     const user = await requireAdmin(ctx);
+
+    const existing = await ctx.db
+      .query("auctionRooms")
+      .withIndex("by_tournament", (q) =>
+        q.eq("tournamentId", args.tournamentId),
+      )
+      .first();
+    if (existing) {
+      throw new Error("An auction room already exists for this tournament");
+    }
 
     const auctionRoomId = await ctx.db.insert("auctionRooms", {
       tournamentId: args.tournamentId,

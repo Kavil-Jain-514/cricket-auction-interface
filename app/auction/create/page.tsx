@@ -31,6 +31,10 @@ function CreateAuctionContent() {
     api.players.listByTournament,
     tournamentId ? { tournamentId } : "skip"
   );
+  const existingRooms = useQuery(
+    api.auctions.getAuctionRooms,
+    tournamentId ? { tournamentId } : "skip"
+  );
 
   const createAuctionRoom = useMutation(api.auctions.createAuctionRoom);
 
@@ -98,6 +102,32 @@ function CreateAuctionContent() {
             </p>
             <Link href="/dashboard">
               <Button>Go to Dashboard</Button>
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // Guards against a duplicate room: if one already exists for this
+  // tournament (e.g. reached via browser back-navigation after creating one),
+  // send the admin to it instead of letting them create a second room.
+  if (existingRooms && existingRooms.length > 0) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
+        <Navbar />
+        <main className="max-w-2xl mx-auto px-6 py-8">
+          <div className="text-center py-20">
+            <Trophy className="w-20 h-20 mx-auto mb-4 text-slate-700" />
+            <h2 className="text-2xl font-bold mb-2">Auction Room Already Exists</h2>
+            <p className="text-slate-400 mb-6">
+              This tournament already has an auction room — resume it instead of creating another.
+            </p>
+            <Link href={`/auction/${existingRooms[0]._id}`}>
+              <Button>
+                <Play className="w-4 h-4 mr-2" />
+                Go to Auction Room
+              </Button>
             </Link>
           </div>
         </main>

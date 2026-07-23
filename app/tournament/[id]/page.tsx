@@ -24,7 +24,6 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
   const players = useQuery(api.players.listByTournament, { tournamentId });
-  const updateTournament = useMutation(api.tournaments.update);
   const canModify = useQuery(api.tournaments.canModify, { id: tournamentId });
   const deleteTournament = useMutation(api.tournaments.deleteTournament);
   const restartAuction = useMutation(api.auctions.restartAuction);
@@ -44,14 +43,17 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const groupDraw = useQuery(api.groupDraws.getByTournament, { tournamentId });
 
   const canResumeAuction = () => {
-    if (!tournament || !players) return false;
+    if (!tournament) return false;
 
-    // Check if tournament is active or has pending players (captains excluded —
-    // they are never auctioned, so a captain-only pool isn't "pending").
-    const hasPendingPlayers = auctionablePlayers.some(p => p.auctionStatus === 'pending');
-    const isActive = tournament.status === 'active';
-
-    return (isActive || hasPendingPlayers) && auctionRooms && auctionRooms.length > 0;
+    // Any existing room (even one created but never started) should stay
+    // reachable from here — otherwise an admin who created a room, then had
+    // its only pending players removed before starting it, would have no
+    // button anywhere linking back to that room. Completed tournaments get
+    // their own "View Results" action instead.
+    return (
+      tournament.status !== 'completed' &&
+      Boolean(auctionRooms && auctionRooms.length > 0)
+    );
   };
 
   // Add this function to handle resume
@@ -65,7 +67,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
     router.push(`/auction/${activeRoom._id}`);
   };
 
-  const handleStartAuction = async () => {
+  const handleStartAuction = () => {
     if (!teams || teams.length < 2) {
       toast.error('You need at least 2 teams to start an auction');
       return;
@@ -75,19 +77,18 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
       return;
     }
 
-    try {
-      await updateTournament({
-        id: tournamentId,
-        status: 'active',
-      });
-      router.push(`/auction/create?tournamentId=${tournamentId}`);
-    } catch (error) {
-      toast.error('Failed to start auction', { description: getErrorMessage(error) });
-    }
+    // Tournament status flips to 'active' only once the auction room actually
+    // goes live (see auctions:startAuction) — not here. Setting it eagerly
+    // left tournaments stuck "active" with no room if this flow was abandoned
+    // before the room was created, with no way back into the UI to recover.
+    router.push(`/auction/create?tournamentId=${tournamentId}`);
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to delete "${tournament?.name}"? This will delete all teams, players, and auction data. This action cannot be undone.`)) {
+    const liveWarning = tournament?.status === 'active'
+      ? ' This auction is currently LIVE — viewers may be watching right now.'
+      : '';
+    if (!confirm(`Are you sure you want to delete "${tournament?.name}"?${liveWarning} This will delete all teams, players, and auction data. This action cannot be undone.`)) {
       return;
     }
 
@@ -215,7 +216,16 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               {isAdmin && (
                 <Button
                   onClick={handleStartAuction}
-                  disabled={tournament.status === 'active' || tournament.status === 'completed'}
+                  disabled={
+                    tournament.status === 'active' ||
+                    tournament.status === 'completed' ||
+                    Boolean(auctionRooms && auctionRooms.length > 0)
+                  }
+                  title={
+                    auctionRooms && auctionRooms.length > 0
+                      ? 'An auction room already exists for this tournament — use Resume Auction instead'
+                      : undefined
+                  }
                   className="h-11 px-4 sm:px-5 text-sm"
                 >
                   <Play className="w-4 h-4 mr-2" />
@@ -241,6 +251,19 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 >
                   <Play className="w-4 h-4 mr-2" />
                   Resume Auction
+                </Button>
+              )}
+
+              {/* View Results - the only way back to the complete screen once a
+                  tournament is done; without it there's no link anywhere back
+                  to /auction/[roomId] after navigating away. */}
+              {tournament.status === 'completed' && auctionRooms && auctionRooms.length > 0 && (
+                <Button
+                  onClick={handleResumeAuction}
+                  className="bg-blue-600 hover:bg-blue-700 h-11 px-4 sm:px-5 text-sm"
+                >
+                  <Eye className="w-4 h-4 mr-2" />
+                  View Results
                 </Button>
               )}
 
@@ -437,6 +460,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             description: tournament.description,
             logoUrl: tournament.logoUrl,
             settings: tournament.settings,
+            status: tournament.status,
           }}
           onClose={() => setShowSettings(false)}
         />

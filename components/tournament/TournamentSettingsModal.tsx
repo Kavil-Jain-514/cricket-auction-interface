@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
-import { X, Settings } from 'lucide-react';
+import { X, Settings, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -25,6 +25,7 @@ interface TournamentSettingsModalProps {
       maxPlayersPerTeam: number;
       basePrice?: number;
     };
+    status?: string;
   };
   onClose: () => void;
 }
@@ -93,6 +94,16 @@ export function TournamentSettingsModal({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {currentSettings.status === 'active' && (
+          <div className="flex items-start gap-3 bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 mb-6">
+            <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+            <p className="text-sm text-yellow-200">
+              This tournament&apos;s auction is currently live. Changes to bid increment, timer,
+              or squad size take effect immediately for viewers and the auctioneer.
+            </p>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Basic Info Section */}

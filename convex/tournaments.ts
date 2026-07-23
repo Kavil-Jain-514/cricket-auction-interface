@@ -167,6 +167,30 @@ export const update = mutation({
     if (tournament.status === "completed") {
       throw new Error("Cannot edit tournament after it is completed");
     }
+
+    // Settings apply immediately to a live auction (placeBid/startNextPlayer
+    // read them live). Guard against maxPlayersPerTeam being dropped below a
+    // team's already-sold squad size — startNextPlayer treats that team as
+    // "full" and can end the auction early for everyone else.
+    if (args.settings) {
+      const soldPlayers = await ctx.db
+        .query("players")
+        .withIndex("by_tournament_status", (q) =>
+          q.eq("tournamentId", args.id).eq("auctionStatus", "sold"),
+        )
+        .collect();
+      const maxSoldForOneTeam = soldPlayers.reduce((counts, p) => {
+        if (p.teamId) counts.set(p.teamId, (counts.get(p.teamId) ?? 0) + 1);
+        return counts;
+      }, new Map<string, number>());
+      const highestSquadSize = Math.max(0, ...maxSoldForOneTeam.values());
+      if (args.settings.maxPlayersPerTeam < highestSquadSize) {
+        throw new Error(
+          `Max players per team can't be less than ${highestSquadSize} — a team already has that many sold players`,
+        );
+      }
+    }
+
     const { id, ...updates } = args;
 
     await ctx.db.patch(id, {

@@ -30,7 +30,9 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
     tournamentId,
   });
   const groupDraw = useQuery(api.groupDraws.getByTournament, { tournamentId });
+  const auctionRooms = useQuery(api.auctions.getAuctionRooms, { tournamentId });
   const deleteTeam = useMutation(api.teams.deleteTeam);
+  const isAuctionLive = auctionRooms?.some((room) => room.status === "live") ?? false;
   const teamPlayers = players?.filter(p => p.teamId === team._id) || [];
   // Only show group assignment once the organizer has confirmed & locked the draw
   const groupAssignment =
@@ -42,6 +44,9 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
 
   // Check if can edit/delete (admin only, not for completed tournaments)
   const canModify = isAdmin && tournament && tournament.status !== "completed";
+  // Deleting is additionally blocked while the auction is live — see
+  // convex/teams.ts:deleteTeam for why (in-flight bid / live-viewer state).
+  const canDelete = canModify && !isAuctionLive;
 
   const handleDownloadPdf = async () => {
     toast.info('Generating PDF...');
@@ -123,9 +128,9 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDelete(); }}
-                  disabled={deleting}
+                  disabled={deleting || !canDelete}
                   className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 touch-target"
-                  title="Delete Team"
+                  title={canDelete ? "Delete Team" : "Cannot delete a team while the auction is live"}
                 >
                   <Trash2 className="w-6 h-4" />
                 </button>
