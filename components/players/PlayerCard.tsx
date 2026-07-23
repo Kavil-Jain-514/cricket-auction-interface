@@ -11,6 +11,7 @@ import { api } from '@/convex/_generated/api';
 import { toast } from 'sonner';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 interface PlayerCardProps {
   player: Doc<"players">;
@@ -24,6 +25,7 @@ export function PlayerCard({ player, onClick, isCaptain }: PlayerCardProps) {
   const [deleting, setDeleting] = useState(false);
   const deletePlayer = useMutation(api.players.deletePlayer);
   const { isAdmin } = useUserRole();
+  const confirm = useConfirm();
 
   // Can edit if admin AND player is pending/unsold (not sold or in_auction) —
   // editing attributes of a final_unsold (terminal) player isn't meaningful.
@@ -35,7 +37,11 @@ export function PlayerCard({ player, onClick, isCaptain }: PlayerCardProps) {
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(`Are you sure you want to delete ${player.name}? This action cannot be undone.`)) {
+    if (!(await confirm({
+      title: `Delete ${player.name}?`,
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete Player',
+    }))) {
       return;
     }
 

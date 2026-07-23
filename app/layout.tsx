@@ -15,9 +15,30 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: 'Bid11Pro - Professional Cricket Auction Platform',
+  metadataBase: new URL('https://bid11pro.kaviljain.com'),
+  title: {
+    default: 'Bid11Pro - Professional Cricket Auction Platform',
+    template: '%s | Bid11Pro',
+  },
   description: 'The ultimate cricket auction management system with real-time bidding, team management, and live statistics. Experience the thrill of IPL-style auctions!',
   keywords: ['cricket', 'auction', 'IPL', 'tournament', 'bidding', 'Bid11Pro', 'fantasy cricket', 'player auction'],
+  applicationName: 'Bid11Pro',
+  openGraph: {
+    type: 'website',
+    siteName: 'Bid11Pro',
+    title: 'Bid11Pro - Professional Cricket Auction Platform',
+    description: 'Real-time IPL-style cricket auctions with live bidding, team management, and statistics.',
+    url: 'https://bid11pro.kaviljain.com',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Bid11Pro - Professional Cricket Auction Platform',
+    description: 'Real-time IPL-style cricket auctions with live bidding, team management, and statistics.',
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 

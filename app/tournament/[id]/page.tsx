@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { formatCurrency, getErrorMessage, getCaptainPlayerIds } from '@/lib/utils';
 import { TournamentSettingsModal } from '@/components/tournament/TournamentSettingsModal';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 export default function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -20,6 +21,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const tournamentId = id as Id<"tournaments">;
   const [showSettings, setShowSettings] = useState(false);
   const { isAdmin } = useUserRole();
+  const confirm = useConfirm();
 
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
@@ -86,9 +88,13 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
 
   const handleDelete = async () => {
     const liveWarning = tournament?.status === 'active'
-      ? ' This auction is currently LIVE — viewers may be watching right now.'
+      ? 'This auction is currently LIVE — viewers may be watching right now.\n\n'
       : '';
-    if (!confirm(`Are you sure you want to delete "${tournament?.name}"?${liveWarning} This will delete all teams, players, and auction data. This action cannot be undone.`)) {
+    if (!(await confirm({
+      title: `Delete "${tournament?.name}"?`,
+      description: `${liveWarning}This will permanently delete all teams, players, and auction data. This action cannot be undone.`,
+      confirmText: 'Delete Tournament',
+    }))) {
       return;
     }
 
@@ -109,7 +115,11 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
       return;
     }
 
-    if (!confirm('Are you sure you want to restart the auction? This will reset all player sales, team purses, and auction history. This action cannot be undone.')) {
+    if (!(await confirm({
+      title: 'Restart auction?',
+      description: 'This will reset all player sales, team purses, and auction history. This action cannot be undone.',
+      confirmText: 'Restart Auction',
+    }))) {
       return;
     }
 

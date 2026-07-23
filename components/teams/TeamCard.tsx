@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { generateTeamPdf } from '@/lib/generateTeamPdf';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 interface TeamCardProps {
   team: Doc<"teams">;
@@ -41,6 +42,7 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
       : undefined;
   const pursePercentage = (team.purseRemaining / (team.purseRemaining + team.purseSpent)) * 100;
   const { isAdmin } = useUserRole();
+  const confirm = useConfirm();
 
   // Check if can edit/delete (admin only, not for completed tournaments)
   const canModify = isAdmin && tournament && tournament.status !== "completed";
@@ -85,7 +87,11 @@ export function TeamCard({ team, tournamentId }: TeamCardProps) {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to delete ${team.name}? This action cannot be undone.`)) {
+    if (!(await confirm({
+      title: `Delete ${team.name}?`,
+      description: 'Any players sold to this team will be released back to the auction pool. This action cannot be undone.',
+      confirmText: 'Delete Team',
+    }))) {
       return;
     }
 

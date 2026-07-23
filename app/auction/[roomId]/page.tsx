@@ -17,6 +17,7 @@ import { formatCurrency, getErrorMessage, getRoleDisplay } from '@/lib/utils';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import dynamic from 'next/dynamic';
 import { PlayerIntroFlash } from '@/components/auction/PlayerIntroFlash';
 import { ViewerActionBar, ViewerSheets, type ViewerSheetType } from '@/components/auction/ViewerPanels';
@@ -39,6 +40,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
   // RBAC - Role Based Access Control
   const { isAdmin } = useUserRole();
+  const confirm = useConfirm();
 
   // Which viewer sheet (sold / unsold / teams history) is open, if any.
   const [activeSheet, setActiveSheet] = useState<ViewerSheetType | null>(null);
@@ -468,7 +470,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   }, [startNext, auctionRoomId]);
 
   const handleRevertBid = useCallback(async () => {
-    if (!confirm("Are you sure you want to revert the last bid?")) return;
+    if (!(await confirm({
+      title: "Revert the last bid?",
+      description: "The most recent bid will be removed from this player.",
+      confirmText: "Revert Bid",
+    }))) return;
 
     try {
       await revertBid({ auctionRoomId });
@@ -476,14 +482,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to revert bid"));
     }
-  }, [revertBid, auctionRoomId]);
+  }, [revertBid, auctionRoomId, confirm]);
 
   const handleFinalUnsold = useCallback(async () => {
-    if (
-      !confirm(
-        "Mark this player as FINAL UNSOLD? They will be removed from the auction and won't play for any team. They won't be auctioned again unless you restore them from Manage Players.",
-      )
-    )
+    if (!(await confirm({
+      title: "Mark player as FINAL UNSOLD?",
+      description:
+        "They will be removed from the auction and won't play for any team. They won't be auctioned again unless you restore them from Manage Players.",
+      confirmText: "Mark Final Unsold",
+    })))
       return;
 
     try {
@@ -496,7 +503,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to mark player as final unsold"));
     }
-  }, [markFinalUnsold, auctionRoomId]);
+  }, [markFinalUnsold, auctionRoomId, confirm]);
 
   // Auto-load the next player whenever the auction is live with no one in the
   // ring and no result popup open. This replaces the manual "Next" button:
@@ -668,7 +675,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 {/* Restart Current Player */}
                 <Button
                   onClick={async () => {
-                    if (!confirm("Restart bidding for this player? All bids will be cleared.")) return;
+                    if (!(await confirm({
+                      title: "Restart bidding for this player?",
+                      description: "All bids placed on the current player will be cleared.",
+                      confirmText: "Restart Bidding",
+                    }))) return;
                     try {
                       await restartCurrentPlayer({ auctionRoomId });
                       toast.success('Player bidding restarted!');
@@ -748,7 +759,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 {/* Restart Auction Button */}
                 <Button
                   onClick={async () => {
-                    if (!confirm("Are you sure you want to restart the auction? This will reset ALL players, teams purses, and bid history. This action cannot be undone.")) return;
+                    if (!(await confirm({
+                      title: "Restart the entire auction?",
+                      description: "This will reset ALL players, team purses, and bid history. This action cannot be undone.",
+                      confirmText: "Restart Auction",
+                    }))) return;
                     try {
                       await restartAuction({ auctionRoomId });
                       toast.success('Auction has been reset!');

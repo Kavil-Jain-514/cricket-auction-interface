@@ -135,5 +135,6 @@ export function getStatusBadgeBg(status: string): string {
   if (status === "in_auction") return "bg-yellow-600";
   if (status === "sold") return "bg-green-600";
   if (status === "unsold") return "bg-red-600";
+  if (status === "final_unsold") return "bg-red-900";
   return "bg-slate-600";
 }

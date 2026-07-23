@@ -11,6 +11,7 @@ import { Navbar } from '@/components/layout/Navbar';
 import { toast } from 'sonner';
 import { getErrorMessage } from '@/lib/utils';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { GroupDrawSetup } from '@/components/groups/GroupDrawSetup';
 import { GroupDrawReveal } from '@/components/groups/GroupDrawReveal';
 import { GroupTable } from '@/components/groups/GroupTable';
@@ -19,6 +20,7 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
   const { id } = use(params);
   const tournamentId = id as Id<"tournaments">;
   const { isAdmin } = useUserRole();
+  const confirm = useConfirm();
 
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
@@ -52,14 +54,23 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
 
   const handleReshuffle = async () => {
     if (!draw) return;
-    if (!confirm('Re-shuffle the draw? This clears the previous group assignments and cannot be undone.')) {
+    if (!(await confirm({
+      title: 'Re-shuffle the draw?',
+      description: 'This clears the previous group assignments and cannot be undone.',
+      confirmText: 'Re-shuffle',
+    }))) {
       return;
     }
     await startDraw(draw.numGroups);
   };
 
   const handleLock = async () => {
-    if (!confirm('Lock the group draw? Assignments cannot be re-shuffled after locking.')) {
+    if (!(await confirm({
+      title: 'Lock the group draw?',
+      description: 'Assignments cannot be re-shuffled after locking.',
+      confirmText: 'Confirm & Lock',
+      variant: 'default',
+    }))) {
       return;
     }
     try {
@@ -71,7 +82,11 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
   };
 
   const handleReset = async () => {
-    if (!confirm('Reset the group draw? This deletes all group assignments so you can configure a new draw.')) {
+    if (!(await confirm({
+      title: 'Reset the group draw?',
+      description: 'This deletes all group assignments so you can configure a new draw.',
+      confirmText: 'Reset Draw',
+    }))) {
       return;
     }
     try {
