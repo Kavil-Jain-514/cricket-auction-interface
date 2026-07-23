@@ -1104,7 +1104,17 @@ export const getAuctionRoster = query({
     return {
       currentPlayer,
       teams: teamsWithMaxBid,
-      tournament,
+      // Trimmed projection, not the raw doc — keeps this fan-out payload
+      // bounded regardless of what other fields end up on the tournament
+      // (e.g. a logo stored inline instead of as a hosted URL).
+      tournament: tournament
+        ? {
+            _id: tournament._id,
+            name: tournament.name,
+            logoUrl: tournament.logoUrl,
+            settings: tournament.settings,
+          }
+        : null,
       soldPlayers,
       minBasePrice,
       stats: {
