@@ -73,7 +73,6 @@ export function optimizeImageUrl(url: string | undefined | null, width = 200): s
 
 /** Valid player roles */
 export const PLAYER_ROLES = ["Batter", "Bowler", "All-Rounder", "Wicket Keeper"] as const;
-export type PlayerRole = (typeof PLAYER_ROLES)[number];
 
 /**
  * Set of player ids that are team captains. Captains are pre-assigned and never
@@ -102,19 +101,6 @@ export function getRoles(role: string | string[]): string[] {
  */
 export function getRoleDisplay(role: string | string[]): string {
   return getRoles(role).join(" / ");
-}
-
-/**
- * Translucent role badge classes — used in info cards and tooltips.
- * Returns both background (20% opacity) and text color classes.
- */
-export function getRoleColor(role: string | string[]): string {
-  const primary = getRoles(role)[0];
-  if (primary === "Batter") return "bg-blue-500/20 text-blue-400";
-  if (primary === "Bowler") return "bg-orange-500/20 text-orange-400";
-  if (primary === "Wicket Keeper") return "bg-emerald-500/20 text-emerald-400";
-  if (primary?.includes("All")) return "bg-purple-500/20 text-purple-400";
-  return "bg-slate-500/20 text-slate-400";
 }
 
 /**
