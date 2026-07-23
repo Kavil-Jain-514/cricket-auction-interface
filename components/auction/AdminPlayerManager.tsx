@@ -11,7 +11,7 @@ import { formatCurrency, getErrorMessage, getRoleDisplay, getCaptainPlayerIds } 
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TeamLogo } from '@/components/ui/team-logo';
-
+// Props for the AdminPlayerManager component
 interface AdminPlayerManagerProps {
     tournamentId: Id<"tournaments">;
     maxPlayersPerTeam: number;
