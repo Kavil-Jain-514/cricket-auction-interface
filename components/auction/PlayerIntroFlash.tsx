@@ -108,9 +108,11 @@ export function PlayerIntroFlash({ show, player, tournamentBasePrice }: PlayerIn
               transition={{ delay: 0.3, duration: 0.3 }}
               className="flex flex-wrap justify-center gap-3 sm:gap-4 mb-6 sm:mb-8"
             >
-              <span className="px-4 sm:px-6 py-2 sm:py-3 bg-purple-600 rounded-full text-sm sm:text-lg font-semibold text-white shadow-lg">
-                {getRoleDisplay(player.role)}
-              </span>
+              {getRoleDisplay(player.role).trim() ? (
+                <span className="px-4 sm:px-6 py-2 sm:py-3 bg-purple-600 rounded-full text-sm sm:text-lg font-semibold text-white shadow-lg">
+                  {getRoleDisplay(player.role)}
+                </span>
+              ) : null}
               <span className="px-4 sm:px-6 py-2 sm:py-3 bg-slate-700 rounded-full text-sm sm:text-lg text-white shadow-lg">
                 {player.age != null ? `${player.age} years` : '-'}
               </span>

@@ -48,6 +48,12 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const auctionRooms = useQuery(api.auctions.getAuctionRooms, { tournamentId });
   const groupDraw = useQuery(api.groupDraws.getByTournament, { tournamentId });
 
+  // Settings are locked while an auction room is live/paused — the admin must
+  // restart the auction to edit them (see convex/tournaments.ts:update).
+  const auctionRunning = Boolean(
+    auctionRooms?.some((r) => r.status === 'live' || r.status === 'paused'),
+  );
+
   const canResumeAuction = () => {
     if (!tournament) return false;
 
@@ -279,7 +285,14 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
 
               {/* Admin-only controls */}
               {isAdmin && canModify?.canEdit && (
-                <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} className="h-11 px-4 text-sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowSettings(true)}
+                  disabled={auctionRunning}
+                  title={auctionRunning ? 'Restart the auction to change settings' : undefined}
+                  className="h-11 px-4 text-sm"
+                >
                   <Settings className="w-4 h-4 mr-2" />
                   Settings
                 </Button>
@@ -562,15 +575,15 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               </div>
             </div>
             <div>
-              <span className="text-slate-400 text-xs sm:text-sm">Minimum Bid Increment</span>
-              <div className="text-lg sm:text-xl font-bold">
-                {formatCurrency(tournament.settings.minBidIncrement)}
+              <span className="text-slate-400 text-xs sm:text-sm">Base Player Price</span>
+              <div className="text-lg sm:text-xl font-bold text-yellow-400">
+                {formatCurrency(tournament.settings.basePrice ?? 100000)}
               </div>
             </div>
             <div>
-              <span className="text-slate-400 text-xs sm:text-sm">Bid Timer</span>
+              <span className="text-slate-400 text-xs sm:text-sm">Minimum Bid Increment</span>
               <div className="text-lg sm:text-xl font-bold">
-                {tournament.settings.bidTimerSeconds}s
+                {formatCurrency(tournament.settings.minBidIncrement)}
               </div>
             </div>
             <div>

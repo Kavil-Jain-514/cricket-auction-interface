@@ -44,7 +44,6 @@ export function TournamentSettingsModal({
     logoUrl: currentSettings.logoUrl || '',
     basePurse: currentSettings.settings.basePurse,
     minBidIncrement: currentSettings.settings.minBidIncrement,
-    bidTimerSeconds: currentSettings.settings.bidTimerSeconds || 30,
     maxPlayersPerTeam: currentSettings.settings.maxPlayersPerTeam,
     basePrice: currentSettings.settings.basePrice || 100000,
   });
@@ -62,7 +61,6 @@ export function TournamentSettingsModal({
         settings: {
           basePurse: formData.basePurse,
           minBidIncrement: formData.minBidIncrement,
-          bidTimerSeconds: formData.bidTimerSeconds,
           maxPlayersPerTeam: formData.maxPlayersPerTeam,
           basePrice: formData.basePrice,
         },
@@ -95,15 +93,14 @@ export function TournamentSettingsModal({
           </button>
         </div>
 
-        {currentSettings.status === 'active' && (
-          <div className="flex items-start gap-3 bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 mb-6">
-            <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
-            <p className="text-sm text-yellow-200">
-              This tournament&apos;s auction is currently live. Changes to bid increment, timer,
-              or squad size take effect immediately for viewers and the auctioneer.
-            </p>
-          </div>
-        )}
+        <div className="flex items-start gap-3 bg-blue-500/10 border border-blue-500/40 rounded-lg p-4 mb-6">
+          <AlertTriangle className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-blue-200">
+            These settings apply across the whole tournament. Changing the base purse updates
+            every team&apos;s purse. Settings are locked while the auction is live — restart the
+            auction to change them.
+          </p>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Basic Info Section */}
@@ -201,23 +198,6 @@ export function TournamentSettingsModal({
                 />
                 <p className="text-xs text-slate-400 mt-1">
                   Default: ₹{(formData.basePrice / 100000).toFixed(1)}L
-                </p>
-              </div>
-
-              <div>
-                <Label htmlFor="bidTimerSeconds">Bid Timer (seconds) *</Label>
-                <Input
-                  id="bidTimerSeconds"
-                  type="number"
-                  required
-                  min="10"
-                  max="120"
-                  value={formData.bidTimerSeconds}
-                  onChange={(e) => setFormData({ ...formData, bidTimerSeconds: parseInt(e.target.value) })}
-                  className="mt-2"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  Time for each bid round
                 </p>
               </div>
 

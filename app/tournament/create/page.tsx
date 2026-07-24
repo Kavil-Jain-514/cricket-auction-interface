@@ -23,7 +23,6 @@ export default function CreateTournamentPage() {
     logoUrl: '',
     basePurse: 4000000,
     minBidIncrement: 25000,
-    bidTimerSeconds: 30,
     maxPlayersPerTeam: 15,
     basePrice: 100000,
   });
@@ -60,13 +59,6 @@ export default function CreateTournamentPage() {
 
     // Base price validation removed
 
-    // Bid timer validation
-    if (!formData.bidTimerSeconds || formData.bidTimerSeconds < 10) {
-      newErrors.bidTimerSeconds = 'Bid timer must be at least 10 seconds';
-    } else if (formData.bidTimerSeconds > 120) {
-      newErrors.bidTimerSeconds = 'Bid timer cannot exceed 120 seconds';
-    }
-
     // Max players validation removed
 
     setErrors(newErrors);
@@ -97,7 +89,6 @@ export default function CreateTournamentPage() {
         settings: {
           basePurse: formData.basePurse,
           minBidIncrement: formData.minBidIncrement,
-          bidTimerSeconds: formData.bidTimerSeconds,
           maxPlayersPerTeam: formData.maxPlayersPerTeam,
           basePrice: formData.basePrice,
         },
@@ -247,30 +238,6 @@ export default function CreateTournamentPage() {
                 <p className="text-xs text-slate-400 mt-1">
                   Default: ₹{(formData.basePrice / 100000).toFixed(1)} Lakhs
                 </p>
-              </div>
-
-              <div>
-                <Label htmlFor="bidTimerSeconds">Bid Timer (seconds) *</Label>
-                <Input
-                  id="bidTimerSeconds"
-                  type="number"
-                  required
-                  min="10"
-                  max="120"
-                  value={formData.bidTimerSeconds}
-                  onChange={(e) => {
-                    setFormData({ ...formData, bidTimerSeconds: parseInt(e.target.value) || 0 });
-                    if (errors.bidTimerSeconds) setErrors({ ...errors, bidTimerSeconds: '' });
-                  }}
-                  className={`mt-2 min-h-11 ${errors.bidTimerSeconds ? 'border-red-500' : ''}`}
-                />
-                {errors.bidTimerSeconds ? (
-                  <p className="text-red-400 text-xs mt-1">{errors.bidTimerSeconds}</p>
-                ) : (
-                  <p className="text-xs text-slate-400 mt-1">
-                    Recommended: 30 seconds
-                  </p>
-                )}
               </div>
 
               <div>

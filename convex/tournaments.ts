@@ -10,7 +10,9 @@ export const create = mutation({
     settings: v.object({
       basePurse: v.number(),
       minBidIncrement: v.number(),
-      bidTimerSeconds: v.number(),
+      // Bid timer is no longer configurable in the UI; kept optional for
+      // backward compatibility. Defaults to 30s server-side where needed.
+      bidTimerSeconds: v.optional(v.number()),
       maxPlayersPerTeam: v.number(),
       basePrice: v.optional(v.number()),
     }),
@@ -38,13 +40,6 @@ export const create = mutation({
     if (args.settings.minBidIncrement > args.settings.basePurse / 10) {
       throw new Error("Bid increment cannot exceed 10% of base purse");
     }
-    if (
-      args.settings.bidTimerSeconds < 10 ||
-      args.settings.bidTimerSeconds > 120
-    ) {
-      throw new Error("Bid timer must be between 10 and 120 seconds");
-    }
-
     // Get current user (implement auth first)
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
@@ -168,7 +163,8 @@ export const update = mutation({
       v.object({
         basePurse: v.number(),
         minBidIncrement: v.number(),
-        bidTimerSeconds: v.number(),
+        // Optional: no longer set from the UI (see create).
+        bidTimerSeconds: v.optional(v.number()),
         maxPlayersPerTeam: v.number(),
         basePrice: v.optional(v.number()),
       }),
@@ -186,11 +182,30 @@ export const update = mutation({
       throw new Error("Cannot edit tournament after it is completed");
     }
 
-    // Settings apply immediately to a live auction (placeBid/startNextPlayer
-    // read them live). Guard against maxPlayersPerTeam being dropped below a
-    // team's already-sold squad size — startNextPlayer treats that team as
-    // "full" and can end the auction early for everyone else.
+    // Merged settings we'll actually write (preserving the legacy bid timer).
+    let nextSettings = args.settings;
+
     if (args.settings) {
+      // Settings are locked once the auction is actually running (live/paused).
+      // To change them, the admin must restart the auction (which returns the
+      // room to "waiting"). This keeps every place that reads the settings
+      // consistent for the duration of a live auction.
+      const rooms = await ctx.db
+        .query("auctionRooms")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect();
+      const auctionRunning = rooms.some(
+        (r) => r.status === "live" || r.status === "paused",
+      );
+      if (auctionRunning) {
+        throw new Error(
+          "Settings are locked while the auction is running. Restart the auction to change settings.",
+        );
+      }
+
+      // Guard against maxPlayersPerTeam being dropped below a team's already
+      // -sold squad size — startNextPlayer treats that team as "full" and can
+      // end the auction early for everyone else.
       const soldPlayers = await ctx.db
         .query("players")
         .withIndex("by_tournament_status", (q) =>
@@ -207,12 +222,43 @@ export const update = mutation({
           `Max players per team can't be less than ${highestSquadSize} — a team already has that many sold players`,
         );
       }
+
+      // Preserve the (hidden) bid timer if the caller didn't send one.
+      nextSettings = {
+        ...args.settings,
+        bidTimerSeconds:
+          args.settings.bidTimerSeconds ??
+          tournament.settings.bidTimerSeconds ??
+          30,
+      };
+
+      // Base purse is denormalized onto each team's purse. When it changes,
+      // propagate it so the new value is reflected everywhere in the tournament.
+      // (Settings are only editable pre-auction, so purseSpent is 0 here.)
+      if (args.settings.basePurse !== tournament.settings.basePurse) {
+        const teams = await ctx.db
+          .query("teams")
+          .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+          .collect();
+        await Promise.all(
+          teams.map((team) =>
+            ctx.db.patch(team._id, {
+              purseRemaining: Math.max(
+                0,
+                args.settings!.basePurse - team.purseSpent,
+              ),
+              updatedAt: Date.now(),
+            }),
+          ),
+        );
+      }
     }
 
-    const { id, ...updates } = args;
+    const { id, settings: _settings, ...rest } = args;
 
     await ctx.db.patch(id, {
-      ...updates,
+      ...rest,
+      ...(nextSettings ? { settings: nextSettings } : {}),
       updatedAt: Date.now(),
     });
 
