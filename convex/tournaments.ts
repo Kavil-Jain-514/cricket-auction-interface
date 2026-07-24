@@ -40,6 +40,16 @@ export const create = mutation({
     if (args.settings.minBidIncrement > args.settings.basePurse / 10) {
       throw new Error("Bid increment cannot exceed 10% of base purse");
     }
+    // Bid timer is no longer set from the UI, but validate any value a client
+    // does send so a bad number can't corrupt bidTimerEndsAt math later.
+    if (
+      args.settings.bidTimerSeconds !== undefined &&
+      (!Number.isFinite(args.settings.bidTimerSeconds) ||
+        args.settings.bidTimerSeconds < 10 ||
+        args.settings.bidTimerSeconds > 120)
+    ) {
+      throw new Error("Bid timer must be between 10 and 120 seconds");
+    }
     // Get current user (implement auth first)
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
@@ -221,6 +231,17 @@ export const update = mutation({
         throw new Error(
           `Max players per team can't be less than ${highestSquadSize} — a team already has that many sold players`,
         );
+      }
+
+      // Bid timer is no longer set from the UI, but validate any value a client
+      // does send so a bad number can't corrupt bidTimerEndsAt math later.
+      if (
+        args.settings.bidTimerSeconds !== undefined &&
+        (!Number.isFinite(args.settings.bidTimerSeconds) ||
+          args.settings.bidTimerSeconds < 10 ||
+          args.settings.bidTimerSeconds > 120)
+      ) {
+        throw new Error("Bid timer must be between 10 and 120 seconds");
       }
 
       // Preserve the (hidden) bid timer if the caller didn't send one.

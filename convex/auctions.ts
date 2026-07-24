@@ -848,10 +848,15 @@ export const startNextPlayer = mutation({
       }
     }
 
-    // Round complete. Infinite-loop guard: if the unsold pool is unchanged —
-    // i.e. nobody was sold or marked final_unsold this round — stall and ask
-    // the admin instead of silently starting another identical round.
-    if (unsoldPlayers.length === queue.length) {
+    // Round complete. Infinite-loop guard: the round made progress iff at least
+    // one player from THIS round's snapshot queue left the unsold pool (got
+    // sold or marked final_unsold). Compare membership against the snapshot —
+    // not just counts — because the count can stay equal while membership
+    // changes (e.g. a queued player sells while another becomes unsold via an
+    // admin action). Only stall when every queued player is still unsold.
+    const noProgress =
+      queue.length > 0 && queue.every((pid) => unsoldIds.has(pid));
+    if (noProgress) {
       const now = Date.now();
       await ctx.db.patch(args.auctionRoomId, {
         roundStalled: true,
@@ -952,15 +957,18 @@ export const resolveStalledRound = mutation({
     }
 
     if (args.action === "finalizeUnsold") {
-      // Remove everyone still unsold from the auction, then end.
-      for (const p of unsoldPlayers) {
-        await ctx.db.patch(p._id, {
-          auctionStatus: "final_unsold",
-          teamId: undefined,
-          soldPrice: undefined,
-          updatedAt: now,
-        });
-      }
+      // Remove everyone still unsold from the auction, then end. The patches are
+      // independent per player, so run them concurrently.
+      await Promise.all(
+        unsoldPlayers.map((p) =>
+          ctx.db.patch(p._id, {
+            auctionStatus: "final_unsold",
+            teamId: undefined,
+            soldPrice: undefined,
+            updatedAt: now,
+          }),
+        ),
+      );
       return await endAuction();
     }
 
