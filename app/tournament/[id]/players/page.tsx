@@ -6,8 +6,9 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Doc, Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Upload, Users, Trash2, AlertTriangle, Download, Eye, X } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Users, Trash2, AlertTriangle, Download, Eye, X, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Navbar } from '@/components/layout/Navbar';
 import { PlayerCard } from '@/components/players/PlayerCard';
 import { PlayerImport } from '@/components/players/PlayerImport';
@@ -30,6 +31,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
   const [filterRole, setFilterRole] = useState<string>('all');
   type StatusFilter = 'all' | 'pending' | 'in_auction' | 'sold' | 'unsold';
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedPlayer, setSelectedPlayer] = useState<Doc<"players"> | null>(null);
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const allPlayers = useQuery(api.players.listByTournament, { tournamentId });
@@ -49,6 +51,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
     [teams]
   );
 
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
   const players = allPlayers?.filter(p => {
     // Captains are pre-assigned and never auctioned. Keep them out of the
     // status-filtered views (pending/sold/…) so the list matches the status
@@ -57,7 +61,15 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       ? true
       : p.auctionStatus === filterStatus && !captainPlayerIds.has(p._id);
     const roleMatch = filterRole === 'all' || getRoles(p.role).includes(filterRole);
-    return statusMatch && roleMatch;
+    // Search by name, player number, phone, or jersey name.
+    const searchMatch = normalizedQuery === '' || [
+      p.name,
+      p.playerNumber != null ? `#${p.playerNumber}` : '',
+      p.playerNumber != null ? String(p.playerNumber) : '',
+      p.phoneNumber ?? '',
+      p.jerseyName ?? '',
+    ].some(field => field.toLowerCase().includes(normalizedQuery));
+    return statusMatch && roleMatch && searchMatch;
   }
   );
 
@@ -515,6 +527,30 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           </div>
         </div>
 
+        {/* Search */}
+        <div className="mb-4">
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <Input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search players by name, number, phone…"
+              aria-label="Search players"
+              className="pl-9 pr-9 h-11"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Stats - Status Based */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-6 overflow-x-auto pb-2 ipad-scroll">
           {/* Status Filters */}
@@ -641,16 +677,35 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
           </div>
         ) : players.length === 0 ? (
-          <div className="text-center py-12 sm:py-16 lg:py-20">
-            <Users className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 text-slate-700" />
-            <h3 className="text-lg sm:text-xl font-semibold mb-2">No players yet</h3>
-            <p className="text-slate-400 mb-6 text-sm sm:text-base px-4">
-              {filterRole === 'all'
-                ? 'Add players or import from Excel to get started'
-                : `No ${filterRole}s found. Try a different filter.`
-              }
-            </p>
-            {filterRole === 'all' && (
+          (allPlayers?.length ?? 0) > 0 ? (
+            // Players exist but none match the current search / filters.
+            <div className="text-center py-12 sm:py-16 lg:py-20">
+              <Search className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 text-slate-700" />
+              <h3 className="text-lg sm:text-xl font-semibold mb-2">No players found</h3>
+              <p className="text-slate-400 mb-6 text-sm sm:text-base px-4">
+                {normalizedQuery
+                  ? <>No players match &ldquo;<span className="text-slate-300">{searchQuery}</span>&rdquo;. Try a different search or clear your filters.</>
+                  : 'No players match the current filters.'}
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearchQuery('');
+                  setFilterStatus('all');
+                  setFilterRole('all');
+                }}
+                className="h-11 text-base"
+              >
+                Clear search & filters
+              </Button>
+            </div>
+          ) : (
+            <div className="text-center py-12 sm:py-16 lg:py-20">
+              <Users className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 text-slate-700" />
+              <h3 className="text-lg sm:text-xl font-semibold mb-2">No players yet</h3>
+              <p className="text-slate-400 mb-6 text-sm sm:text-base px-4">
+                Add players or import from Excel to get started
+              </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center px-4">
                 <Button onClick={() => setShowImport(true)} variant="outline" className="h-11 sm:h-12 text-base">
                   <Upload className="w-5 h-5 mr-2" />
@@ -661,8 +716,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                   Add First Player
                 </Button>
               </div>
-            )}
-          </div>
+            </div>
+          )
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-5">
             {players.map((player) => (

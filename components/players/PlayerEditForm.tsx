@@ -4,20 +4,14 @@ import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Doc } from '@/convex/_generated/dataModel';
-import { X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { getErrorMessage, getRoles, PLAYER_ROLES } from '@/lib/utils';
-import { ImageUpload } from '@/components/ui/image-upload';
+import { getErrorMessage, getRoles } from '@/lib/utils';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  PlayerFormModal,
+  PlayerFormFields,
+  type PlayerFormValues,
+  type TshirtSize,
+} from './PlayerFormFields';
 
 interface PlayerEditFormProps {
   player: Doc<"players">;
@@ -29,24 +23,27 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
   const updatePlayer = useMutation(api.players.update);
   const [loading, setLoading] = useState(false);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<PlayerFormValues>({
     name: player.name,
     phoneNumber: player.phoneNumber || '',
     age: player.age,
     role: getRoles(player.role),
     battingBowlingHand: player.battingBowlingHand,
-    tshirtSize: player.tshirtSize || 'L',
+    tshirtSize: (player.tshirtSize || 'L') as TshirtSize,
     jerseyNumber: player.jerseyNumber,
     jerseyName: player.jerseyName || '',
     basePrice: player.basePrice,
     photoUrl: player.photoUrl || '',
   });
 
+  const patchForm = (patch: Partial<PlayerFormValues>) =>
+    setFormData((prev) => ({ ...prev, ...patch }));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    // Normalize hand to handle legacy data
+    // Normalize hand to handle legacy data ("Right" -> "Right-handed").
     let normalizedHand = formData.battingBowlingHand;
     if (normalizedHand === 'Right') normalizedHand = 'Right-handed';
     if (normalizedHand === 'Left') normalizedHand = 'Left-handed';
@@ -59,7 +56,7 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
         age: formData.age,
         role: formData.role,
         battingBowlingHand: normalizedHand as 'Right-handed' | 'Left-handed',
-        tshirtSize: formData.tshirtSize as 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL',
+        tshirtSize: formData.tshirtSize,
         jerseyNumber: formData.jerseyNumber,
         jerseyName: formData.jerseyName || undefined,
         basePrice: formData.basePrice,
@@ -78,193 +75,26 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto ipad-scroll">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full p-4 sm:p-6 my-4 sm:my-8">
-        <div className="flex items-center justify-between mb-4 sm:mb-6">
-          <h2 className="text-xl sm:text-2xl font-bold">Edit Player</h2>
-          <button onClick={onClose} className="p-2.5 hover:bg-slate-800 rounded-lg transition touch-target">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
-          {/* Row 1: Name and Phone */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-            <div>
-              <Label htmlFor="name">Player Name *</Label>
-              <Input
-                id="name"
-                required
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g., Arjun Sharma"
-                className="mt-2 h-11 sm:h-12 text-base"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="phoneNumber">Phone Number</Label>
-              <Input
-                id="phoneNumber"
-                value={formData.phoneNumber || ''}
-                onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-                placeholder="e.g., 9876543210"
-                className="mt-2 h-11 sm:h-12 text-base"
-              />
-            </div>
-          </div>
-
-          {/* Row 2: Age, Role, Hand, T-Shirt Size, Jersey */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-            <div>
-              <Label htmlFor="age">Age *</Label>
-              <Input
-                id="age"
-                type="number"
-                required
-                min="1"
-                value={formData.age}
-                onChange={(e) => setFormData({ ...formData, age: parseInt(e.target.value) || 0 })}
-                className="mt-2 h-11 sm:h-12 text-base"
-              />
-            </div>
-
-            <div>
-              <Label>Role(s)</Label>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {PLAYER_ROLES.map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => {
-                      setFormData(prev => ({
-                        ...prev,
-                        role: prev.role.includes(r)
-                          ? prev.role.filter(x => x !== r)
-                          : [...prev.role, r],
-                      }));
-                    }}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition border ${formData.role.includes(r)
-                      ? 'bg-blue-600 border-blue-500 text-white'
-                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
-                      }`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="col-span-2 sm:col-span-1">
-              <Label htmlFor="battingBowlingHand">Batting/Bowling *</Label>
-              <Select
-                value={formData.battingBowlingHand}
-                onValueChange={(value) => setFormData({ ...formData, battingBowlingHand: value as 'Right-handed' | 'Left-handed' })}
-              >
-                <SelectTrigger className="mt-2 h-11 sm:h-12 text-base">
-                  <SelectValue placeholder="Select hand" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Right-handed" className="py-3">Right-handed</SelectItem>
-                  <SelectItem value="Left-handed" className="py-3">Left-handed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label htmlFor="tshirtSize">T-Shirt Size</Label>
-              <Select
-                value={formData.tshirtSize}
-                onValueChange={(value) => setFormData({ ...formData, tshirtSize: value as 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | '4XL' })}
-              >
-                <SelectTrigger className="mt-2 h-11 sm:h-12 text-base">
-                  <SelectValue placeholder="Size" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="S" className="py-3">S</SelectItem>
-                  <SelectItem value="M" className="py-3">M</SelectItem>
-                  <SelectItem value="L" className="py-3">L</SelectItem>
-                  <SelectItem value="XL" className="py-3">XL</SelectItem>
-                  <SelectItem value="XXL" className="py-3">XXL</SelectItem>
-                  <SelectItem value="3XL" className="py-3">3XL</SelectItem>
-                  <SelectItem value="4XL" className="py-3">4XL</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label htmlFor="jerseyNumber">Jersey #</Label>
-              <Input
-                id="jerseyNumber"
-                type="number"
-                min="1"
-                max="99"
-                value={formData.jerseyNumber || ''}
-                onChange={(e) => {
-                  setFormData({
-                    ...formData,
-                    jerseyNumber: e.target.value ? parseInt(e.target.value) : undefined
-                  });
-                }}
-                placeholder="e.g., 7"
-                className="mt-2 h-11 sm:h-12 text-base"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="jerseyName">Jersey Name</Label>
-              <Input
-                id="jerseyName"
-                value={formData.jerseyName || ''}
-                onChange={(e) => setFormData({ ...formData, jerseyName: e.target.value })}
-                placeholder="e.g., SHARMA"
-                className="mt-2 h-11 sm:h-12 text-base"
-              />
-            </div>
-          </div>
-
-          {/* Row 3: Base Price and Photo side by side */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="basePrice">Base Price Override (₹)</Label>
-                <Input
-                  id="basePrice"
-                  type="number"
-                  value={formData.basePrice || ''}
-                  placeholder="Inherit from tournament"
-                  onChange={(e) => setFormData({ ...formData, basePrice: e.target.value ? parseInt(e.target.value) : undefined })}
-                  className="mt-2 h-11 sm:h-12 text-base"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  {formData.basePrice ? `Overridden: ₹${(formData.basePrice / 100000).toFixed(2)}L` : 'Leaving empty inherits from tournament'}
-                </p>
-              </div>
-            </div>
-
-            <div>
-              <Label>Player Photo</Label>
-              <div className="mt-2">
-                <ImageUpload
-                  value={formData.photoUrl}
-                  onChange={(url) => setFormData({ ...formData, photoUrl: url || '' })}
-                  folder="players"
-                  aspectRatio="square"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-4 flex flex-col-reverse sm:flex-row gap-3">
-            <Button type="button" variant="outline" onClick={onClose} className="flex-1 h-12 text-base">
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading} className="flex-1 h-12 text-base">
-              {loading ? 'Updating...' : 'Update Player'}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <PlayerFormModal
+      mode="edit"
+      title="Edit Player"
+      subtitle={player.name}
+      submitLabel="Update Player"
+      loadingLabel="Updating…"
+      loading={loading}
+      onClose={onClose}
+      onSubmit={handleSubmit}
+    >
+      <PlayerFormFields
+        values={formData}
+        onChange={patchForm}
+        basePricePlaceholder="Inherit from tournament"
+        basePriceHint={
+          formData.basePrice
+            ? `Overridden: ₹${(formData.basePrice / 100000).toFixed(2)}L`
+            : 'Leaving empty inherits from tournament'
+        }
+      />
+    </PlayerFormModal>
   );
 }

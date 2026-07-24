@@ -217,12 +217,6 @@ export default function DashboardPage() {
                       </span>
                     </div>
                     <div className="flex justify-between text-slate-400">
-                      <span>Bid Timer</span>
-                      <span className="font-semibold text-orange-400">
-                        {tournament.settings.bidTimerSeconds}s
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-slate-400">
                       <span>Max Players</span>
                       <span className="font-semibold">
                         {tournament.settings.maxPlayersPerTeam}

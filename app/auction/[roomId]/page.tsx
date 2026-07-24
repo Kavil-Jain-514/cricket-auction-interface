@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Trophy,
   Users, Gavel, RotateCcw, RotateCw, Play, Pause, RefreshCcw,
-  Eye, Settings2, UserX
+  Eye, Settings2, UserX, AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -33,6 +33,10 @@ const AdminPlayerManager = dynamic(() => import('@/components/auction/AdminPlaye
 interface AuctionPageProps {
   params: Promise<{ roomId: string }>;
 }
+
+// Minimum time the SOLD/UNSOLD result popup stays up before the next player is
+// allowed to override it — so viewers always see the outcome (esp. UNSOLD).
+const MIN_RESULT_DISPLAY_MS = 2500;
 
 export default function AuctionPage({ params }: AuctionPageProps) {
   const { roomId } = use(params);
@@ -124,6 +128,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const pauseAuction = useMutation(api.auctions.pauseAuction);
   const resumeAuction = useMutation(api.auctions.resumeAuction);
   const restartAuction = useMutation(api.auctions.restartAuction);
+  const resolveStalledRound = useMutation(api.auctions.resolveStalledRound);
 
   const [bidding, setBidding] = useState<Id<"teams"> | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -131,11 +136,17 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const [showPlayerIntro, setShowPlayerIntro] = useState(false);
   const [showPlayerManager, setShowPlayerManager] = useState(false);
   const [showUnsoldRoundBanner, setShowUnsoldRoundBanner] = useState(false);
+  const [resolvingStall, setResolvingStall] = useState(false);
   const lastPlayerIdRef = useRef<string | null>(null);
   const introTimerRef = useRef<NodeJS.Timeout | null>(null);
   const loadingNextRef = useRef(false);
   const prevPhaseRef = useRef<string | null>(null);
   const unsoldBannerTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // The "Unsold Round" banner must appear at most once per auction.
+  const hasShownUnsoldBannerRef = useRef(false);
+  // Enforces MIN_RESULT_DISPLAY_MS for the result popup.
+  const resultShownAtRef = useRef<number>(0);
+  const resultCloseTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Viewer mode status flash notifications
   const [statusFlash, setStatusFlash] = useState<{
@@ -210,17 +221,28 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     const phase = auctionData?.auctionRoom?.auctionPhase ?? null;
     const prev = prevPhaseRef.current;
     prevPhaseRef.current = phase;
-    if (prev && prev !== 'unsold' && phase === 'unsold') {
+    // Fire once, only on the live transition from the main round into the
+    // unsold round. (A viewer who joins when the phase is already "unsold"
+    // starts with prev = null and never sees it — which is intended.)
+    if (prev && prev !== 'unsold' && phase === 'unsold' && !hasShownUnsoldBannerRef.current) {
+      hasShownUnsoldBannerRef.current = true;
       const raf = requestAnimationFrame(() => setShowUnsoldRoundBanner(true));
       if (unsoldBannerTimerRef.current) clearTimeout(unsoldBannerTimerRef.current);
-      unsoldBannerTimerRef.current = setTimeout(() => setShowUnsoldRoundBanner(false), 5000);
+      unsoldBannerTimerRef.current = setTimeout(() => setShowUnsoldRoundBanner(false), 3000);
       return () => cancelAnimationFrame(raf);
     }
   }, [auctionData?.auctionRoom?.auctionPhase]);
 
   useEffect(() => () => {
     if (unsoldBannerTimerRef.current) clearTimeout(unsoldBannerTimerRef.current);
+    if (resultCloseTimerRef.current) clearTimeout(resultCloseTimerRef.current);
   }, []);
+
+  // Timestamp each time the result popup becomes visible, so we can hold it up
+  // for a minimum duration before the next player is allowed to replace it.
+  useEffect(() => {
+    if (showResult) resultShownAtRef.current = Date.now();
+  }, [showResult]);
 
   // Player intro flash effect - shows when a new player comes up
   useEffect(() => {
@@ -238,7 +260,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       // Also auto-close the result popup for viewers when admin loads the next player.
       rafClearBids = requestAnimationFrame(() => {
         setCustomBidAmounts({});
-        setShowResult(false);
+        // Don't let the incoming player instantly wipe the SOLD/UNSOLD result —
+        // hold it for at least MIN_RESULT_DISPLAY_MS from when it appeared.
+        if (resultCloseTimerRef.current) clearTimeout(resultCloseTimerRef.current);
+        const remaining = MIN_RESULT_DISPLAY_MS - (Date.now() - resultShownAtRef.current);
+        if (remaining <= 0) {
+          setShowResult(false);
+        } else {
+          resultCloseTimerRef.current = setTimeout(() => setShowResult(false), remaining);
+        }
       });
 
       // Clear any existing timer
@@ -452,7 +482,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     if (loadingNextRef.current) return;
     loadingNextRef.current = true;
     try {
-      const res = await startNext({ auctionRoomId });
+      // startNextPlayer returns a discriminated union of round outcomes; read
+      // the fields we care about off a widened shape.
+      const res = (await startNext({ auctionRoomId })) as {
+        success: boolean;
+        completed?: boolean;
+        reason?: string;
+        stalled?: boolean;
+        enteredUnsoldRound?: boolean;
+      };
 
       if (res.success === false) {
         // "already in auction" means a concurrent load won the race — benign.
@@ -505,6 +543,25 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     }
   }, [markFinalUnsold, auctionRoomId, confirm]);
 
+  // Resolve a stalled unsold round (infinite-loop guard). The backend clears
+  // `roundStalled`, which reactively hides the modal on every client.
+  const handleResolveStall = useCallback(
+    async (action: 'continue' | 'finalizeUnsold' | 'end') => {
+      setResolvingStall(true);
+      try {
+        await resolveStalledRound({ auctionRoomId, action });
+        toast.success(
+          action === 'continue' ? 'Starting another unsold round' : 'Auction ended',
+        );
+      } catch (error) {
+        toast.error(getErrorMessage(error, 'Failed to resolve the round'));
+      } finally {
+        setResolvingStall(false);
+      }
+    },
+    [resolveStalledRound, auctionRoomId],
+  );
+
   // Auto-load the next player whenever the auction is live with no one in the
   // ring and no result popup open. This replaces the manual "Next" button:
   // covers the first player after Start, advancing after each sale, and
@@ -514,9 +571,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     if (auctionData?.auctionRoom?.status !== 'live') return;
     if (auctionData?.auctionRoom?.currentPlayerId) return;
     if (showResult) return;
+    // While the "Unsold Round" banner is up, hold off loading the next player
+    // so it isn't overridden — the first unsold player loads once it clears.
+    if (showUnsoldRoundBanner) return;
+    // A stalled round is awaiting an admin decision — don't loop into it.
+    if (auctionData?.auctionRoom?.roundStalled) return;
     const t = setTimeout(() => { handleNextPlayer(); }, 200);
     return () => clearTimeout(t);
-  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.auctionRoom?.currentPlayerId, showResult, handleNextPlayer]);
+  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.auctionRoom?.currentPlayerId, showResult, showUnsoldRoundBanner, auctionData?.auctionRoom?.roundStalled, handleNextPlayer]);
 
   // Wait for both the hot payload and the initial roster before first paint so
   // teams/current-player aren't momentarily empty. Subsequent bid/timer updates
@@ -530,6 +592,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   }
 
   const { auctionRoom, currentPlayer, currentBidTeam, teams, recentBids, soldPlayers } = auctionData;
+
+  // Only show the role pill when a role is actually set — otherwise the coloured
+  // badge appears empty on the player card.
+  const roleDisplay = currentPlayer ? getRoleDisplay(currentPlayer.role).trim() : '';
 
   // Show auction complete screen when auction is completed
   if (auctionRoom.status === 'completed') {
@@ -567,21 +633,27 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
   const isFirstBid = !recentBids || recentBids.length === 0;
 
-  // Auction progress counter ("X / N"). During the main round it counts every
-  // player put up (total minus those still pending); during the unsold round it
-  // counts against the snapshot of how many players were unsold when it began.
+  // Auction progress counter ("X / N") + round label. Main round counts every
+  // player put up (total minus those still pending). Unsold rounds count the
+  // queue cursor against that round's queue length. Round number: 1 = main,
+  // 2 = first unsold round, … shown as "Unsold Round {roundNumber - 1}".
   const isUnsoldRound = auctionRoom.auctionPhase === 'unsold';
+  const roundNumber = auctionRoom.roundNumber ?? 1;
+  const roundLabel = isUnsoldRound
+    ? `Unsold Round ${Math.max(1, roundNumber - 1)}`
+    : 'Main Round';
   const stats = auctionData.stats;
   const progressTotal = isUnsoldRound
-    ? (auctionRoom.unsoldRoundTotal ?? 0)
+    ? (auctionRoom.unsoldRoundTotal ?? auctionRoom.unsoldQueue?.length ?? 0)
     : (stats?.total ?? 0);
   const progressCurrent = isUnsoldRound
-    ? Math.min(progressTotal, Math.max(1, progressTotal - (stats?.unsold ?? 0)))
+    ? Math.min(progressTotal, Math.max(0, auctionRoom.unsoldCursor ?? 0))
     : Math.max(0, (stats?.total ?? 0) - (stats?.pending ?? 0));
   const showProgress = Boolean(currentPlayer) && progressTotal > 0;
+  const isRoundStalled = Boolean(auctionRoom.roundStalled);
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden">
+    <div className={`${isAdmin ? 'min-h-screen' : 'h-[100dvh] flex flex-col'} bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden`}>
       {/* Reconnecting indicator — surfaces silent socket drops (P1-1) */}
       <ConnectionStatus />
 
@@ -622,7 +694,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       </div>
 
       {/* Header Controls */}
-      <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-50 safe-top">
+      <header className="shrink-0 border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-50 safe-top">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-3 sm:py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 sm:gap-4 shrink-0">
@@ -658,7 +730,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
             {/* Admin Controls - Only visible to admins */}
             {isAdmin ? (
-              <div className="flex flex-wrap justify-end gap-1.5 sm:gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+                {/* — Bid controls — */}
                 {/* Revert Last Bid */}
                 <Button
                   onClick={handleRevertBid}
@@ -697,6 +770,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <span className="hidden sm:inline">Re-bid</span>
                 </Button>
 
+                <span aria-hidden className="hidden lg:block w-px h-7 self-center bg-slate-700/70 mx-0.5" />
+
+                {/* — Auction state — */}
                 {/* Start/Pause/Resume buttons based on status */}
                 {auctionRoom.status === 'waiting' && (
                   <Button
@@ -780,6 +856,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <span className="hidden sm:inline">Restart</span>
                 </Button>
 
+                <span aria-hidden className="hidden lg:block w-px h-7 self-center bg-slate-700/70 mx-0.5" />
+
+                {/* — Management — */}
                 {/* Manage Players Button */}
                 <Button
                   onClick={() => setShowPlayerManager(true)}
@@ -792,23 +871,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <span className="hidden sm:inline">Players</span>
                 </Button>
 
-
-                {isAdmin && (
-                  <Button
-                    onClick={handleFinalize}
-                    disabled={!currentPlayer || auctionRoom.status !== 'live'}
-                    variant="outline"
-                    size="lg"
-                    className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target"
-                  >
-                    <Gavel className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                    <span className="hidden sm:inline">Finalize</span>
-                  </Button>
-                )}
-
                 {/* Final Unsold: only during the second (unsold) round, once the
-                    pending pool is exhausted. Removes the player from the auction. */}
-                {isAdmin && auctionData.stats?.pending === 0 && (
+                    pending pool is exhausted. Grouped with management (kept away
+                    from the primary Finalize action to avoid mis-taps). */}
+                {auctionData.stats?.pending === 0 && (
                   <Button
                     onClick={handleFinalUnsold}
                     disabled={!currentPlayer || auctionRoom.status !== 'live'}
@@ -821,6 +887,32 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     <span className="hidden sm:inline">Final Unsold</span>
                   </Button>
                 )}
+
+                {/* View Teams */}
+                <Button
+                  onClick={() => window.open(`/tournament/${auctionData.tournament?._id}/teams`, '_blank')}
+                  variant="outline"
+                  size="lg"
+                  className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target border-slate-600 hover:bg-slate-800"
+                  title="View all teams in new tab"
+                >
+                  <Users className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
+                  <span className="hidden sm:inline">View Teams</span>
+                </Button>
+
+                <span aria-hidden className="hidden lg:block w-px h-7 self-center bg-slate-700/70 mx-0.5" />
+
+                {/* — Primary action: Finalize — larger and set apart from the rest */}
+                <Button
+                  onClick={handleFinalize}
+                  disabled={!currentPlayer || auctionRoom.status !== 'live'}
+                  size="lg"
+                  title="Finalize the current player (SOLD / UNSOLD)"
+                  className="bg-green-600 hover:bg-green-700 text-white font-bold h-11 sm:h-12 px-4 sm:px-6 text-sm sm:text-base shadow-lg shadow-green-900/30 ring-1 ring-green-400/30 touch-target"
+                >
+                  <Gavel className="w-5 h-5 sm:w-6 sm:h-6 sm:mr-2" />
+                  <span className="hidden sm:inline">Finalize</span>
+                </Button>
               </div>
             ) : (
               /* Viewer Mode: Bid11Pro Branding */
@@ -841,20 +933,6 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <span className="text-xs font-medium text-blue-300">Viewer</span>
                 </div>
               </div>
-            )}
-
-            {/* View Teams Button — admins only; viewers use the bottom action bar */}
-            {isAdmin && (
-              <Button
-                onClick={() => window.open(`/tournament/${auctionData.tournament?._id}/teams`, '_blank')}
-                variant="outline"
-                size="lg"
-                className="h-10 sm:h-11 px-2.5 sm:px-4 text-sm touch-target border-slate-600 hover:bg-slate-800"
-                title="View all teams in new tab"
-              >
-                <Users className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
-                <span className="hidden sm:inline">View Teams</span>
-              </Button>
             )}
           </div>
         </div>
@@ -923,8 +1001,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         )}
       </AnimatePresence>
 
-      <main className={`max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 safe-bottom ${isAdmin ? 'pb-20' : 'pb-32 sm:pb-36'}`}>
-        <div className={isAdmin ? 'grid gap-4 sm:gap-5 lg:gap-6 grid-cols-12' : ''}>
+      <main className={`w-full max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 safe-bottom ${isAdmin ? 'py-4 sm:py-6 lg:py-8 pb-20' : 'flex-1 min-h-0 overflow-y-auto flex flex-col py-3 sm:py-4 pb-28 sm:pb-32'}`}>
+        <div className={isAdmin ? 'grid gap-4 sm:gap-5 lg:gap-6 grid-cols-12' : 'w-full my-auto'}>
           {/* Teams Panel - Only shown to admins */}
           {isAdmin && (
             <AdminTeamsPanel
@@ -950,12 +1028,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
             {/* Auction progress counter — visible to admins and viewers */}
             {showProgress && (
-              <div className="flex justify-center mb-3 sm:mb-4">
+              <div className={`flex justify-center ${isAdmin ? 'mb-3 sm:mb-4' : 'mb-2 sm:mb-3'}`}>
                 <div className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border backdrop-blur-sm shadow-lg ${isUnsoldRound
                   ? 'bg-red-500/15 border-red-500/40 text-red-300'
                   : 'bg-blue-500/15 border-blue-500/40 text-blue-200'}`}>
                   <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider opacity-80">
-                    {isUnsoldRound ? 'Unsold Round' : 'Player'}
+                    {roundLabel}
                   </span>
                   <span className="text-sm sm:text-base font-extrabold tabular-nums">
                     {progressCurrent}<span className="opacity-50">/</span>{progressTotal}
@@ -972,7 +1050,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className="bg-linear-to-br from-slate-800 to-slate-900 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-700 shadow-2xl"
+                  className={`bg-linear-to-br from-slate-800 to-slate-900 rounded-xl sm:rounded-2xl border border-slate-700 shadow-2xl ${isAdmin ? 'p-4 sm:p-6 lg:p-8' : 'p-3 sm:p-4'}`}
                 >
                   {/* Viewer Mode: full-width hero — focus on the player */}
                   {!isAdmin ? (
@@ -1000,9 +1078,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                         </h2>
 
                         <div className="flex flex-wrap justify-center lg:justify-start gap-2 sm:gap-3 mb-5 sm:mb-6 lg:mb-8">
-                          <span className="px-4 py-2 lg:px-5 lg:py-2.5 bg-purple-600 rounded-full text-sm sm:text-base lg:text-lg font-semibold">
-                            {getRoleDisplay(currentPlayer.role)}
-                          </span>
+                          {roleDisplay ? (
+                            <span className="px-4 py-2 lg:px-5 lg:py-2.5 bg-purple-600 rounded-full text-sm sm:text-base lg:text-lg font-semibold">
+                              {roleDisplay}
+                            </span>
+                          ) : null}
                           {currentPlayer.age ? (
                             <span className="px-4 py-2 lg:px-5 lg:py-2.5 bg-slate-700 rounded-full text-sm sm:text-base lg:text-lg">
                               {currentPlayer.age} years
@@ -1085,9 +1165,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       </div>
 
                       <div className="flex flex-wrap justify-center sm:justify-start gap-2 mb-3 sm:mb-4">
-                        <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-purple-600 rounded-full text-xs sm:text-sm font-semibold">
-                          {getRoleDisplay(currentPlayer.role)}
-                        </span>
+                        {roleDisplay ? (
+                          <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-purple-600 rounded-full text-xs sm:text-sm font-semibold">
+                            {roleDisplay}
+                          </span>
+                        ) : null}
                         {currentPlayer.age ? (
                           <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
                             {currentPlayer.age} years
@@ -1273,6 +1355,55 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             currentBidTeamId={currentBidTeam?._id}
           />
         </>
+      )}
+
+      {/* Stalled unsold round — admin decision (infinite-loop guard) */}
+      {isAdmin && isRoundStalled && auctionRoom.status === 'live' && (
+        <div className="fixed inset-0 z-80 flex items-center justify-center bg-slate-950/85 backdrop-blur-md px-4">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-slate-900 p-5 sm:p-6 shadow-2xl">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-400">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">Unsold round made no progress</h3>
+                <p className="text-sm text-slate-400">
+                  {roundLabel} ended with no player sold or marked Final Unsold.
+                </p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-300 mb-5">
+              Running another identical round would repeat forever. Choose how to proceed:
+            </p>
+            <div className="space-y-2.5">
+              <Button
+                onClick={() => handleResolveStall('continue')}
+                disabled={resolvingStall}
+                className="w-full h-11 bg-blue-600 hover:bg-blue-700"
+              >
+                <RotateCw className="w-4 h-4 mr-2" />
+                Run another unsold round
+              </Button>
+              <Button
+                onClick={() => handleResolveStall('finalizeUnsold')}
+                disabled={resolvingStall}
+                variant="outline"
+                className="w-full h-11 border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+              >
+                <UserX className="w-4 h-4 mr-2" />
+                Mark remaining Final Unsold &amp; end
+              </Button>
+              <Button
+                onClick={() => handleResolveStall('end')}
+                disabled={resolvingStall}
+                variant="outline"
+                className="w-full h-11 border-slate-600 hover:bg-slate-800"
+              >
+                End auction (leave players unsold)
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Admin Player Manager Modal */}

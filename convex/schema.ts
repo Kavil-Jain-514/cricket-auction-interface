@@ -205,9 +205,21 @@ export default defineSchema({
     // Auction round for the viewer progress counter. "main" = first pass over
     // all players; "unsold" = re-auctioning the players who went unsold.
     auctionPhase: v.optional(v.union(v.literal("main"), v.literal("unsold"))),
-    // Number of players that were unsold when the unsold round began — the
-    // denominator for the "X / N" counter during the unsold round.
+    // Number of players that were unsold when the current unsold round began —
+    // the denominator for the "X / N" counter during the unsold round.
     unsoldRoundTotal: v.optional(v.number()),
+    // ── Iterative unsold rounds ───────────────────────────────────────────
+    // 1 = main round; 2 = first unsold round; 3 = second unsold round; …
+    // Displayed as "Unsold Round {roundNumber - 1}".
+    roundNumber: v.optional(v.number()),
+    // Ordered snapshot of the players to present in the CURRENT unsold round.
+    // Built (reshuffled) when each unsold round begins; each is presented once.
+    unsoldQueue: v.optional(v.array(v.id("players"))),
+    // Index of the next player to present within unsoldQueue.
+    unsoldCursor: v.optional(v.number()),
+    // Set when an unsold round completed without selling or final-unselling
+    // anyone — the admin must choose how to proceed (infinite-loop guard).
+    roundStalled: v.optional(v.boolean()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
