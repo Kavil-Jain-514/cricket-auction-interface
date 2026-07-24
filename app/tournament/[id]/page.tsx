@@ -5,7 +5,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye, Layers, Link2 } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye, Layers, Link2, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
@@ -29,6 +29,10 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const canModify = useQuery(api.tournaments.canModify, { id: tournamentId });
   const deleteTournament = useMutation(api.tournaments.deleteTournament);
   const restartAuction = useMutation(api.auctions.restartAuction);
+  const setTournamentActive = useMutation(api.tournaments.setActive);
+  const [togglingActive, setTogglingActive] = useState(false);
+  // Legacy tournaments (isActive undefined) are treated as active.
+  const isTournamentActive = tournament?.isActive !== false;
 
   // Team captains are pre-assigned and never auctioned, so they're excluded from
   // every count shown on the dashboard (total / pending / sold).
@@ -128,6 +132,30 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
     }
   };
 
+  const handleToggleActive = async () => {
+    if (!tournament) return;
+
+    if (isTournamentActive) {
+      if (!(await confirm({
+        title: `Deactivate "${tournament.name}"?`,
+        description: 'Other users will no longer see this tournament or be able to open it. You can reactivate it any time.',
+        confirmText: 'Deactivate',
+      }))) {
+        return;
+      }
+    }
+
+    setTogglingActive(true);
+    try {
+      await setTournamentActive({ id: tournamentId, isActive: !isTournamentActive });
+      toast.success(isTournamentActive ? 'Tournament deactivated' : 'Tournament activated');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to update tournament visibility'));
+    } finally {
+      setTogglingActive(false);
+    }
+  };
+
   const handleRestartAuction = async () => {
     if (!auctionRooms || auctionRooms.length === 0) {
       toast.error('No auction room found to restart');
@@ -154,13 +182,41 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
     }
   };
 
-  if (!tournament) {
+  // undefined = still loading; null = not found or not accessible (e.g. a
+  // deactivated tournament opened by a non-admin).
+  if (tournament === undefined) {
     return (
       <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950">
         <Navbar />
         <div className="flex items-center justify-center py-20">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
         </div>
+      </div>
+    );
+  }
+
+  if (tournament === null) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
+        <Navbar />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 safe-bottom">
+          <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition mb-4 py-2 touch-target">
+            <ArrowLeft className="w-5 h-5" />
+            <span>Back to Dashboard</span>
+          </Link>
+          <div className="text-center py-16 sm:py-20">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-800 flex items-center justify-center">
+              <EyeOff className="w-8 h-8 text-slate-500" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold mb-2">Tournament unavailable</h1>
+            <p className="text-slate-400 text-sm sm:text-base max-w-md mx-auto">
+              This tournament is not available. It may have been deactivated by an admin or no longer exists.
+            </p>
+            <Link href="/dashboard">
+              <Button className="mt-6 h-11 px-5">Go to Dashboard</Button>
+            </Link>
+          </div>
+        </main>
       </div>
     );
   }
@@ -226,6 +282,31 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} className="h-11 px-4 text-sm">
                   <Settings className="w-4 h-4 mr-2" />
                   Settings
+                </Button>
+              )}
+
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleToggleActive}
+                  disabled={togglingActive}
+                  className={`h-11 px-4 text-sm ${isTournamentActive
+                    ? 'border-amber-600 text-amber-500 hover:bg-amber-600 hover:text-white'
+                    : 'border-green-600 text-green-500 hover:bg-green-600 hover:text-white'
+                    }`}
+                >
+                  {isTournamentActive ? (
+                    <>
+                      <EyeOff className="w-4 h-4 mr-2" />
+                      {togglingActive ? 'Deactivating...' : 'Deactivate'}
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-4 h-4 mr-2" />
+                      {togglingActive ? 'Activating...' : 'Activate'}
+                    </>
+                  )}
                 </Button>
               )}
 
@@ -331,6 +412,15 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
           <div className="mt-4 mb-4 bg-purple-600/10 border border-purple-600/30 rounded-lg p-4">
             <p className="text-sm text-purple-400">
               ✓ Tournament completed. Editing is disabled for completed tournaments.
+            </p>
+          </div>
+        )}
+
+        {!isTournamentActive && (
+          <div className="mt-4 mb-4 bg-amber-600/10 border border-amber-600/30 rounded-lg p-4 flex items-start gap-3">
+            <EyeOff className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-300">
+              This tournament is <span className="font-semibold">deactivated</span> — only admins can see or open it. Click <span className="font-semibold">Activate</span> to make it visible to everyone again.
             </p>
           </div>
         )}

@@ -192,14 +192,21 @@ export default function DashboardPage() {
                         )}
                       </div>
                     </div>
-                    <span className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold ml-2 whitespace-nowrap ${
-                      tournament.status === 'active' ? 'bg-green-600' :
-                      tournament.status === 'setup' ? 'bg-orange-600' :
-                      tournament.status === 'completed' ? 'bg-red-600' :
-                      'bg-slate-600'
-                    }`}>
-                      {tournament.status}
-                    </span>
+                    <div className="flex flex-col items-end gap-1 ml-2">
+                      <span className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${
+                        tournament.status === 'active' ? 'bg-green-600' :
+                        tournament.status === 'setup' ? 'bg-orange-600' :
+                        tournament.status === 'completed' ? 'bg-red-600' :
+                        'bg-slate-600'
+                      }`}>
+                        {tournament.status}
+                      </span>
+                      {tournament.isActive === false && (
+                        <span className="px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap bg-amber-600/20 text-amber-400 border border-amber-600/40">
+                          Inactive
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-2 text-sm">

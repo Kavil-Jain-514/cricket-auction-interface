@@ -79,9 +79,21 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
   // Download all players as PDF
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const hasCaptains = captainPlayerIds.size > 0;
 
-  const handleDownloadAllPlayers = useCallback(async () => {
+  const handleDownloadAllPlayers = useCallback(async (includeCaptains: boolean = true) => {
     if (!allPlayers || allPlayers.length === 0) {
+      toast.error('No players to download');
+      return;
+    }
+
+    // Optionally exclude team captains from the exported list.
+    const playersToExport = includeCaptains
+      ? allPlayers
+      : allPlayers.filter(p => !captainPlayerIds.has(p._id));
+
+    if (playersToExport.length === 0) {
       toast.error('No players to download');
       return;
     }
@@ -126,7 +138,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       }
 
       // Load all player images in parallel
-      const imagePromises = allPlayers
+      const imagePromises = playersToExport
         .filter(p => p.photoUrl)
         .map(async (p) => {
           if (p.photoUrl) {
@@ -347,7 +359,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       };
 
       // Draw each page
-      const totalPages = Math.ceil(allPlayers.length / cardsPerPage);
+      const totalPages = Math.ceil(playersToExport.length / cardsPerPage);
 
       for (let page = 0; page < totalPages; page++) {
         if (page > 0) {
@@ -358,10 +370,10 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
         // Draw player cards
         const startIdx = page * cardsPerPage;
-        const endIdx = Math.min(startIdx + cardsPerPage, allPlayers.length);
+        const endIdx = Math.min(startIdx + cardsPerPage, playersToExport.length);
 
         for (let i = startIdx; i < endIdx; i++) {
-          const player = allPlayers[i];
+          const player = playersToExport[i];
           const cardIndex = i - startIdx;
           const col = cardIndex % cols;
           const row = Math.floor(cardIndex / cols);
@@ -374,9 +386,10 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       }
 
       // Save the PDF
-      const fileName = `${tournament?.name?.replace(/\s+/g, '_') || 'Tournament'}_All_Players.pdf`;
+      const captainSuffix = includeCaptains ? 'All_Players' : 'Players_No_Captains';
+      const fileName = `${tournament?.name?.replace(/\s+/g, '_') || 'Tournament'}_${captainSuffix}.pdf`;
       pdf.save(fileName);
-      toast.success(`Downloaded ${allPlayers.length} players as PDF`);
+      toast.success(`Downloaded ${playersToExport.length} players as PDF`);
     } catch {
       toast.error('Failed to generate PDF');
     } finally {
@@ -414,24 +427,68 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
               {stats.total > 0 && isAdmin && (
                 <>
-                  <Button
-                    variant="outline"
-                    onClick={handleDownloadAllPlayers}
-                    disabled={isGeneratingPDF}
-                    className="border-green-500/50 text-green-400 hover:bg-green-500/10 hover:text-green-300 h-11 px-3 sm:px-4 text-sm disabled:opacity-50"
-                  >
-                    {isGeneratingPDF ? (
+                  <div className="relative">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        // No captains selected — nothing to choose, download directly.
+                        if (!hasCaptains) {
+                          handleDownloadAllPlayers(true);
+                        } else {
+                          setShowDownloadMenu(prev => !prev);
+                        }
+                      }}
+                      disabled={isGeneratingPDF}
+                      className="border-green-500/50 text-green-400 hover:bg-green-500/10 hover:text-green-300 h-11 px-3 sm:px-4 text-sm disabled:opacity-50"
+                    >
+                      {isGeneratingPDF ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400 sm:mr-2" />
+                          <span className="hidden sm:inline">Generating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4 sm:mr-2" />
+                          <span className="hidden sm:inline">Download PDF</span>
+                        </>
+                      )}
+                    </Button>
+
+                    {showDownloadMenu && hasCaptains && !isGeneratingPDF && (
                       <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400 sm:mr-2" />
-                        <span className="hidden sm:inline">Generating...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-4 h-4 sm:mr-2" />
-                        <span className="hidden sm:inline">Download PDF</span>
+                        {/* Click-away overlay */}
+                        <button
+                          type="button"
+                          aria-label="Close download menu"
+                          className="fixed inset-0 z-40 cursor-default"
+                          onClick={() => setShowDownloadMenu(false)}
+                        />
+                        <div className="absolute right-0 mt-2 w-52 z-50 rounded-lg border border-slate-700 bg-slate-900 shadow-xl overflow-hidden">
+                          <button
+                            onClick={() => {
+                              setShowDownloadMenu(false);
+                              handleDownloadAllPlayers(true);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-3 text-sm text-slate-200 hover:bg-slate-800 transition text-left"
+                          >
+                            <Download className="w-4 h-4 text-green-400 shrink-0" />
+                            With Captains
+                          </button>
+                          <div className="h-px bg-slate-700" />
+                          <button
+                            onClick={() => {
+                              setShowDownloadMenu(false);
+                              handleDownloadAllPlayers(false);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-3 text-sm text-slate-200 hover:bg-slate-800 transition text-left"
+                          >
+                            <Download className="w-4 h-4 text-green-400 shrink-0" />
+                            Without Captains
+                          </button>
+                        </div>
                       </>
                     )}
-                  </Button>
+                  </div>
                   <Button
                     variant="outline"
                     onClick={() => setShowDeleteConfirm(true)}
@@ -630,19 +687,36 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
         {/* Import Modal */}
         {showImport && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto ipad-scroll">
-            <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full p-4 sm:p-6 my-4 sm:my-8 relative">
-              <button
-                onClick={() => setShowImport(false)}
-                aria-label="Close import players"
-                className="absolute top-3 right-3 sm:top-4 sm:right-4 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition touch-target"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              <PlayerImport
-                tournamentId={tournamentId}
-                onComplete={() => setShowImport(false)}
-              />
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4"
+            onClick={() => setShowImport(false)}
+          >
+            <div
+              className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full max-h-[90dvh] flex flex-col overflow-hidden shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-slate-700 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Upload className="w-5 h-5 text-blue-400 shrink-0" />
+                  <h2 className="text-lg sm:text-xl font-bold truncate">Import Players</h2>
+                </div>
+                <button
+                  onClick={() => setShowImport(false)}
+                  aria-label="Close import players"
+                  className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition touch-target shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Scrollable body */}
+              <div className="overflow-y-auto ipad-scroll px-4 sm:px-6 py-4 sm:py-5">
+                <PlayerImport
+                  tournamentId={tournamentId}
+                  onComplete={() => setShowImport(false)}
+                />
+              </div>
             </div>
           </div>
         )}
