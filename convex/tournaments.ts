@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAdmin } from "./auth";
+import { getCurrentUser, logAdminAction, requireAdmin } from "./auth";
 
 export const create = mutation({
   args: {
@@ -114,12 +114,20 @@ export const listAll = query({
     if (args.limit !== undefined && args.limit <= 0) {
       throw new Error("limit must be a positive number");
     }
+    // Non-admins never see deactivated tournaments (isActive === false).
+    // Legacy tournaments with isActive === undefined stay visible.
+    const user = await getCurrentUser(ctx);
+    const isAdmin = user?.role === "admin";
+    const visible = (t: { isActive?: boolean }) => isAdmin || t.isActive !== false;
+
     const tournamentsQuery = ctx.db.query("tournaments").order("desc");
     if (args.limit === undefined) {
-      return await tournamentsQuery.collect();
+      return (await tournamentsQuery.collect()).filter(visible);
     }
     const cap = Math.max(1, Math.min(args.limit, 100));
-    return await tournamentsQuery.take(cap);
+    // Over-fetch so the post-filter still has a chance to fill the cap.
+    const fetched = await tournamentsQuery.take(isAdmin ? cap : cap * 2);
+    return fetched.filter(visible).slice(0, cap);
   },
 });
 
@@ -128,7 +136,17 @@ export const getById = query({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
-    return await ctx.db.get(args.id);
+
+    const tournament = await ctx.db.get(args.id);
+    if (!tournament) return null;
+
+    // Deactivated tournaments are only reachable by admins.
+    if (tournament.isActive === false) {
+      const user = await getCurrentUser(ctx);
+      if (user?.role !== "admin") return null;
+    }
+
+    return tournament;
   },
 });
 
@@ -196,6 +214,44 @@ export const update = mutation({
     await ctx.db.patch(id, {
       ...updates,
       updatedAt: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
+
+// Toggle a tournament's visibility. Deactivated tournaments are hidden from
+// non-admin listings and cannot be opened by non-admins (see getById / listAll).
+export const setActive = mutation({
+  args: {
+    id: v.id("tournaments"),
+    isActive: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+
+    const tournament = await ctx.db.get(args.id);
+    if (!tournament) throw new Error("Tournament not found");
+
+    const previous = tournament.isActive !== false; // legacy undefined = active
+    if (previous === args.isActive) {
+      return { success: true };
+    }
+
+    await ctx.db.patch(args.id, {
+      isActive: args.isActive,
+      updatedAt: Date.now(),
+    });
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: args.isActive ? "activate_tournament" : "deactivate_tournament",
+      targetType: "tournament",
+      targetId: args.id,
+      previousData: { isActive: previous },
+      newData: { isActive: args.isActive },
+      tournamentId: args.id,
     });
 
     return { success: true };

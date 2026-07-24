@@ -46,6 +46,10 @@ export default defineSchema({
       basePrice: v.optional(v.number()), // Default base price for players, if not provided it's 1,00,000 for legacy reasons
     }),
     logoUrl: v.optional(v.string()),
+    // Visibility flag (independent of the auction lifecycle `status` above).
+    // When false, non-admin users can neither see the tournament in listings
+    // nor open it. Absent on legacy tournaments — treated as active.
+    isActive: v.optional(v.boolean()),
     startDate: v.optional(v.number()),
     endDate: v.optional(v.number()),
     // Denormalized player-status counts, maintained on the write side by

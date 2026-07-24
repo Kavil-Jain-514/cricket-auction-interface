@@ -69,31 +69,6 @@ export function PlayerCard({ player, onClick, isCaptain }: PlayerCardProps) {
         onClick={onClick}
         className={`bg-slate-800/50 border border-slate-700 rounded-xl p-3 sm:p-4 hover:border-blue-500 transition relative ${onClick ? 'cursor-pointer' : ''}`}
       >
-        {/* Action Buttons */}
-        {(canModify || canDelete) && (
-          <div className="absolute top-2 right-2 sm:top-3 sm:right-3 flex gap-1.5">
-            {canModify && (
-              <button
-                onClick={handleEdit}
-                className="p-2 sm:p-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition touch-target"
-                title="Edit Player"
-              >
-                <Edit className="w-6 h-4" />
-              </button>
-            )}
-            {canDelete && (
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 touch-target"
-                title="Delete Player"
-              >
-                <Trash2 className="w-6 h-4" />
-              </button>
-            )}
-          </div>
-        )}
-
         {/* Player Avatar */}
         <div className="flex items-start gap-2.5 sm:gap-3 mb-3">
           <div className="relative shrink-0">
@@ -112,7 +87,7 @@ export function PlayerCard({ player, onClick, isCaptain }: PlayerCardProps) {
             )}
           </div>
 
-          <div className="flex-1 min-w-0 pr-16 sm:pr-20">
+          <div className="flex-1 min-w-0">
             <h3 className="font-bold text-base sm:text-lg truncate">{player.name}</h3>
             <p className="text-xs sm:text-sm text-slate-400">{player.age} years</p>
             <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-1.5">
@@ -151,6 +126,40 @@ export function PlayerCard({ player, onClick, isCaptain }: PlayerCardProps) {
             </div>
           )}
         </div>
+
+        {/* Footer actions */}
+        {(canModify || canDelete) && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="mt-3 pt-3 border-t border-slate-700 flex items-center justify-end gap-0.5 -mr-1 -mb-1"
+          >
+            {canModify && (
+              <button
+                onClick={handleEdit}
+                className="flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-blue-500/15 hover:text-blue-400 active:scale-95 touch-target"
+                aria-label="Edit player"
+                title="Edit Player"
+              >
+                <Edit className="h-4 w-4" />
+              </button>
+            )}
+            {canDelete && (
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-500/15 hover:text-red-400 active:scale-95 disabled:cursor-not-allowed disabled:text-slate-600 disabled:hover:bg-transparent disabled:active:scale-100 touch-target"
+                aria-label="Delete player"
+                title="Delete Player"
+              >
+                {deleting ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-400/40 border-t-red-400" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+              </button>
+            )}
+          </div>
+        )}
       </motion.div>
       {/* Edit Modal */}
       {showEdit && (

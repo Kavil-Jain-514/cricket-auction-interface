@@ -206,6 +206,9 @@ export const listByTournament = query({
       isAdminUser = user?.role === "admin";
     }
 
+    // Deactivated tournaments are hidden from non-admins even via direct links.
+    if (tournament.isActive === false && !isAdminUser) return [];
+
     // Use the compound index when filtering by status to avoid a full-collection scan.
     const players = args.status
       ? await ctx.db

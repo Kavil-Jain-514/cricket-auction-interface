@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAdmin } from "./auth";
+import { getCurrentUser, requireAdmin } from "./auth";
 import { Doc } from "./_generated/dataModel";
 
 /**
@@ -138,6 +138,12 @@ export const listByTournament = query({
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) return [];
+
+    // Deactivated tournaments are hidden from non-admins even via direct links.
+    if (tournament.isActive === false) {
+      const user = await getCurrentUser(ctx);
+      if (user?.role !== "admin") return [];
+    }
 
     return await ctx.db
       .query("teams")

@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import { FastForward, PartyPopper } from 'lucide-react';
+import { FastForward, PartyPopper, ArrowRight, Sparkles } from 'lucide-react';
 import { Doc, Id } from '@/convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { cn } from '@/lib/utils';
+import { fisherYatesShuffle } from '@/lib/groupDraw';
 
 type Assignment = Doc<"groupDraws">["assignments"][number];
 
@@ -18,26 +19,46 @@ interface GroupDrawRevealProps {
   onComplete: () => void;
 }
 
-const SHUFFLE_MS = 2200; // opening shuffle phase
-const CYCLE_MS = 90; // how fast names cycle in the spinner
-const LOCK_AT_MS = 950; // when the drawn team locks in within a slot window
-const SLOT_MS = 1600; // total time per slot reveal
+// Ceremony timing (ms)
+const INTRO_MS = 1400; // opening shuffle
+const CYCLE_MS = 80; // how fast names flicker in the spinner
+const TEAM_SPIN_MS = 1000; // drumroll before a team locks in
+const TEAM_HOLD_MS = 700; // hold on the drawn team before revealing its group
+const GROUP_HOLD_MS = 1150; // hold on the group reveal before the next team
+
+type Phase = 'intro' | 'pick' | 'done';
+type Sub = 'spin' | 'team' | 'group';
+
+// Per-group accent hue so each group reads as its own identity.
+const GROUP_HUES = [210, 265, 150, 25, 330, 190, 45, 285, 0, 170];
+function groupAccent(group: string): string {
+  const i = Math.max(0, group.charCodeAt(0) - 65);
+  return `hsl(${GROUP_HUES[i % GROUP_HUES.length]} 80% 58%)`;
+}
 
 /**
- * Draw-ceremony overlay: a shuffling phase, then a suspenseful slot-by-slot
- * reveal into the group table, finishing with confetti. The result is fully
- * decided before this component mounts — skipping just jumps to the end.
+ * Draw-ceremony overlay. The result is fully decided before this mounts — the
+ * ceremony reveals it in a random *team* order: each team is spotlighted on its
+ * own, then dramatically assigned to its group. Skipping jumps to the end.
  */
 export function GroupDrawReveal({ assignments, teamsById, onComplete }: GroupDrawRevealProps) {
   const reduceMotion = useReducedMotion();
-  const [phase, setPhase] = useState<'shuffle' | 'reveal' | 'done'>('shuffle');
-  const [current, setCurrent] = useState(0); // index of the slot being revealed
-  const [locked, setLocked] = useState(false); // current slot's team revealed?
+  const [phase, setPhase] = useState<Phase>('intro');
+  const [sub, setSub] = useState<Sub>('spin');
+  const [step, setStep] = useState(0); // index into revealOrder
   const [cycleIdx, setCycleIdx] = useState(0);
+  const [revealed, setRevealed] = useState<Set<number>>(new Set());
 
   const teamName = (id: Id<"teams">) => teamsById.get(id)?.name ?? 'Team';
 
-  // Assignment order is already random, so cycling through it reads as a shuffle
+  // Random order in which teams get drawn (indices into `assignments`). The
+  // outcome is unchanged — only the reveal sequence is shuffled — so groups
+  // fill in unpredictably, which is what makes it exciting to watch.
+  const revealOrder = useMemo(
+    () => fisherYatesShuffle(assignments.map((_, i) => i)),
+    [assignments],
+  );
+
   const cycleNames = useMemo(
     () => assignments.map((a) => teamName(a.teamId)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -54,61 +75,102 @@ export function GroupDrawReveal({ assignments, teamsById, onComplete }: GroupDra
     return [...map.entries()];
   }, [assignments]);
 
-  // Reduced motion: no ceremony — show the completed table with a plain fade
+  const currentIndex = revealOrder[step];
+  const currentAssignment = phase === 'pick' ? assignments[currentIndex] : undefined;
+  const currentTeam = currentAssignment ? teamsById.get(currentAssignment.teamId) : undefined;
+  const activeGroup = phase === 'pick' && sub !== 'spin' ? currentAssignment?.group : undefined;
+
+  // Reduced motion: skip the ceremony, show the finished table.
   useEffect(() => {
     if (reduceMotion) {
-      setCurrent(assignments.length);
+      setRevealed(new Set(assignments.map((_, i) => i)));
       setPhase('done');
     }
-  }, [reduceMotion, assignments.length]);
+  }, [reduceMotion, assignments]);
 
-  // Name spinner
-  const cycling = phase === 'shuffle' || (phase === 'reveal' && !locked);
+  // Name spinner ticks during the intro and every team's drumroll.
+  const cycling = phase === 'intro' || (phase === 'pick' && sub === 'spin');
   useEffect(() => {
     if (!cycling) return;
     const id = setInterval(() => setCycleIdx((i) => i + 1), CYCLE_MS);
     return () => clearInterval(id);
   }, [cycling]);
 
-  // Shuffle phase → reveal phase
+  // Main state machine: intro → per-team (spin → team → group) → done.
   useEffect(() => {
-    if (phase !== 'shuffle' || reduceMotion) return;
-    const id = setTimeout(() => setPhase('reveal'), SHUFFLE_MS);
-    return () => clearTimeout(id);
-  }, [phase, reduceMotion]);
-
-  // Slot-by-slot reveal loop
-  useEffect(() => {
-    if (phase !== 'reveal') return;
-    if (current >= assignments.length) {
-      setPhase('done');
-      return;
+    if (reduceMotion) return;
+    if (phase === 'intro') {
+      const t = setTimeout(() => { setPhase('pick'); setStep(0); setSub('spin'); }, INTRO_MS);
+      return () => clearTimeout(t);
     }
-    setLocked(false);
-    const lockTimer = setTimeout(() => setLocked(true), LOCK_AT_MS);
-    const nextTimer = setTimeout(() => setCurrent((c) => c + 1), SLOT_MS);
-    return () => {
-      clearTimeout(lockTimer);
-      clearTimeout(nextTimer);
-    };
-  }, [phase, current, assignments.length]);
+    if (phase !== 'pick') return;
+    if (sub === 'spin') {
+      const t = setTimeout(() => setSub('team'), TEAM_SPIN_MS);
+      return () => clearTimeout(t);
+    }
+    if (sub === 'team') {
+      const t = setTimeout(() => setSub('group'), TEAM_HOLD_MS);
+      return () => clearTimeout(t);
+    }
+    // sub === 'group'
+    const t = setTimeout(() => {
+      if (step + 1 >= assignments.length) {
+        setPhase('done');
+      } else {
+        setStep((s) => s + 1);
+        setSub('spin');
+      }
+    }, GROUP_HOLD_MS);
+    return () => clearTimeout(t);
+  }, [phase, sub, step, reduceMotion, assignments.length]);
 
-  // Celebration
+  // The moment a team is assigned: fill its slot + a themed confetti burst.
+  useEffect(() => {
+    if (phase !== 'pick' || sub !== 'group') return;
+    setRevealed((prev) => {
+      if (prev.has(currentIndex)) return prev;
+      const next = new Set(prev);
+      next.add(currentIndex);
+      return next;
+    });
+    if (!reduceMotion) {
+      confetti({
+        particleCount: 55,
+        spread: 65,
+        startVelocity: 32,
+        origin: { y: 0.4 },
+        colors: [
+          currentTeam?.colorPrimary ?? '#3b82f6',
+          currentTeam?.colorSecondary ?? '#8b5cf6',
+          '#ffffff',
+        ],
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, sub, step]);
+
+  // Final celebration.
   useEffect(() => {
     if (phase !== 'done' || reduceMotion) return;
-    confetti({ particleCount: 120, spread: 80, origin: { x: 0.2, y: 0.6 } });
-    confetti({ particleCount: 120, spread: 80, origin: { x: 0.8, y: 0.6 } });
+    confetti({ particleCount: 140, spread: 90, origin: { x: 0.2, y: 0.6 } });
+    confetti({ particleCount: 140, spread: 90, origin: { x: 0.8, y: 0.6 } });
   }, [phase, reduceMotion]);
 
   const handleSkip = () => {
-    setCurrent(assignments.length);
-    setLocked(false);
+    setRevealed(new Set(assignments.map((_, i) => i)));
     setPhase('done');
   };
 
-  const currentAssignment = phase === 'reveal' ? assignments[current] : undefined;
-  const isFilled = (index: number) =>
-    phase === 'done' || index < current || (index === current && locked);
+  const isFilled = (index: number) => phase === 'done' || revealed.has(index);
+
+  const stageLabel =
+    phase === 'intro'
+      ? 'Shuffling teams…'
+      : sub === 'spin'
+        ? 'Drawing the next team…'
+        : sub === 'team'
+          ? 'Team drawn!'
+          : 'Assigned to group';
 
   return (
     <motion.div
@@ -138,121 +200,222 @@ export function GroupDrawReveal({ assignments, teamsById, onComplete }: GroupDra
           <h1 className="text-xl sm:text-3xl font-bold text-white">
             {phase === 'done' ? 'Draw Complete!' : 'Group Draw'}
           </h1>
-          {phase !== 'done' && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSkip}
-              className="h-10 px-4 border-slate-600 text-slate-300 hover:bg-slate-800"
-            >
-              <FastForward className="w-4 h-4 mr-2" />
-              Skip animation
-            </Button>
-          )}
+          <div className="flex items-center gap-3">
+            {phase === 'pick' && (
+              <span className="hidden sm:inline text-sm font-medium text-slate-400 tabular-nums">
+                Team {step + 1} of {assignments.length}
+              </span>
+            )}
+            {phase !== 'done' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSkip}
+                className="h-10 px-4 border-slate-600 text-slate-300 hover:bg-slate-800"
+              >
+                <FastForward className="w-4 h-4 mr-2" />
+                Skip animation
+              </Button>
+            )}
+          </div>
         </div>
 
-        {/* Center stage: spinner / current pick */}
+        {/* Center stage: the team being drawn and its group reveal */}
         <AnimatePresence>
           {phase !== 'done' && (
-            <motion.div
-              exit={{ opacity: 0, height: 0 }}
-              className="text-center mb-6 sm:mb-10"
-            >
-              <div className="text-xs sm:text-sm uppercase tracking-[0.25em] text-slate-400 mb-3">
-                {phase === 'shuffle'
-                  ? 'Shuffling teams…'
-                  : `Drawing slot ${currentAssignment?.slotLabel ?? ''}`}
+            <motion.div exit={{ opacity: 0, height: 0 }} className="text-center mb-6 sm:mb-10">
+              <div className="text-xs sm:text-sm uppercase tracking-[0.25em] text-slate-400 mb-3 flex items-center justify-center gap-2">
+                {sub === 'team' && phase === 'pick' && (
+                  <Sparkles className="w-4 h-4 text-yellow-400" />
+                )}
+                {stageLabel}
               </div>
-              <div className="h-24 sm:h-28 flex items-center justify-center">
-                {phase === 'reveal' && locked && currentAssignment ? (
-                  <motion.div
-                    key={`locked-${current}`}
-                    initial={{ scale: 0.5, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: 'spring', stiffness: 300, damping: 18 }}
-                    className="inline-flex items-center gap-3 sm:gap-4 px-6 sm:px-8 py-3 sm:py-4 bg-linear-to-r from-blue-600 to-purple-600 rounded-2xl shadow-2xl shadow-blue-500/30"
-                  >
-                    <TeamLogo
-                      name={teamName(currentAssignment.teamId)}
-                      logoUrl={teamsById.get(currentAssignment.teamId)?.logoUrl}
-                      primaryColor={teamsById.get(currentAssignment.teamId)?.colorPrimary}
-                      size="md"
-                      rounded="full"
-                    />
-                    <span className="text-2xl sm:text-4xl font-bold text-white">
-                      {teamName(currentAssignment.teamId)}
-                    </span>
-                  </motion.div>
+
+              <div className="min-h-28 sm:min-h-32 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+                {phase === 'pick' && sub !== 'spin' && currentAssignment ? (
+                  <>
+                    {/* Drawn team */}
+                    <motion.div
+                      key={`team-${step}`}
+                      initial={{ scale: 0.5, opacity: 0, y: 10 }}
+                      animate={{ scale: 1, opacity: 1, y: 0 }}
+                      transition={{ type: 'spring', stiffness: 300, damping: 18 }}
+                      className="inline-flex items-center gap-3 sm:gap-4 px-5 sm:px-8 py-3 sm:py-4 rounded-2xl shadow-2xl"
+                      style={{
+                        background: `linear-gradient(135deg, ${currentTeam?.colorPrimary ?? '#2563eb'}, ${currentTeam?.colorSecondary ?? '#7c3aed'})`,
+                      }}
+                    >
+                      <TeamLogo
+                        name={teamName(currentAssignment.teamId)}
+                        logoUrl={currentTeam?.logoUrl}
+                        primaryColor={currentTeam?.colorPrimary}
+                        size="md"
+                        rounded="full"
+                      />
+                      <span className="text-xl sm:text-4xl font-bold text-white drop-shadow">
+                        {teamName(currentAssignment.teamId)}
+                      </span>
+                    </motion.div>
+
+                    {/* Group reveal */}
+                    {sub === 'group' && (
+                      <>
+                        <motion.div
+                          initial={{ opacity: 0, x: -8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: 0.05 }}
+                        >
+                          <ArrowRight className="w-6 h-6 sm:w-8 sm:h-8 text-slate-400" />
+                        </motion.div>
+                        <motion.div
+                          key={`group-${step}`}
+                          initial={{ scale: 0.3, opacity: 0, rotate: -12 }}
+                          animate={{ scale: 1, opacity: 1, rotate: 0 }}
+                          transition={{ type: 'spring', stiffness: 260, damping: 14 }}
+                          className="inline-flex items-center gap-2 sm:gap-3 px-5 sm:px-7 py-3 sm:py-4 rounded-2xl shadow-2xl"
+                          style={{
+                            background: `color-mix(in srgb, ${groupAccent(currentAssignment.group)} 22%, #0f172a)`,
+                            border: `1px solid ${groupAccent(currentAssignment.group)}`,
+                          }}
+                        >
+                          <span
+                            className="flex items-center justify-center w-9 h-9 sm:w-11 sm:h-11 rounded-full text-lg sm:text-2xl font-black text-slate-950"
+                            style={{ backgroundColor: groupAccent(currentAssignment.group) }}
+                          >
+                            {currentAssignment.group}
+                          </span>
+                          <div className="text-left">
+                            <div className="text-[10px] sm:text-xs uppercase tracking-wider text-slate-300">
+                              Group
+                            </div>
+                            <div className="text-lg sm:text-2xl font-bold text-white leading-none">
+                              {currentAssignment.slotLabel}
+                            </div>
+                          </div>
+                        </motion.div>
+                      </>
+                    )}
+                  </>
                 ) : (
-                  <div className="inline-flex items-center px-6 sm:px-8 py-3 sm:py-4 bg-slate-800/70 border border-slate-600 rounded-2xl">
-                    <span className="text-2xl sm:text-4xl font-bold text-slate-300 tabular-nums">
+                  // Drumroll spinner
+                  <motion.div
+                    animate={reduceMotion ? undefined : { scale: [1, 1.03, 1] }}
+                    transition={{ duration: 0.4, repeat: Infinity }}
+                    className="inline-flex items-center px-6 sm:px-8 py-3 sm:py-4 bg-slate-800/70 border border-slate-600 rounded-2xl"
+                  >
+                    <span className="text-xl sm:text-4xl font-bold text-slate-300">
                       {cycleNames[cycleIdx % Math.max(cycleNames.length, 1)] ?? '…'}
                     </span>
-                  </div>
+                  </motion.div>
                 )}
               </div>
+
+              {/* Progress dots */}
+              {phase === 'pick' && (
+                <div className="mt-5 flex items-center justify-center gap-1.5 flex-wrap max-w-md mx-auto">
+                  {assignments.map((_, i) => (
+                    <span
+                      key={i}
+                      className={cn(
+                        'h-1.5 rounded-full transition-all duration-300',
+                        i < step ? 'w-1.5 bg-blue-500' : i === step ? 'w-5 bg-white' : 'w-1.5 bg-slate-700',
+                      )}
+                    />
+                  ))}
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Group grid filling in slot by slot */}
+        {/* Group grid filling in as teams are drawn */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-          {groups.map(([group, slots]) => (
-            <div key={group} className="bg-slate-900/70 border border-slate-700 rounded-xl overflow-hidden">
-              <div className="px-4 py-2.5 bg-slate-800/80 border-b border-slate-700">
-                <h3 className="font-bold text-white">Group {group}</h3>
-              </div>
-              <ul className="divide-y divide-slate-800">
-                {slots.map(({ assignment, index }) => {
-                  const team = teamsById.get(assignment.teamId);
-                  const filled = isFilled(index);
-                  const isActive = phase === 'reveal' && index === current && !locked;
-                  return (
-                    <li
-                      key={assignment.slotLabel}
-                      className={cn(
-                        'flex items-center gap-3 px-4 py-2.5 min-h-[52px]',
-                        isActive && 'bg-blue-500/10 ring-1 ring-inset ring-blue-500/50',
-                      )}
-                    >
-                      <span
+          {groups.map(([group, slots]) => {
+            const accent = groupAccent(group);
+            const isActiveGroup = activeGroup === group;
+            return (
+              <motion.div
+                key={group}
+                animate={
+                  isActiveGroup && !reduceMotion
+                    ? { scale: [1, 1.02, 1], boxShadow: `0 0 0 2px ${accent}` }
+                    : { scale: 1, boxShadow: '0 0 0 0px rgba(0,0,0,0)' }
+                }
+                transition={{ duration: 0.5 }}
+                className="bg-slate-900/70 border border-slate-700 rounded-xl overflow-hidden"
+              >
+                <div
+                  className="flex items-center gap-2.5 px-4 py-2.5 border-b border-slate-700"
+                  style={{ background: `color-mix(in srgb, ${accent} 14%, #1e293b)` }}
+                >
+                  <span
+                    className="flex items-center justify-center w-6 h-6 rounded-md text-xs font-black text-slate-950"
+                    style={{ backgroundColor: accent }}
+                  >
+                    {group}
+                  </span>
+                  <h3 className="font-bold text-white">Group {group}</h3>
+                  <span className="ml-auto text-xs text-slate-400 tabular-nums">
+                    {slots.filter(({ index }) => isFilled(index)).length}/{slots.length}
+                  </span>
+                </div>
+                <ul className="divide-y divide-slate-800">
+                  {slots.map(({ assignment, index }) => {
+                    const team = teamsById.get(assignment.teamId);
+                    const filled = isFilled(index);
+                    const justFilled = phase === 'pick' && sub === 'group' && index === currentIndex;
+                    return (
+                      <li
+                        key={assignment.slotLabel}
                         className={cn(
-                          'w-10 shrink-0 text-center text-xs font-bold rounded-md py-1',
-                          filled
-                            ? 'text-blue-400 bg-blue-500/10 border border-blue-500/30'
-                            : 'text-slate-500 border border-dashed border-slate-600',
+                          'flex items-center gap-3 px-4 py-2.5 min-h-[52px] transition-colors',
+                          justFilled && 'bg-white/5',
                         )}
                       >
-                        {assignment.slotLabel}
-                      </span>
-                      {filled ? (
-                        <motion.div
-                          initial={reduceMotion ? false : { opacity: 0, x: -12, scale: 0.9 }}
-                          animate={{ opacity: 1, x: 0, scale: 1 }}
-                          transition={{ type: 'spring', stiffness: 320, damping: 22 }}
-                          className="flex items-center gap-2.5 min-w-0"
+                        <span
+                          className={cn(
+                            'w-10 shrink-0 text-center text-xs font-bold rounded-md py-1',
+                            !filled && 'text-slate-500 border border-dashed border-slate-600',
+                          )}
+                          style={
+                            filled
+                              ? {
+                                  color: accent,
+                                  backgroundColor: `color-mix(in srgb, ${accent} 14%, transparent)`,
+                                  border: `1px solid color-mix(in srgb, ${accent} 35%, transparent)`,
+                                }
+                              : undefined
+                          }
                         >
-                          <TeamLogo
-                            name={team?.name ?? '?'}
-                            logoUrl={team?.logoUrl}
-                            primaryColor={team?.colorPrimary}
-                            size="sm"
-                          />
-                          <span className="font-semibold text-sm text-white truncate">
-                            {team?.name ?? 'Unknown team'}
-                          </span>
-                        </motion.div>
-                      ) : (
-                        <span className={cn('text-sm', isActive ? 'text-blue-300 animate-pulse' : 'text-slate-600')}>
-                          {isActive ? 'Drawing…' : 'Awaiting draw'}
+                          {assignment.slotLabel}
                         </span>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
+                        {filled ? (
+                          <motion.div
+                            initial={reduceMotion ? false : { opacity: 0, x: -12, scale: 0.9 }}
+                            animate={{ opacity: 1, x: 0, scale: 1 }}
+                            transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+                            className="flex items-center gap-2.5 min-w-0"
+                          >
+                            <TeamLogo
+                              name={team?.name ?? '?'}
+                              logoUrl={team?.logoUrl}
+                              primaryColor={team?.colorPrimary}
+                              size="sm"
+                            />
+                            <span className="font-semibold text-sm text-white truncate">
+                              {team?.name ?? 'Unknown team'}
+                            </span>
+                          </motion.div>
+                        ) : (
+                          <span className="text-sm text-slate-600">Awaiting draw</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </motion.div>
+            );
+          })}
         </div>
 
         {/* Final state */}

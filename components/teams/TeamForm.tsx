@@ -19,24 +19,12 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
+import { TeamColorPicker, TEAM_PRESET_COLORS } from './TeamColorPicker';
 
 interface TeamFormProps {
   tournamentId: Id<"tournaments">;
   onClose: () => void;
 }
-
-const PRESET_COLORS = [
-  { primary: '#3B82F6', secondary: '#1D4ED8', name: 'Blue' },
-  { primary: '#EF4444', secondary: '#DC2626', name: 'Red' },
-  { primary: '#8B5CF6', secondary: '#7C3AED', name: 'Purple' },
-  { primary: '#14B8A6', secondary: '#0D9488', name: 'Teal' },
-  { primary: '#F97316', secondary: '#EA580C', name: 'Amber' },
-  { primary: '#FACC15', secondary: '#EAB308', name: 'Yellow' },
-  { primary: '#78716C', secondary: '#57534E', name: 'Stone Gray' },
-  { primary: '#FFF7E6', secondary: '#F3E8D0', name: 'Creame' },
-  { primary: '#A855F7', secondary: '#9333EA', name: 'Violet' },
-  { primary: '#800000', secondary: '#5A0000', name: 'Maroon' },
-];
 
 export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
   const createTeam = useMutation(api.teams.create);
@@ -51,8 +39,8 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
     ownerName: '',
     sponsorName: '',
     logoUrl: '',
-    colorPrimary: PRESET_COLORS[0].primary,
-    colorSecondary: PRESET_COLORS[0].secondary,
+    colorPrimary: TEAM_PRESET_COLORS[0].primary as string,
+    colorSecondary: TEAM_PRESET_COLORS[0].secondary as string,
     // Captain details
     captainPlayerId: '' as string,
     captainName: '',
@@ -309,34 +297,13 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
                     </div>
                   </div>
 
-                  <div>
-                    <Label>Team Color</Label>
-                    <div className="grid grid-cols-4 sm:grid-cols-3 gap-2 mt-2">
-                      {PRESET_COLORS.map((color) => (
-                        <button
-                          key={color.name}
-                          type="button"
-                          onClick={() => setFormData({
-                            ...formData,
-                            colorPrimary: color.primary,
-                            colorSecondary: color.secondary,
-                          })}
-                          className={`p-2.5 sm:p-3 rounded-lg border-2 transition min-h-11 touch-target ${
-                            formData.colorPrimary === color.primary
-                              ? 'border-white'
-                              : 'border-transparent hover:border-slate-600'
-                          }`}
-                          style={{
-                            background: `linear-gradient(135deg, ${color.primary}, ${color.secondary})`
-                          }}
-                        >
-                          <span className="text-xs font-semibold text-white drop-shadow">
-                            {color.name}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <TeamColorPicker
+                    primary={formData.colorPrimary}
+                    secondary={formData.colorSecondary}
+                    onChange={(colorPrimary, colorSecondary) =>
+                      setFormData({ ...formData, colorPrimary, colorSecondary })
+                    }
+                  />
                 </div>
 
                 {/* Step 1 Actions */}

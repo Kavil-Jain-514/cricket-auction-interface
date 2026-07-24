@@ -19,24 +19,13 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { getErrorMessage } from '@/lib/utils';
+import { TeamColorPicker } from './TeamColorPicker';
 
 interface TeamEditFormProps {
   team: Doc<"teams">;
   onClose: () => void;
   onSuccess: () => void;
 }
-
-const PRESET_COLORS = [
-  { primary: '#3B82F6', secondary: '#1D4ED8', name: 'Blue' },
-  { primary: '#EF4444', secondary: '#DC2626', name: 'Red' },
-  { primary: '#10B981', secondary: '#059669', name: 'Green' },
-  { primary: '#F59E0B', secondary: '#D97706', name: 'Orange' },
-  { primary: '#8B5CF6', secondary: '#7C3AED', name: 'Purple' },
-  { primary: '#EC4899', secondary: '#DB2777', name: 'Pink' },
-  { primary: '#14B8A6', secondary: '#0D9488', name: 'Teal' },
-  { primary: '#F97316', secondary: '#EA580C', name: 'Amber' },
-  { primary: '#6366F1', secondary: '#4F46E5', name: 'Indigo' },
-];
 
 export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
   const updateTeam = useMutation(api.teams.update);
@@ -192,33 +181,13 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
               </div>
             </div>
 
-            <div>
-              <Label>Team Color</Label>
-              <div className="grid grid-cols-3 gap-2 mt-2">
-                {PRESET_COLORS.map((color) => (
-                  <button
-                    key={color.name}
-                    type="button"
-                    onClick={() => setFormData({
-                      ...formData,
-                      colorPrimary: color.primary,
-                      colorSecondary: color.secondary,
-                    })}
-                    className={`p-3 rounded-lg border-2 transition ${formData.colorPrimary === color.primary
-                      ? 'border-white'
-                      : 'border-transparent hover:border-slate-600'
-                      }`}
-                    style={{
-                      background: `linear-gradient(135deg, ${color.primary}, ${color.secondary})`
-                    }}
-                  >
-                    <span className="text-xs font-semibold text-white drop-shadow">
-                      {color.name}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <TeamColorPicker
+              primary={formData.colorPrimary}
+              secondary={formData.colorSecondary}
+              onChange={(colorPrimary, colorSecondary) =>
+                setFormData({ ...formData, colorPrimary, colorSecondary })
+              }
+            />
           </div>
 
           {/* Captain Section */}

@@ -121,39 +121,9 @@ export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
         onClick={() => setShowDetails(true)}
         className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6 hover:border-blue-500 transition relative cursor-pointer"
       >
-        {(canModify || tournament?.status === "completed") && (
-          <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex gap-1.5 sm:gap-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); handleDownloadPdf(); }}
-              className="p-2 sm:p-2.5 bg-green-600 hover:bg-green-700 rounded-lg transition touch-target"
-              title="Download PDF"
-            >
-              <Download className="w-6 h-4" />
-            </button>
-            {canModify && (
-              <>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setShowEdit(true); }}
-                  className="p-2 sm:p-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition touch-target"
-                  title="Edit Team"
-                >
-                  <Edit className="w-6 h-4" />
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(); }}
-                  disabled={deleting || !canDelete}
-                  className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 touch-target"
-                  title={canDelete ? "Delete Team" : "Cannot delete a team while the auction is live"}
-                >
-                  <Trash2 className="w-6 h-4" />
-                </button>
-              </>
-            )}
-          </div>
-        )}
         {/* Team Header */}
         <div className="flex items-start justify-between mb-3 sm:mb-4">
-          <div className="flex items-center gap-2.5 sm:gap-3 flex-1 pr-24 sm:pr-32">
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
             {/* Team Logo */}
             <TeamLogo
               name={team.name}
@@ -237,8 +207,51 @@ export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
         </div>
 
         {/* Footer */}
-        <div className="pt-3 sm:pt-4 border-t border-slate-700 flex items-center justify-between text-xs text-slate-400">
-          <span>Updated {new Date(team.updatedAt).toLocaleDateString()}</span>
+        <div className="pt-3 sm:pt-4 border-t border-slate-700 flex items-center justify-between gap-2">
+          <span className="text-xs text-slate-400 truncate">
+            Updated {new Date(team.updatedAt).toLocaleDateString()}
+          </span>
+
+          {(canModify || tournament?.status === "completed") && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-0.5 shrink-0 -mr-1 -mb-1"
+            >
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDownloadPdf(); }}
+                className="flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-green-500/15 hover:text-green-400 active:scale-95 touch-target"
+                aria-label="Download team PDF"
+                title="Download PDF"
+              >
+                <Download className="h-4 w-4" />
+              </button>
+              {canModify && (
+                <>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowEdit(true); }}
+                    className="flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-blue-500/15 hover:text-blue-400 active:scale-95 touch-target"
+                    aria-label="Edit team"
+                    title="Edit Team"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+                    disabled={deleting || !canDelete}
+                    className="flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-500/15 hover:text-red-400 active:scale-95 disabled:cursor-not-allowed disabled:text-slate-600 disabled:hover:bg-transparent disabled:active:scale-100 touch-target"
+                    aria-label="Delete team"
+                    title={canDelete ? "Delete Team" : "Cannot delete a team while the auction is live"}
+                  >
+                    {deleting ? (
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-400/40 border-t-red-400" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </motion.div>
       {/* Modals */}

@@ -404,24 +404,24 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
           </div>
 
           <div className="bg-slate-800 rounded-lg overflow-hidden">
-            <div className="overflow-x-auto -mx-4 sm:mx-0">
+            <div className="overflow-auto max-h-[45vh] ipad-scroll">
               <table className="w-full min-w-160">
-                <thead className="bg-slate-900">
+                <thead className="bg-slate-900 sticky top-0 z-10">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">#</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">Photo</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">Name</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">Role</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">Age</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">Hand</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">Jersey #</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">Jersey Name</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">T-Shirt</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">Base Price</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">#</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Photo</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Name</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Role</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Age</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Hand</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Jersey #</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Jersey Name</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">T-Shirt</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Base Price</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700">
-                  {parsed.slice(0, 10).map((player, idx) => (
+                  {parsed.map((player, idx) => (
                     <tr key={idx} className="hover:bg-slate-700/50">
                       <td className="px-4 py-3">
                         <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold">
@@ -483,9 +483,9 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                 </tbody>
               </table>
             </div>
-            {parsed.length > 10 && (
-              <div className="px-4 py-3 bg-slate-900 text-center text-sm text-slate-400">
-                Showing 10 of {parsed.length} players
+            {parsed.length > 8 && (
+              <div className="px-4 py-2.5 bg-slate-900 text-center text-xs text-slate-400 border-t border-slate-700">
+                Scroll to view all {parsed.length} players
               </div>
             )}
           </div>
