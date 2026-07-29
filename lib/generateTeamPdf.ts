@@ -11,6 +11,7 @@ interface Player {
   battingBowlingHand: string;
   phoneNumber?: string;
   tshirtSize?: string;
+  isCaptain?: boolean;
 }
 
 interface TeamData {
@@ -21,10 +22,6 @@ interface TeamData {
   colorSecondary: string;
   purseRemaining: number;
   purseSpent: number;
-  captainName?: string;
-  captainAge?: number;
-  captainRole?: string;
-  captainHand?: string;
   players: Player[];
   tournamentName?: string;
   logoUrl?: string;
@@ -102,7 +99,6 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
   let y = 20;
 
   const primaryColor = hexToRgb(team.colorPrimary);
-  const secondaryColor = hexToRgb(team.colorSecondary);
 
   // Header background
   doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
@@ -189,32 +185,6 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
 
   y += 40;
 
-  // Captain Section (if available)
-  if (team.captainName) {
-    doc.setFillColor(secondaryColor.r, secondaryColor.g, secondaryColor.b);
-    doc.roundedRect(margin, y, pageWidth - margin * 2, 25, 3, 3, "F");
-
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.text("CAPTAIN", margin + 5, y + 8);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    const captainDetails = [
-      team.captainName,
-      team.captainAge ? `Age: ${team.captainAge}` : "",
-      team.captainRole || "",
-      team.captainHand ? `${team.captainHand}-handed` : "",
-    ]
-      .filter(Boolean)
-      .join(" | ");
-    doc.text(captainDetails, margin + 5, y + 18);
-
-    y += 35;
-    doc.setTextColor(30, 30, 30);
-  }
-
   // Players Section Header
   doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
   doc.rect(margin, y, pageWidth - margin * 2, 10, "F");
@@ -251,10 +221,12 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
 
-  // Sort players by sold price (highest first)
-  const sortedPlayers = [...team.players].sort(
-    (a, b) => (b.soldPrice || 0) - (a.soldPrice || 0),
-  );
+  // Captain first, then the rest sorted by sold price (highest first)
+  const sortedPlayers = [...team.players].sort((a, b) => {
+    if (a.isCaptain && !b.isCaptain) return -1;
+    if (!a.isCaptain && b.isCaptain) return 1;
+    return (b.soldPrice || 0) - (a.soldPrice || 0);
+  });
 
   sortedPlayers.forEach((player, index) => {
     // Check if we need a new page
@@ -283,8 +255,11 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
       doc.setFont("helvetica", "normal");
     }
 
-    // Alternate row colors
-    if (index % 2 === 0) {
+    // Alternate row colors (captain gets a highlighted row instead)
+    if (player.isCaptain) {
+      doc.setFillColor(255, 247, 214);
+      doc.rect(margin, y - 4, pageWidth - margin * 2, 8, "F");
+    } else if (index % 2 === 0) {
       doc.setFillColor(250, 250, 250);
       doc.rect(margin, y - 4, pageWidth - margin * 2, 8, "F");
     }
@@ -292,7 +267,12 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
     doc.setFontSize(7);
     doc.setTextColor(30, 30, 30);
     doc.text(`${index + 1}`, margin + 2, y + 2);
-    doc.text(player.name.substring(0, 18), margin + 8, y + 2);
+    const displayName = player.isCaptain
+      ? `${player.name} (C)`
+      : player.name;
+    doc.setFont("helvetica", player.isCaptain ? "bold" : "normal");
+    doc.text(displayName.substring(0, 20), margin + 8, y + 2);
+    doc.setFont("helvetica", "normal");
     doc.text(player.age != null ? `${player.age}` : "-", margin + 35, y + 2);
     doc.text(player.phoneNumber || "-", margin + 45, y + 2);
     drawRoleBadge(doc, player.role, margin + 65, y + 2);
@@ -304,8 +284,13 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
     const hand = player.battingBowlingHand.includes("Right") ? "R" : "L";
     doc.text(hand, margin + 140, y + 2);
 
-    doc.setTextColor(34, 139, 34); // Green for price
-    doc.text(formatCurrencyFull(player.soldPrice || 0), margin + 153, y + 2);
+    if (player.isCaptain && !player.soldPrice) {
+      doc.setTextColor(120, 120, 120);
+      doc.text("-", margin + 153, y + 2);
+    } else {
+      doc.setTextColor(34, 139, 34); // Green for price
+      doc.text(formatCurrencyFull(player.soldPrice || 0), margin + 153, y + 2);
+    }
 
     y += 8;
   });
