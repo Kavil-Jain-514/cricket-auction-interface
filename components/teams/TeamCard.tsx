@@ -60,6 +60,40 @@ export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
   const handleDownloadPdf = async () => {
     toast.info('Generating PDF...');
     try {
+      const captainPlayer = team.captainPlayerId
+        ? players?.find(p => p._id === team.captainPlayerId)
+        : undefined;
+
+      const pdfPlayers = teamPlayers.map(p => ({
+        name: p.name,
+        age: p.age,
+        role: Array.isArray(p.role) ? p.role.join(", ") : p.role,
+        soldPrice: p.soldPrice,
+        jerseyNumber: p.jerseyNumber,
+        jerseyName: p.jerseyName,
+        battingBowlingHand: p.battingBowlingHand,
+        phoneNumber: (p as Record<string, unknown>).phoneNumber as string | undefined,
+        tshirtSize: p.tshirtSize,
+        isCaptain: p._id === team.captainPlayerId,
+      }));
+
+      // Captain chosen from the player pool isn't sold via auction, so it
+      // won't be in teamPlayers — add it explicitly as the first squad row.
+      if (captainPlayer && !pdfPlayers.some(p => p.isCaptain)) {
+        pdfPlayers.unshift({
+          name: captainPlayer.name,
+          age: captainPlayer.age,
+          role: Array.isArray(captainPlayer.role) ? captainPlayer.role.join(", ") : captainPlayer.role,
+          soldPrice: captainPlayer.soldPrice,
+          jerseyNumber: captainPlayer.jerseyNumber,
+          jerseyName: captainPlayer.jerseyName,
+          battingBowlingHand: captainPlayer.battingBowlingHand,
+          phoneNumber: (captainPlayer as Record<string, unknown>).phoneNumber as string | undefined,
+          tshirtSize: captainPlayer.tshirtSize,
+          isCaptain: true,
+        });
+      }
+
       await generateTeamPdf({
         name: team.name,
         ownerName: team.ownerName,
@@ -68,22 +102,8 @@ export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
         colorSecondary: team.colorSecondary,
         purseRemaining: team.purseRemaining,
         purseSpent: team.purseSpent,
-        captainName: team.captainName,
-        captainAge: team.captainAge,
-        captainRole: team.captainRole,
-        captainHand: team.captainHand,
         groupLabel: groupAssignment ? `Group ${groupAssignment.group} (${groupAssignment.slotLabel})` : undefined,
-        players: teamPlayers.map(p => ({
-          name: p.name,
-          age: p.age,
-          role: Array.isArray(p.role) ? p.role.join(", ") : p.role,
-          soldPrice: p.soldPrice,
-          jerseyNumber: p.jerseyNumber,
-          jerseyName: p.jerseyName,
-          battingBowlingHand: p.battingBowlingHand,
-          phoneNumber: (p as Record<string, unknown>).phoneNumber as string | undefined,
-          tshirtSize: p.tshirtSize,
-        })),
+        players: pdfPlayers,
         tournamentName: tournament?.name,
         logoUrl: team.logoUrl,
       });
