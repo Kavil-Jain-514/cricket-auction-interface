@@ -1,6 +1,6 @@
 // convex/members.ts - Team owners: invite links, claiming, and membership
 import { v } from "convex/values";
-import { mutation, query, MutationCtx } from "./_generated/server";
+import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, logAdminAction, requireAdmin } from "./auth";
 
@@ -267,6 +267,23 @@ export const revokeInvite = mutation({
     return { success: true };
   },
 });
+
+/** A user's owner membership in a tournament, if any (at most one). */
+export async function findOwnerMembership(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  tournamentId: Id<"tournaments">,
+): Promise<Doc<"teamMembers"> | null> {
+  const memberships = await ctx.db
+    .query("teamMembers")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  return (
+    memberships.find(
+      (m) => m.tournamentId === tournamentId && m.role === "owner",
+    ) ?? null
+  );
+}
 
 /** Delete every owner-bidding row for a team (used by teams:deleteTeam). */
 export async function deleteTeamMembershipData(
