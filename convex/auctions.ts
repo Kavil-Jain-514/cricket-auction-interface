@@ -6,6 +6,12 @@ import { Id, Doc } from "./_generated/dataModel";
 import { requireAdmin, logAdminAction } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { toPublicPlayer } from "./projections";
+import {
+  DEFAULT_BASE_PRICE,
+  isSquadFull,
+  maxAllowedBid,
+  reserveBasePrice,
+} from "./bidRules";
 
 /** In-place Fisher–Yates shuffle. Used to reshuffle each unsold round's queue. */
 function shuffleInPlace<T>(arr: T[]): T[] {
@@ -246,8 +252,56 @@ export const placeBid = mutation({
     const team = await ctx.db.get(args.teamId);
     if (!team) throw new Error("Team not found");
 
+    if (team.tournamentId !== auctionRoom.tournamentId) {
+      return {
+        success: false,
+        reason: "Team is not part of this auction's tournament",
+      };
+    }
+
+    const [player, tournament, teamPlayers] = await Promise.all([
+      ctx.db.get(auctionRoom.currentPlayerId),
+      ctx.db.get(auctionRoom.tournamentId),
+      ctx.db
+        .query("players")
+        .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
+        .collect(),
+    ]);
+
+    if (!player) throw new Error("Player not found");
+    if (!tournament) throw new Error("Tournament not found");
+
+    const maxPlayersPerTeam = tournament.settings.maxPlayersPerTeam;
+    if (isSquadFull(teamPlayers.length, maxPlayersPerTeam)) {
+      return { success: false, reason: "Squad is full" };
+    }
+
     if (team.purseRemaining < args.amount) {
       return { success: false, reason: "Insufficient purse balance" };
+    }
+
+    // Squad-completion reserve — same rule getAuctionRoster displays (bidRules.ts).
+    // minPendingBasePrice comes from the denormalized tournament.auctionCounts,
+    // so no pending-player scan on this hot path.
+    const tournamentBasePrice = tournament.settings.basePrice ?? DEFAULT_BASE_PRICE;
+    const playerBasePrice = player.basePrice ?? tournamentBasePrice;
+    const allowedMax = maxAllowedBid({
+      purseRemaining: team.purseRemaining,
+      playersOnTeam: teamPlayers.length,
+      maxPlayersPerTeam,
+      reservePrice: reserveBasePrice({
+        minPendingBasePrice: tournament.auctionCounts?.minPendingBasePrice,
+        currentPlayerBasePrice: playerBasePrice,
+        tournamentBasePrice,
+      }),
+    });
+
+    if (args.amount > allowedMax) {
+      return {
+        success: false,
+        reason: `Cannot bid this amount. Insufficient purse to complete squad. Max allowed: ₹${(allowedMax / 100000).toFixed(2)}L`,
+        maxAllowedBid: allowedMax,
+      };
     }
 
     // Get latest bid using index (NO .collect())
@@ -268,46 +322,6 @@ export const placeBid = mutation({
       return { success: false, reason: "Please wait before bidding again" };
     }
 
-    const [player, tournament, teamPlayers] = await Promise.all([
-      ctx.db.get(auctionRoom.currentPlayerId),
-      ctx.db.get(auctionRoom.tournamentId),
-      ctx.db
-        .query("players")
-        .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
-        .collect(),
-    ]);
-
-    if (!player) throw new Error("Player not found");
-    if (!tournament) throw new Error("Tournament not found");
-
-    // Purse validation for squad completion
-    // Formula: maxAllowedBid = remainingPurse - ((playersNeeded - 1) * basePrice)
-    // This ensures the team can still complete their squad at minimum base prices
-    const maxPlayersPerTeam = tournament.settings.maxPlayersPerTeam;
-    const currentTeamPlayerCount = teamPlayers.length;
-    const playersNeeded = maxPlayersPerTeam - currentTeamPlayerCount;
-
-    // Use tournament base price as the minimum for squad completion calculations.
-    // This is a conservative estimate that avoids scanning all pending players on every bid.
-    const tournamentBasePrice = tournament.settings.basePrice ?? 100000;
-    const minBasePrice = player.basePrice ?? tournamentBasePrice;
-
-    // Calculate max allowed bid to ensure squad can be completed
-    // If team needs more players after this one, reserve purse for them
-    if (playersNeeded > 1) {
-      const reserveForRemainingPlayers = (playersNeeded - 1) * minBasePrice;
-      const maxAllowedBid = team.purseRemaining - reserveForRemainingPlayers;
-
-      if (args.amount > maxAllowedBid) {
-        return {
-          success: false,
-          reason: `Cannot bid this amount. Insufficient purse to complete squad. Max allowed: ₹${(maxAllowedBid / 100000).toFixed(2)}L`,
-          maxAllowedBid,
-        };
-      }
-    }
-
-    const playerBasePrice = player.basePrice ?? tournamentBasePrice;
     const currentBid = latestBid?.amount || playerBasePrice;
     const minBidIncrement = tournament.settings.minBidIncrement;
 
@@ -1280,13 +1294,15 @@ export const getAuctionRoster = query({
           : undefined;
     }
 
-    // Same semantics as before: min pending base price, else the current
-    // player's base price, else the tournament default.
-    const minBasePrice =
-      minPendingBasePrice ??
-      (currentPlayer
+    // Same reserve price placeBid enforces (bidRules.ts): min pending base
+    // price, else the current player's base price, else the tournament default.
+    const minBasePrice = reserveBasePrice({
+      minPendingBasePrice,
+      currentPlayerBasePrice: currentPlayer
         ? (currentPlayer.basePrice ?? tournamentBasePrice)
-        : tournamentBasePrice);
+        : undefined,
+      tournamentBasePrice,
+    });
 
     // Build team player counts from soldPlayers already fetched above — avoids N+1 per-team queries
     const teamPlayerCounts = new Map<string, number>();
@@ -1299,23 +1315,21 @@ export const getAuctionRoster = query({
       }
     }
 
-    // Calculate max allowed bids without extra DB queries
+    // Calculate max allowed bids without extra DB queries — same helpers as placeBid
     const teamsWithMaxBid = teams.map((team) => {
       const currentTeamPlayerCount = teamPlayerCounts.get(team._id) || 0;
-      const playersNeeded = maxPlayersPerTeam - currentTeamPlayerCount;
-
-      // Calculate max allowed bid
-      let maxAllowedBid = team.purseRemaining;
-      if (playersNeeded > 1) {
-        const reserveForRemainingPlayers = (playersNeeded - 1) * minBasePrice;
-        maxAllowedBid = team.purseRemaining - reserveForRemainingPlayers;
-      }
 
       return {
         ...team,
         playerCount: currentTeamPlayerCount,
-        playersNeeded,
-        maxAllowedBid: Math.max(0, maxAllowedBid),
+        playersNeeded: maxPlayersPerTeam - currentTeamPlayerCount,
+        isSquadFull: isSquadFull(currentTeamPlayerCount, maxPlayersPerTeam),
+        maxAllowedBid: maxAllowedBid({
+          purseRemaining: team.purseRemaining,
+          playersOnTeam: currentTeamPlayerCount,
+          maxPlayersPerTeam,
+          reservePrice: minBasePrice,
+        }),
       };
     });
 
