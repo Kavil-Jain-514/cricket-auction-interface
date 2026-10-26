@@ -226,7 +226,7 @@ describe("owner invites", () => {
 
     await expect(
       asOwner.mutation(api.members.createInvite, { teamId: teamA }),
-    ).rejects.toThrow(/admin/i);
+    ).rejects.toThrow(/access to this tournament/);
     expect(
       await asOwner.query(api.members.listMembers, { teamId: teamA }),
     ).toBeNull();
@@ -734,10 +734,10 @@ describe("confirm mode", () => {
 
     await expect(
       t.withIdentity(OWNER_B).mutation(api.auctions.acceptBidRequest, { requestId: requestIdOf(raise) }),
-    ).rejects.toThrow(/admin/i);
+    ).rejects.toThrow(/access to this tournament/);
     await expect(
       t.withIdentity(OWNER_A).mutation(api.auctions.rejectBidRequest, { requestId: requestIdOf(raise) }),
-    ).rejects.toThrow(/admin/i);
+    ).rejects.toThrow(/access to this tournament/);
   });
 });
 

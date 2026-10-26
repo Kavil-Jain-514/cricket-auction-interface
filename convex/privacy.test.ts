@@ -148,7 +148,7 @@ describe("admin.getPlayerWithTeam", () => {
       t
         .withIdentity(USER_IDENTITY)
         .query(api.admin.getPlayerWithTeam, { playerId }),
-    ).rejects.toThrow("Admin access required");
+    ).rejects.toThrow("You don't have access to this tournament");
   });
 
   test("returns the full player to admins", async () => {

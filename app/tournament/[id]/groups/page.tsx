@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { toast } from 'sonner';
 import { getErrorMessage } from '@/lib/utils';
-import { useUserRole } from '@/hooks/useUserRole';
+import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { GroupDrawSetup } from '@/components/groups/GroupDrawSetup';
 import { GroupDrawReveal } from '@/components/groups/GroupDrawReveal';
@@ -19,7 +19,7 @@ import { GroupTable } from '@/components/groups/GroupTable';
 export default function GroupsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const tournamentId = id as Id<"tournaments">;
-  const { isAdmin } = useUserRole();
+  const { canManage } = useTournamentRole(tournamentId);
   const confirm = useConfirm();
 
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
@@ -119,7 +119,7 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
 
             <div className="flex flex-wrap gap-2 sm:gap-3">
               {/* Viewer Mode Indicator */}
-              {!isAdmin && (
+              {!canManage && (
                 <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/60 rounded-lg border border-slate-700 min-h-11">
                   <Eye className="w-4 h-4 text-blue-400" />
                   <span className="text-sm text-slate-300">Viewer Mode</span>
@@ -130,7 +130,7 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
                   which the backend always rejects once the tournament is
                   completed — gate it here too so it doesn't sit clickable
                   next to Lock/Reset (which have no such restriction). */}
-              {isAdmin && draw && draw.status === 'drawn' && (
+              {canManage && draw && draw.status === 'drawn' && (
                 <>
                   <Button
                     variant="outline"
@@ -148,7 +148,7 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
                   </Button>
                 </>
               )}
-              {isAdmin && draw && draw.status === 'locked' && (
+              {canManage && draw && draw.status === 'locked' && (
                 <Button
                   variant="outline"
                   onClick={handleReset}
@@ -185,7 +185,7 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
               locked={draw.status === 'locked'}
             />
           </>
-        ) : isAdmin && tournament?.status === 'completed' ? (
+        ) : canManage && tournament?.status === 'completed' ? (
           <div className="text-center py-16 sm:py-20 px-4">
             <Shuffle className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 text-slate-700" />
             <h3 className="text-lg sm:text-xl font-semibold mb-2">Tournament Completed</h3>
@@ -193,7 +193,7 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
               A group draw can no longer be run — this tournament is already completed.
             </p>
           </div>
-        ) : isAdmin ? (
+        ) : canManage ? (
           teams && teams.length > 0 ? (
             <GroupDrawSetup teamCount={teams.length} onRun={startDraw} running={running} />
           ) : (

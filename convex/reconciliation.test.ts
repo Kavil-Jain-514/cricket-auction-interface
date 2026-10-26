@@ -158,6 +158,6 @@ describe("auctions.getReconciliation", () => {
         .query(api.auctions.getReconciliation, {
           tournamentId: ids.tournamentId,
         }),
-    ).rejects.toThrow("Admin access required");
+    ).rejects.toThrow("You don't have access to this tournament");
   });
 });

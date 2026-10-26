@@ -737,7 +737,7 @@ describe("public viewer — no sign-in", () => {
             : caller.mutation(api.auctions[name], { auctionRoomId: roomId });
 
         await expect(call).rejects.toThrow(
-          identity ? "Admin access required" : "Not authenticated",
+          identity ? "You don't have access to this tournament" : "Not authenticated",
         );
         expect(await snapshot()).toEqual(before);
         expect(before.room?.currentPlayerId).toBe(playerId);

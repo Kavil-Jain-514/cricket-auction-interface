@@ -10,13 +10,13 @@ import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { TeamCard } from '@/components/teams/TeamCard';
 import { TeamForm } from '@/components/teams/TeamForm';
-import { useUserRole } from '@/hooks/useUserRole';
+import { useTournamentRole } from '@/hooks/useTournamentRole';
 
 export default function TeamsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const tournamentId = id as Id<"tournaments">;
   const [showAddForm, setShowAddForm] = useState(false);
-  const { isAdmin } = useUserRole();
+  const { canManage } = useTournamentRole(tournamentId);
   
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
@@ -47,14 +47,14 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
 
             <div className="flex flex-wrap gap-2 sm:gap-3">
               {/* Viewer Mode Indicator */}
-              {!isAdmin && (
+              {!canManage && (
                 <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/60 rounded-lg border border-slate-700 min-h-11">
                   <Eye className="w-4 h-4 text-blue-400" />
                   <span className="text-sm text-slate-300">Viewer Mode</span>
                 </div>
               )}
               
-              {isAdmin && (
+              {canManage && (
                 <Button onClick={() => setShowAddForm(true)} className="min-h-11 touch-target w-full sm:w-auto">
                   <Plus className="w-4 h-4 mr-2" />
                   Add Team
@@ -76,7 +76,7 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
             <p className="text-slate-400 mb-6 text-sm sm:text-base">
               Add your first team to get started
             </p>
-            {isAdmin && (
+            {canManage && (
               <Button onClick={() => setShowAddForm(true)} className="min-h-11 touch-target">
                 <Plus className="w-5 h-5 mr-2" />
                 Add First Team

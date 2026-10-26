@@ -17,6 +17,7 @@ import { formatCurrency, getErrorMessage, getRoleDisplay } from '@/lib/utils';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -57,8 +58,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const { roomId } = use(params);
   const auctionRoomId = roomId as Id<"auctionRooms">;
 
-  // RBAC - Role Based Access Control. Signed-out visitors are plain viewers.
-  const { isAdmin, isSignedIn, isLoading: isRoleLoading } = useUserRole();
+  // Signed-out visitors are plain viewers.
+  const { isSignedIn } = useUserRole();
   const confirm = useConfirm();
 
   // Which viewer sheet (sold / unsold / teams history) is open, if any.
@@ -82,19 +83,28 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       : 'skip'
   );
 
+  // Console vs viewer is per tournament: its owners and auctioneers (and the
+  // super-admin) get the console; everyone else, including other organisers,
+  // watches. The tournament id arrives with the hot query.
+  const {
+    canRunAuction: isConsole,
+    canManage,
+    isLoading: isRoleLoading,
+  } = useTournamentRole(liveData?.auctionRoom.tournamentId);
+
   // Latest SOLD/UNSOLD event — authoritative trigger + data for the viewer
   // result popup (replaces the racy client-side ref reconstruction). Skipped
   // for admins, who drive the popup directly from finalizePlayerSale.
   const latestSaleEvent = useQuery(
     api.auctions.getLatestSaleEvent,
-    isAdmin ? 'skip' : { auctionRoomId },
+    isConsole ? 'skip' : { auctionRoomId },
   );
 
   // Owner paddle — per-identity, so only signed-in non-admins subscribe.
   // Anonymous viewers never touch it; it returns null for non-owners.
   const paddle = useQuery(
     api.auctions.getMyPaddle,
-    isSignedIn && !isAdmin && !isRoleLoading ? { auctionRoomId } : 'skip',
+    isSignedIn && !isConsole && !isRoleLoading ? { auctionRoomId } : 'skip',
   );
 
   // Sold/unsold history — fetched lazily, only while a history sheet is open.
@@ -202,7 +212,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     teamColor?: string;
   } | null>(null);
   const handleFinalize = useCallback(async () => {
-    if (!isAdmin) return; // Only admins can finalize
+    if (!isConsole) return; // Only admins can finalize
     if (showResult) return; // Prevent finalizing twice for the same player
     // Capture current bid state BEFORE calling finalize mutation
     const hadBidder = Boolean(auctionData?.currentBidTeam);
@@ -247,7 +257,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to finalize"));
     }
-  }, [isAdmin, showResult, finalizePlayer, auctionRoomId, auctionData]);
+  }, [isConsole, showResult, finalizePlayer, auctionRoomId, auctionData]);
 
   // Advisory bid countdown, ticked locally from the hot query's
   // bidTimerEndsAt + serverTime. Never auto-finalises.
@@ -364,7 +374,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   }, []);
 
   useEffect(() => {
-    if (isAdmin) return; // Only for viewers
+    if (isConsole) return; // Only for viewers
 
     const currentStatus = auctionData?.auctionRoom?.status;
     // Use the true bid count, not recentBids.length — the latter is capped at 10
@@ -443,13 +453,13 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       showStatusFlash(flashToShow);
     });
     return () => cancelAnimationFrame(rafFlash);
-  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.totalBidsCount, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, showStatusFlash]);
+  }, [isConsole, auctionData?.auctionRoom?.status, auctionData?.recentBids, auctionData?.totalBidsCount, auctionData?.auctionRoom?.currentPlayerId, auctionData?.teams, showStatusFlash]);
 
   // Viewer SOLD/UNSOLD result popup — driven by the authoritative server sale
   // event (getLatestSaleEvent) rather than reconstructing the result from
   // client-side ref timing across the separately-updating hot/cold queries.
   useEffect(() => {
-    if (isAdmin) return;
+    if (isConsole) return;
     if (latestSaleEvent === undefined) return; // still loading
 
     const ev = latestSaleEvent; // null when no sale has happened yet
@@ -479,7 +489,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       setShowResult(true);
     });
     return () => cancelAnimationFrame(raf);
-  }, [isAdmin, latestSaleEvent]);
+  }, [isConsole, latestSaleEvent]);
 
   // Auto-hide status flash after 3 seconds
   useEffect(() => {
@@ -629,7 +639,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   // covers the first player after Start, advancing after each sale, and
   // resuming a live room that has no current player.
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isConsole) return;
     if (auctionData?.auctionRoom?.status !== 'live') return;
     if (auctionData?.auctionRoom?.currentPlayerId) return;
     if (showResult) return;
@@ -643,7 +653,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     if (auctionData?.auctionRoom?.roundStalled) return;
     const t = setTimeout(() => { handleNextPlayer(); }, 200);
     return () => clearTimeout(t);
-  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.auctionRoom?.currentPlayerId, showResult, showUnsoldRoundBanner, setBannerId, currentSetId, auctionData?.auctionRoom?.roundStalled, handleNextPlayer]);
+  }, [isConsole, auctionData?.auctionRoom?.status, auctionData?.auctionRoom?.currentPlayerId, showResult, showUnsoldRoundBanner, setBannerId, currentSetId, auctionData?.auctionRoom?.roundStalled, handleNextPlayer]);
 
   // Wait for both the hot payload and the initial roster before first paint so
   // teams/current-player aren't momentarily empty. Subsequent bid/timer updates
@@ -666,7 +676,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   if (auctionRoom.status === 'completed') {
     return (
       <AuctionCompleteScreen
-        isAdmin={isAdmin}
+        isAdmin={canManage}
         tournamentName={auctionData.tournament?.name || 'Tournament'}
         tournamentId={auctionData.tournament?._id || ''}
         tournamentLogoUrl={auctionData.tournament?.logoUrl}
@@ -723,7 +733,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const isRoundStalled = Boolean(auctionRoom.roundStalled);
 
   return (
-    <div className={`${isAdmin ? 'min-h-screen' : 'h-[100dvh] flex flex-col'} bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden`}>
+    <div className={`${isConsole ? 'min-h-screen' : 'h-[100dvh] flex flex-col'} bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden`}>
       {/* Reconnecting indicator — surfaces silent socket drops (P1-1) */}
       <ConnectionStatus />
 
@@ -796,13 +806,13 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   {auctionRoom.status === 'paused' && 'Auction Paused'}
                 </p>
               </div>
-              {isAdmin && (
+              {isConsole && (
                 <ReconciliationBadge tournamentId={auctionRoom.tournamentId} />
               )}
             </div>
 
             {/* Admin Controls - Only visible to admins */}
-            {isAdmin ? (
+            {isConsole ? (
               <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
                 {/* — Bid controls — */}
                 {/* Revert Last Bid */}
@@ -905,7 +915,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   </Button>
                 )}
 
-                {/* Restart Auction Button */}
+                {/* Restart Auction Button — owners only (restartAuction is OWNER_ONLY) */}
+                {canManage && (
                 <Button
                   onClick={async () => {
                     if (!(await confirm({
@@ -928,6 +939,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <RefreshCcw className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
                   <span className="hidden sm:inline">Restart</span>
                 </Button>
+                )}
 
                 <span aria-hidden className="hidden lg:block w-px h-7 self-center bg-slate-700/70 mx-0.5" />
 
@@ -1036,7 +1048,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
       {/* Viewer Status Flash Notification */}
       <AnimatePresence>
-        {!isAdmin && statusFlash && (
+        {!isConsole && statusFlash && (
           <motion.div
             initial={{ opacity: 0, y: -50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1097,10 +1109,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         )}
       </AnimatePresence>
 
-      <main className={`w-full max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 safe-bottom ${isAdmin ? 'py-4 sm:py-6 lg:py-8 pb-20' : `flex-1 min-h-0 overflow-y-auto flex flex-col py-3 sm:py-4 ${paddle ? 'pb-80' : 'pb-28 sm:pb-32'}`}`}>
-        <div className={isAdmin ? 'grid gap-4 sm:gap-5 lg:gap-6 grid-cols-12' : 'w-full my-auto'}>
+      <main className={`w-full max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 safe-bottom ${isConsole ? 'py-4 sm:py-6 lg:py-8 pb-20' : `flex-1 min-h-0 overflow-y-auto flex flex-col py-3 sm:py-4 ${paddle ? 'pb-80' : 'pb-28 sm:pb-32'}`}`}>
+        <div className={isConsole ? 'grid gap-4 sm:gap-5 lg:gap-6 grid-cols-12' : 'w-full my-auto'}>
           {/* Teams Panel - Only shown to admins */}
-          {isAdmin && (
+          {isConsole && (
             <AdminTeamsPanel
               teams={teams ?? []}
               soldPlayers={soldPlayers}
@@ -1124,11 +1136,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           )}
 
           {/* Center Stage */}
-          <div className={isAdmin ? 'order-1 col-span-12 lg:col-span-6 lg:order-2' : 'w-full'}>
+          <div className={isConsole ? 'order-1 col-span-12 lg:col-span-6 lg:order-2' : 'w-full'}>
 
             {/* Auction progress counter — visible to admins and viewers */}
             {showProgress && (
-              <div className={`flex justify-center ${isAdmin ? 'mb-3 sm:mb-4' : 'mb-2 sm:mb-3'}`}>
+              <div className={`flex justify-center ${isConsole ? 'mb-3 sm:mb-4' : 'mb-2 sm:mb-3'}`}>
                 <div className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border backdrop-blur-sm shadow-lg ${isUnsoldRound
                   ? 'bg-red-500/15 border-red-500/40 text-red-300'
                   : 'bg-blue-500/15 border-blue-500/40 text-blue-200'}`}>
@@ -1150,10 +1162,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className={`bg-linear-to-br from-slate-800 to-slate-900 rounded-xl sm:rounded-2xl border border-slate-700 shadow-2xl ${isAdmin ? 'p-4 sm:p-6 lg:p-8' : 'p-3 sm:p-4'}`}
+                  className={`bg-linear-to-br from-slate-800 to-slate-900 rounded-xl sm:rounded-2xl border border-slate-700 shadow-2xl ${isConsole ? 'p-4 sm:p-6 lg:p-8' : 'p-3 sm:p-4'}`}
                 >
                   {/* Viewer Mode: full-width hero — focus on the player */}
-                  {!isAdmin ? (
+                  {!isConsole ? (
                     <div className="flex flex-col lg:flex-row gap-6 lg:gap-12 items-center lg:items-stretch">
                       {/* Hero Player Photo */}
                       <div className="relative w-full max-w-xs sm:max-w-md lg:max-w-none lg:w-[42%] xl:w-[45%] mx-auto lg:mx-0 shrink-0">
@@ -1328,7 +1340,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               ) : (
                 <div className="text-center py-12 sm:py-16 lg:py-20 text-slate-400">
                   <Trophy className="w-14 h-14 sm:w-16 sm:h-16 lg:w-20 lg:h-20 mx-auto mb-3 sm:mb-4 opacity-50" />
-                  {isAdmin ? (
+                  {isConsole ? (
                     <p className="text-base sm:text-lg lg:text-xl mb-4">
                       {auctionRoom.status === 'waiting'
                         ? 'Click "Start" to begin the auction'
@@ -1351,7 +1363,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           </div>
 
           {/* Live Feed - Side panel for admin */}
-          {isAdmin ? (
+          {isConsole ? (
             <AuctionLiveBids
               recentBids={recentBids}
               teams={teams}
@@ -1377,8 +1389,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           amount={result.amount}
           sold={result.sold}
           teamColor={result.teamColor}
-          avatarSize={isAdmin ? 'xl' : '2xl'}
-          interactive={isAdmin}
+          avatarSize={isConsole ? 'xl' : '2xl'}
+          interactive={isConsole}
           onClose={() => {
             // Closing the result clears the popup; the auto-loader effect then
             // advances to the next player (admins only).
@@ -1453,7 +1465,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       </AnimatePresence>
 
       {/* Viewer: fixed bottom action bar + history/teams sheets */}
-      {!isAdmin && (
+      {!isConsole && (
         <>
           <ViewerActionBar
             soldCount={soldPlayers?.length ?? 0}
@@ -1488,7 +1500,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       )}
 
       {/* Stalled unsold round — admin decision (infinite-loop guard) */}
-      {isAdmin && isRoundStalled && auctionRoom.status === 'live' && (
+      {isConsole && isRoundStalled && auctionRoom.status === 'live' && (
         <div className="fixed inset-0 z-80 flex items-center justify-center bg-slate-950/85 backdrop-blur-md px-4">
           <div className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-slate-900 p-5 sm:p-6 shadow-2xl">
             <div className="flex items-start gap-3 mb-3">

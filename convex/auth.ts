@@ -85,6 +85,63 @@ interface AuditLogParams {
   auctionRoomId?: Id<"auctionRooms">;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// TOURNAMENT-SCOPED ACCESS (organisers)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type TournamentRole = "owner" | "auctioneer";
+
+/** Runs the auction on the day, including sale corrections and purse tools. */
+export const RUN_AUCTION: TournamentRole[] = ["owner", "auctioneer"];
+/** Settings, teams, players, staff, invites, draws, exports, restart, delete. */
+export const OWNER_ONLY: TournamentRole[] = ["owner"];
+
+/**
+ * The caller's access to a tournament: "super_admin" (users.role "admin",
+ * the platform operator), their tournamentStaff role, or null.
+ */
+export async function getTournamentRole(
+  ctx: QueryCtx | MutationCtx,
+  tournamentId: Id<"tournaments">,
+  user?: Doc<"users"> | null,
+): Promise<"super_admin" | TournamentRole | null> {
+  const caller = user === undefined ? await getCurrentUser(ctx) : user;
+  if (!caller) return null;
+  if (caller.role === "admin") return "super_admin";
+  const staff = await ctx.db
+    .query("tournamentStaff")
+    .withIndex("by_tournament_user", (q) =>
+      q.eq("tournamentId", tournamentId).eq("userId", caller._id),
+    )
+    .first();
+  return staff?.role ?? null;
+}
+
+/** True for a super-admin or anyone on the tournament's staff. */
+export async function isTournamentStaff(
+  ctx: QueryCtx | MutationCtx,
+  tournamentId: Id<"tournaments">,
+): Promise<boolean> {
+  return (await getTournamentRole(ctx, tournamentId)) !== null;
+}
+
+/**
+ * Throws unless the caller is a super-admin or holds one of `roles` on this
+ * tournament. Replaces the global requireAdmin for tournament-scoped work.
+ */
+export async function requireTournamentRole(
+  ctx: QueryCtx | MutationCtx,
+  tournamentId: Id<"tournaments">,
+  roles: TournamentRole[],
+): Promise<Doc<"users">> {
+  const user = await requireUser(ctx);
+  const role = await getTournamentRole(ctx, tournamentId, user);
+  if (role === "super_admin" || (role !== null && roles.includes(role))) {
+    return user;
+  }
+  throw new Error("You don't have access to this tournament");
+}
+
 /**
  * Log an admin action to the audit log
  */

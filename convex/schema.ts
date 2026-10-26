@@ -139,6 +139,19 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_tournament", ["tournamentId"]),
 
+  // Organiser access per tournament. The creator is its "owner"; owners can
+  // add "auctioneer"s, who run the auction on the day. users.role "admin" is
+  // the platform super-admin and passes every check (requireTournamentRole).
+  tournamentStaff: defineTable({
+    tournamentId: v.id("tournaments"),
+    userId: v.id("users"),
+    role: v.union(v.literal("owner"), v.literal("auctioneer")),
+    createdAt: v.number(),
+  })
+    .index("by_tournament", ["tournamentId"])
+    .index("by_user", ["userId"])
+    .index("by_tournament_user", ["tournamentId", "userId"]),
+
   // Team members — users linked to a team (owners bid from their own phones).
   // A user belongs to at most one team per tournament (enforced by claimInvite).
   teamMembers: defineTable({

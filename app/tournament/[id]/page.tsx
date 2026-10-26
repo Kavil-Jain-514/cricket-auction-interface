@@ -14,7 +14,7 @@ import { formatCurrency, getErrorMessage, getCaptainPlayerIds } from '@/lib/util
 import { TournamentSettingsModal } from '@/components/tournament/TournamentSettingsModal';
 import { ExportResultsButton } from '@/components/results/ExportResultsButton';
 import { ShareResultsButton } from '@/components/results/ShareResultsButton';
-import { useUserRole } from '@/hooks/useUserRole';
+import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
 export default function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -22,7 +22,8 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const { id } = use(params);
   const tournamentId = id as Id<"tournaments">;
   const [showSettings, setShowSettings] = useState(false);
-  const { isAdmin } = useUserRole();
+  // Owners manage the tournament; auctioneers only run the auction console.
+  const { canManage, canRunAuction } = useTournamentRole(tournamentId);
   const confirm = useConfirm();
 
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
@@ -278,7 +279,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
 
             <div className="flex flex-wrap gap-2 sm:gap-3">
               {/* Viewer Mode Indicator for non-admins */}
-              {!isAdmin && (
+              {!canRunAuction && (
                 <div className="flex items-center gap-2 px-4 py-2 bg-slate-800/60 rounded-lg border border-slate-700 h-11">
                   <Eye className="w-4 h-4 text-blue-400" />
                   <span className="text-sm text-slate-300">Viewer Mode</span>
@@ -286,7 +287,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               )}
 
               {/* Admin-only controls */}
-              {isAdmin && canModify?.canEdit && (
+              {canManage && canModify?.canEdit && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -300,7 +301,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 </Button>
               )}
 
-              {isAdmin && (
+              {canManage && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -325,7 +326,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 </Button>
               )}
 
-              {isAdmin && canModify?.canDelete && (
+              {canManage && canModify?.canDelete && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -338,7 +339,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 </Button>
               )}
 
-              {isAdmin && (
+              {canManage && (
                 <Button
                   onClick={handleStartAuction}
                   disabled={
@@ -359,7 +360,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               )}
 
               {/* View Auction Button - visible to ALL users when auction exists */}
-              {!isAdmin && auctionRooms && auctionRooms.length > 0 && (tournament.status === 'active') && (
+              {!canRunAuction && auctionRooms && auctionRooms.length > 0 && (tournament.status === 'active') && (
                 <Button
                   onClick={handleResumeAuction}
                   className="bg-blue-600 hover:bg-blue-700 h-11 px-4 sm:px-5 text-sm"
@@ -369,7 +370,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 </Button>
               )}
 
-              {isAdmin && canResumeAuction() && (
+              {canRunAuction && canResumeAuction() && (
                 <Button
                   onClick={handleResumeAuction}
                   className="bg-green-600 hover:bg-green-700 h-11 px-4 sm:px-5 text-sm"
@@ -410,12 +411,12 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 <ShareResultsButton tournamentId={tournamentId} tournamentName={tournament.name} />
               )}
 
-              {isAdmin && auctionRooms && auctionRooms.length > 0 && (
+              {canManage && auctionRooms && auctionRooms.length > 0 && (
                 <ExportResultsButton tournamentId={tournamentId} />
               )}
 
               {/* Restart Auction Button - show when auction exists (active or completed) */}
-              {isAdmin && auctionRooms && auctionRooms.length > 0 && (tournament.status === 'active' || tournament.status === 'completed') && (
+              {canManage && auctionRooms && auctionRooms.length > 0 && (tournament.status === 'active' || tournament.status === 'completed') && (
                 <Button
                   onClick={handleRestartAuction}
                   disabled={restarting}
@@ -503,12 +504,12 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 </div>
                 <span className="text-2xl sm:text-3xl font-bold text-blue-400">{teams?.length || 0}</span>
               </div>
-              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">{isAdmin ? 'Manage Teams' : 'View Teams'}</h3>
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">{canManage ? 'Manage Teams' : 'View Teams'}</h3>
               <p className="text-slate-400 mb-3 sm:mb-4 text-sm sm:text-base">
                 Add, edit, and organize your tournament teams
               </p>
               <div className="flex items-center gap-2 text-blue-400 text-sm sm:text-base font-medium">
-                <span>{isAdmin ? 'Manage Teams' : 'View Teams'}</span>
+                <span>{canManage ? 'Manage Teams' : 'View Teams'}</span>
                 <ArrowLeft className="w-4 h-4 rotate-180" />
               </div>
             </div>
@@ -522,12 +523,12 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 </div>
                 <span className="text-2xl sm:text-3xl font-bold text-green-400">{playerCount}</span>
               </div>
-              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">{isAdmin ? 'Manage Players' : 'View Players'}</h3>
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">{canManage ? 'Manage Players' : 'View Players'}</h3>
               <p className="text-slate-400 mb-3 sm:mb-4 text-sm sm:text-base">
                 Add players, import from Excel, set base prices
               </p>
               <div className="flex items-center gap-2 text-green-400 text-sm sm:text-base font-medium">
-                <span>{isAdmin ? 'Manage Players' : 'View Players'}</span>
+                <span>{canManage ? 'Manage Players' : 'View Players'}</span>
                 <ArrowLeft className="w-4 h-4 rotate-180" />
               </div>
             </div>

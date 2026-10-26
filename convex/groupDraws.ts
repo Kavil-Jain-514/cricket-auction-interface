@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { logAdminAction, requireAdmin } from "./auth";
+import { logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
 import {
   computeGroupAssignments,
   validateGroupConfig,
@@ -30,8 +30,7 @@ export const runDraw = mutation({
     numGroups: v.number(),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
@@ -108,8 +107,7 @@ export const runDraw = mutation({
 export const lockDraw = mutation({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const draw = await ctx.db
       .query("groupDraws")
@@ -146,8 +144,7 @@ export const lockDraw = mutation({
 export const resetDraw = mutation({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const draw = await ctx.db
       .query("groupDraws")

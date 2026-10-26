@@ -156,7 +156,7 @@ describe("groupDraws.runDraw", () => {
 
     await expect(
       asUser.mutation(api.groupDraws.runDraw, { tournamentId, numGroups: 2 }),
-    ).rejects.toThrow(/Admin access required/);
+    ).rejects.toThrow(/access to this tournament/);
   });
 });
 
