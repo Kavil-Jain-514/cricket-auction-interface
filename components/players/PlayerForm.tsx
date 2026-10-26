@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import {
   PlayerFormModal,
   PlayerFormFields,
+  inheritedPlaceholder,
   type PlayerFormValues,
 } from './PlayerFormFields';
 
@@ -32,6 +33,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     jerseyNumber: undefined,
     jerseyName: '',
     basePrice: undefined,
+    categoryId: undefined,
     photoUrl: '',
   });
 
@@ -91,6 +93,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
         jerseyNumber: formData.jerseyNumber,
         jerseyName: formData.jerseyName || undefined,
         basePrice: formData.basePrice,
+        categoryId: formData.categoryId,
         photoUrl: formData.photoUrl || undefined,
       });
 
@@ -104,7 +107,6 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     }
   };
 
-  const defaultBase = (tournament?.settings?.basePrice ?? 100000) / 100000;
 
   return (
     <PlayerFormModal
@@ -121,11 +123,12 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
         values={formData}
         errors={errors}
         onChange={patchForm}
-        basePricePlaceholder={`Default: ₹${defaultBase.toFixed(1)}L`}
+        categories={tournament?.settings.categories}
+        basePricePlaceholder={inheritedPlaceholder(formData.categoryId, tournament?.settings)}
         basePriceHint={
           formData.basePrice
             ? `Overridden: ₹${(formData.basePrice / 100000).toFixed(2)}L`
-            : 'Leave empty to inherit from tournament'
+            : 'Leave empty to inherit'
         }
       />
     </PlayerFormModal>

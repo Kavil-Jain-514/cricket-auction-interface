@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
-import { cn, PLAYER_ROLES, getRoleBadgeBg } from '@/lib/utils';
+import { cn, formatCurrency, PLAYER_ROLES, getRoleBadgeBg } from '@/lib/utils';
+import { categoryFor, effectiveBasePrice, type PlayerCategory } from '@/convex/bidRules';
 
 export const PLAYER_TSHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'] as const;
 export type TshirtSize = (typeof PLAYER_TSHIRT_SIZES)[number];
@@ -21,6 +22,7 @@ export interface PlayerFormValues {
   jerseyNumber?: number;
   jerseyName: string;
   basePrice?: number;
+  categoryId?: string;
   photoUrl: string;
 }
 
@@ -162,6 +164,8 @@ interface PlayerFormFieldsProps {
   onChange: (patch: Partial<PlayerFormValues>) => void;
   basePricePlaceholder: string;
   basePriceHint: string;
+  /** Tournament categories; the Category field shows only when there are some. */
+  categories?: PlayerCategory[];
 }
 
 export function PlayerFormFields({
@@ -170,6 +174,7 @@ export function PlayerFormFields({
   onChange,
   basePricePlaceholder,
   basePriceHint,
+  categories,
 }: PlayerFormFieldsProps) {
   const inputCls = 'h-11 text-base';
   const isLeft = values.battingBowlingHand.includes('Left');
@@ -349,6 +354,22 @@ export function PlayerFormFields({
             />
           </Field>
 
+          {categories && categories.length > 0 && (
+            <Field label="Category" htmlFor="categoryId" error={errors?.categoryId} className="col-span-2 sm:col-span-1">
+              <select
+                id="categoryId"
+                value={values.categoryId ?? ''}
+                onChange={(e) => onChange({ categoryId: e.target.value || undefined })}
+                className={cn(inputCls, 'w-full rounded-md border border-slate-600 bg-slate-800 px-3 text-white')}
+              >
+                <option value="">No category</option>
+                {[...categories].sort((a, b) => a.order - b.order).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </Field>
+          )}
+
           <Field
             label="Base Price (₹)"
             htmlFor="basePrice"
@@ -374,4 +395,15 @@ export function PlayerFormFields({
       </section>
     </div>
   );
+}
+
+/** "Inherits ₹5.00L from Marquee" — the price an empty Base Price field gets. */
+export function inheritedPlaceholder(
+  categoryId: string | undefined,
+  settings: Parameters<typeof effectiveBasePrice>[1] | undefined,
+): string {
+  if (!settings) return 'Inherit';
+  const price = formatCurrency(effectiveBasePrice({ categoryId }, settings));
+  const category = categoryFor(categoryId, settings.categories);
+  return `Inherits ${price} from ${category ? category.name : 'tournament'}`;
 }

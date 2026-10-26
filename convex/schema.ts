@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { categoryValidator, incrementSlabValidator } from "./ruleValidators";
 
 export default defineSchema({
   // Users table with roles
@@ -55,6 +56,12 @@ export default defineSchema({
           v.literal("open"),
         ),
       ),
+      // Player categories (e.g. Marquee, A, B, Uncapped). A player's base price
+      // falls back to its category's, then to `basePrice` above. Absent = none.
+      categories: v.optional(v.array(categoryValidator)),
+      // Price-band increments, ascending by fromAmount (e.g. 0:25k, 5L:50k).
+      // Absent or empty = `minBidIncrement` for every bid (legacy behaviour).
+      incrementSlabs: v.optional(v.array(incrementSlabValidator)),
     }),
     logoUrl: v.optional(v.string()),
     // Visibility flag (independent of the auction lifecycle `status` above).
@@ -189,7 +196,8 @@ export default defineSchema({
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
     playerNumber: v.optional(v.number()), // Auto-incremented player number starting from 1
-    basePrice: v.optional(v.number()), // Starting bid price, if undefined inherits from tournament
+    basePrice: v.optional(v.number()), // Starting bid price, if undefined inherits from the category, then the tournament
+    categoryId: v.optional(v.string()), // tournaments.settings.categories[].id
     soldPrice: v.optional(v.number()),
     teamId: v.optional(v.id("teams")), // null if unsold
     auctionStatus: v.union(

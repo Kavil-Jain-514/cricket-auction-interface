@@ -3,6 +3,8 @@ import { mutation, query } from "./_generated/server";
 import { logAdminAction, requireAdmin } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { normalizePhone, validatePlayerFields } from "./validation";
+import { categoryFor, effectiveBasePrice } from "./bidRules";
+import type { Doc } from "./_generated/dataModel";
 
 // Shared validator for T-shirt size — reused across create, bulkImport, and update
 const tshirtSizeValidator = v.optional(
@@ -18,6 +20,17 @@ const tshirtSizeValidator = v.optional(
   ),
 );
 
+/** Error message when `categoryId` isn't one of the tournament's categories. */
+function unknownCategoryError(
+  categoryId: string | undefined,
+  tournament: Doc<"tournaments">,
+): string | null {
+  if (categoryId === undefined) return null;
+  return categoryFor(categoryId, tournament.settings.categories)
+    ? null
+    : "Unknown category — add it in Tournament Settings first";
+}
+
 /** Create a single player for a tournament. Auto-assigns the next sequential playerNumber. */
 export const create = mutation({
   args: {
@@ -31,6 +44,7 @@ export const create = mutation({
       v.literal("Left-handed"),
     ),
     basePrice: v.optional(v.number()),
+    categoryId: v.optional(v.string()),
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
     phoneNumber: v.optional(v.string()),
@@ -52,6 +66,8 @@ export const create = mutation({
       tournament.settings.basePurse,
     );
     if (errors.length > 0) throw new Error(errors[0].message);
+    const categoryError = unknownCategoryError(args.categoryId, tournament);
+    if (categoryError) throw new Error(categoryError);
 
     // Get the next player number for this tournament
     const existingPlayers = await ctx.db
@@ -75,6 +91,7 @@ export const create = mutation({
       role: args.role,
       battingBowlingHand: args.battingBowlingHand,
       basePrice: args.basePrice,
+      categoryId: args.categoryId,
       jerseyNumber: args.jerseyNumber,
       jerseyName: args.jerseyName,
       playerNumber: nextPlayerNumber,
@@ -123,6 +140,7 @@ export const bulkImport = mutation({
         phoneNumber: v.optional(v.string()),
         photoUrl: v.optional(v.string()),
         basePrice: v.optional(v.number()),
+        categoryId: v.optional(v.string()),
         jerseyNumber: v.optional(v.number()),
         jerseyName: v.optional(v.string()),
         tshirtSize: tshirtSizeValidator,
@@ -164,6 +182,10 @@ export const bulkImport = mutation({
         tournament.settings.basePurse,
       );
       errors.push(...result.errors.map((e) => ({ row, ...e })));
+      const categoryError = unknownCategoryError(player.categoryId, tournament);
+      if (categoryError) {
+        errors.push({ row, field: "categoryId", message: categoryError });
+      }
 
       const key = duplicateKey(player.name, result.phoneNumber);
       if (seen.has(key)) {
@@ -197,6 +219,7 @@ export const bulkImport = mutation({
         role: player.role,
         battingBowlingHand: player.battingBowlingHand,
         basePrice: player.basePrice,
+        categoryId: player.categoryId,
         jerseyNumber: player.jerseyNumber,
         jerseyName: player.jerseyName,
         playerNumber: maxPlayerNumber + index + 1,
@@ -278,15 +301,18 @@ export const listByTournament = query({
           )
           .collect();
 
-    // Map players to resolve basePrice fallback and strip PII for non-admins
+    // Map players to resolve basePrice (player → category → tournament) and
+    // strip PII for non-admins. basePriceOverride is the player's own price,
+    // so edit forms don't pin the inherited value as an override.
     return players.map((p) => {
-      const basePrice = p.basePrice ?? tournament.settings?.basePrice ?? 100000;
+      const basePrice = effectiveBasePrice(p, tournament.settings);
+      const basePriceOverride = p.basePrice;
       if (isAdminUser) {
-        return { ...p, basePrice };
+        return { ...p, basePrice, basePriceOverride };
       }
       // Strip phone number for non-admin viewers
       const { phoneNumber: _stripped, ...publicFields } = p;
-      return { ...publicFields, basePrice };
+      return { ...publicFields, basePrice, basePriceOverride };
     });
   },
 });
@@ -303,7 +329,10 @@ export const update = mutation({
     battingBowlingHand: v.optional(
       v.union(v.literal("Right-handed"), v.literal("Left-handed")),
     ),
-    basePrice: v.optional(v.number()),
+    // null clears the override, so the category / tournament price applies.
+    basePrice: v.optional(v.union(v.number(), v.null())),
+    // null removes the player from their category.
+    categoryId: v.optional(v.union(v.string(), v.null())),
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
     tshirtSize: tshirtSizeValidator,
@@ -330,12 +359,25 @@ export const update = mutation({
 
     // Validation (shared with create — convex/validation.ts)
     const { errors, phoneNumber } = validatePlayerFields(
-      args,
+      { ...args, basePrice: args.basePrice ?? undefined },
       tournament.settings.basePurse,
     );
     if (errors.length > 0) throw new Error(errors[0].message);
+    const categoryError = unknownCategoryError(
+      args.categoryId ?? undefined,
+      tournament,
+    );
+    if (categoryError) throw new Error(categoryError);
 
-    const { id, ...updates } = args;
+    const { id, basePrice, categoryId, ...rest } = args;
+    // null → clear the field (patching undefined removes it).
+    const updates = {
+      ...rest,
+      ...(basePrice !== undefined ? { basePrice: basePrice ?? undefined } : {}),
+      ...(categoryId !== undefined
+        ? { categoryId: categoryId ?? undefined }
+        : {}),
+    };
 
     await ctx.db.patch(id, {
       ...updates,
@@ -343,8 +385,8 @@ export const update = mutation({
       updatedAt: Date.now(),
     });
 
-    // basePrice may have changed on a pending player — refresh min pending base
-    // price (cheap no-op write when nothing count-relevant actually changed).
+    // basePrice or category may have changed on a pending player — refresh min
+    // pending base price (cheap no-op write when nothing count-relevant changed).
     await syncTournamentAuctionCounts(ctx, player.tournamentId);
 
     // Phone numbers are PII — record that they changed, not their values.

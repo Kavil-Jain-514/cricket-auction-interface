@@ -89,3 +89,68 @@ export function validateBidTimerSeconds(seconds: number): string | null {
   }
   return `Bid timer must be off (0) or between ${MIN_BID_TIMER_SECONDS} and ${MAX_BID_TIMER_SECONDS} seconds`;
 }
+
+// ── Base price and increments ────────────────────────────────────────────────
+
+export interface PlayerCategory {
+  id: string;
+  name: string;
+  basePrice: number;
+  order: number;
+  colour: string;
+}
+
+export interface IncrementSlab {
+  fromAmount: number;
+  increment: number;
+}
+
+/** Category for `categoryId`, or undefined when absent or since deleted. */
+export function categoryFor(
+  categoryId: string | undefined,
+  categories: PlayerCategory[] | undefined,
+): PlayerCategory | undefined {
+  if (!categoryId) return undefined;
+  return categories?.find((c) => c.id === categoryId);
+}
+
+/** Starting price: the player's own, else its category's, else the tournament's. */
+export function effectiveBasePrice(
+  player: { basePrice?: number; categoryId?: string },
+  settings: { basePrice?: number; categories?: PlayerCategory[] },
+): number {
+  return (
+    player.basePrice ??
+    categoryFor(player.categoryId, settings.categories)?.basePrice ??
+    settings.basePrice ??
+    DEFAULT_BASE_PRICE
+  );
+}
+
+/**
+ * Increment for a bid standing at `currentBid`: the last slab whose
+ * fromAmount <= currentBid (slabs are stored ascending), so a bid exactly on
+ * a boundary already uses the higher band. No slabs, or a bid below the first
+ * one, uses `minBidIncrement` exactly as before slabs existed.
+ */
+export function incrementFor(
+  currentBid: number,
+  slabs: IncrementSlab[] | undefined,
+  minBidIncrement: number,
+): number {
+  let increment = minBidIncrement;
+  for (const slab of slabs ?? []) {
+    if (slab.fromAmount > currentBid) break;
+    increment = slab.increment;
+  }
+  return increment;
+}
+
+/** Lowest raise over a standing bid of `currentBid`. */
+export function nextMinimumBid(
+  currentBid: number,
+  slabs: IncrementSlab[] | undefined,
+  minBidIncrement: number,
+): number {
+  return currentBid + incrementFor(currentBid, slabs, minBidIncrement);
+}

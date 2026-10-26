@@ -12,15 +12,20 @@ import { toast } from 'sonner';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { CategoryChip } from './CategoryChip';
+import type { PlayerCategory } from '@/convex/bidRules';
 
 interface PlayerCardProps {
-  player: Doc<"players">;
+  /** From players:listByTournament (basePrice resolved, plus the raw override). */
+  player: Doc<"players"> & { basePriceOverride?: number };
   onClick?: () => void;
   /** True when this player is a team captain — shows a "C" tag */
   isCaptain?: boolean;
+  /** Tournament categories, for the category chip. */
+  categories?: PlayerCategory[];
 }
 
-export function PlayerCard({ player, onClick, isCaptain }: PlayerCardProps) {
+export function PlayerCard({ player, onClick, isCaptain, categories }: PlayerCardProps) {
   const [showEdit, setShowEdit] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const deletePlayer = useMutation(api.players.deletePlayer);
@@ -96,6 +101,7 @@ export function PlayerCard({ player, onClick, isCaptain }: PlayerCardProps) {
                   {r}
                 </span>
               ))}
+              <CategoryChip categoryId={player.categoryId} categories={categories} className="rounded py-0.5 sm:py-1" />
               <span className={`px-2 py-0.5 sm:py-1 ${getStatusBadgeBg(player.auctionStatus)} rounded text-xs font-semibold`}>
                 {player.auctionStatus}
               </span>

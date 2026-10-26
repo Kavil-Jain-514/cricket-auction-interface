@@ -25,6 +25,7 @@
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { effectiveBasePrice, type PlayerCategory } from "./bidRules";
 
 export type AuctionCounts = NonNullable<Doc<"tournaments">["auctionCounts"]>;
 
@@ -36,7 +37,7 @@ export type AuctionCounts = NonNullable<Doc<"tournaments">["auctionCounts"]>;
 export function computeAuctionCounts(
   players: Doc<"players">[],
   teams: Doc<"teams">[],
-  defaultBasePrice: number,
+  settings: { basePrice?: number; categories?: PlayerCategory[] },
 ): AuctionCounts {
   // Team captains are pre-assigned and never auctioned, so they must not appear
   // in ANY count (pending/sold/unsold/inAuction) or affect minPendingBasePrice.
@@ -55,7 +56,7 @@ export function computeAuctionCounts(
     switch (p.auctionStatus) {
       case "pending": {
         pending++;
-        const bp = p.basePrice ?? defaultBasePrice;
+        const bp = effectiveBasePrice(p, settings);
         if (minPendingBasePrice === undefined || bp < minPendingBasePrice) {
           minPendingBasePrice = bp;
         }
@@ -116,11 +117,7 @@ export async function syncTournamentAuctionCounts(
       .collect(),
   ]);
 
-  const counts = computeAuctionCounts(
-    players,
-    teams,
-    tournament.settings.basePrice ?? 100000,
-  );
+  const counts = computeAuctionCounts(players, teams, tournament.settings);
 
   if (auctionCountsEqual(tournament.auctionCounts, counts)) {
     return; // unchanged — skip the write to avoid a needless query invalidation

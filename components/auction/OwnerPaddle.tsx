@@ -8,6 +8,7 @@ import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { formatCurrency, getErrorMessage } from '@/lib/utils';
 import { TeamLogo } from '@/components/ui/team-logo';
+import { nextMinimumBid, type IncrementSlab } from '@/convex/bidRules';
 
 /** Shape returned by auctions:getMyPaddle (non-null). */
 export interface PaddleState {
@@ -18,6 +19,7 @@ export interface PaddleState {
   maxAllowedBid: number;
   minNextBid: number | null;
   minBidIncrement: number;
+  incrementSlabs: IncrementSlab[];
   isLeading: boolean;
   currentPlayerId: string | null;
   myPending: { _id: string; amount: number; createdAt: number } | null;
@@ -90,10 +92,12 @@ export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen }: OwnerPaddleP
     return () => clearTimeout(t);
   }, [flash]);
 
-  const amount =
-    paddle.minNextBid === null
-      ? null
-      : paddle.minNextBid + (step - 1) * paddle.minBidIncrement;
+  // Step N is N-1 further raises above the minimum, each using its own
+  // price band's increment (slabs), as placeBid would.
+  let amount = paddle.minNextBid;
+  for (let i = 1; amount !== null && i < step; i++) {
+    amount = nextMinimumBid(amount, paddle.incrementSlabs, paddle.minBidIncrement);
+  }
   const overMax = amount !== null && amount > paddle.maxAllowedBid;
   const squadFull = paddle.playersNeeded === 0;
 

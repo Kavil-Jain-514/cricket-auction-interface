@@ -169,3 +169,81 @@ export function validatePlayerFields(
 
   return { errors, phoneNumber: phone.ok ? phone.phone : undefined };
 }
+
+export const MAX_CATEGORIES = 20;
+export const MAX_INCREMENT_SLABS = 10;
+const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
+
+/** Category list for tournaments.settings.categories (empty is fine). */
+export function validateCategories(
+  categories: {
+    id: string;
+    name: string;
+    basePrice: number;
+    order: number;
+    colour: string;
+  }[],
+  basePurse: number,
+): string | null {
+  if (categories.length > MAX_CATEGORIES) {
+    return `At most ${MAX_CATEGORIES} categories`;
+  }
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  for (const c of categories) {
+    const name = c.name.trim();
+    if (c.id.trim() === "") return "Every category needs an id";
+    if (name.length < 1 || name.length > 30) {
+      return "Category names must be 1–30 characters";
+    }
+    if (ids.has(c.id)) return `Duplicate category id "${c.id}"`;
+    if (names.has(name.toLowerCase())) {
+      return `Duplicate category name "${name}"`;
+    }
+    ids.add(c.id);
+    names.add(name.toLowerCase());
+    if (
+      !Number.isFinite(c.basePrice) ||
+      c.basePrice <= 0 ||
+      c.basePrice > basePurse
+    ) {
+      return `${name}: base price must be greater than 0 and no more than the base purse`;
+    }
+    if (!Number.isFinite(c.order)) return `${name}: order must be a number`;
+    if (!HEX_COLOUR.test(c.colour)) {
+      return `${name}: colour must be a hex value like #f59e0b`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Increment slabs: thresholds strictly ascending from ₹0 up, each increment
+ * held to the same bounds as minBidIncrement.
+ */
+export function validateIncrementSlabs(
+  slabs: { fromAmount: number; increment: number }[],
+  basePurse: number,
+): string | null {
+  if (slabs.length > MAX_INCREMENT_SLABS) {
+    return `At most ${MAX_INCREMENT_SLABS} increment slabs`;
+  }
+  let previous = -1;
+  for (const slab of slabs) {
+    if (!Number.isFinite(slab.fromAmount) || slab.fromAmount < 0) {
+      return "Slab thresholds must be ₹0 or more";
+    }
+    if (slab.fromAmount <= previous) {
+      return "Slab thresholds must be in ascending order with no duplicates";
+    }
+    previous = slab.fromAmount;
+    if (
+      !Number.isFinite(slab.increment) ||
+      slab.increment < MIN_BID_INCREMENT ||
+      slab.increment > basePurse / 10
+    ) {
+      return "Each slab increment must be at least ₹5,000 and at most 10% of the base purse";
+    }
+  }
+  return null;
+}

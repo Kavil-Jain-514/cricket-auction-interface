@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { PLAYER_ROLES } from '@/lib/utils';
+import type { PlayerCategory } from '@/convex/bidRules';
 
 interface PlayerImportProps {
   tournamentId: Id<"tournaments">;
@@ -27,6 +28,19 @@ interface ParsedPlayer {
   jerseyName?: string;
   basePrice?: number;
   photoUrl?: string;
+  /** Raw "Category" cell; matched to a tournament category by name at import. */
+  category?: string;
+}
+
+/** Category id for a sheet's category name (case-insensitive), or null if unknown. */
+function matchCategory(
+  name: string | undefined,
+  categories: PlayerCategory[] | undefined,
+): { categoryId?: string } | null {
+  if (!name) return {};
+  const wanted = name.trim().toLowerCase();
+  const match = categories?.find((c) => c.name.trim().toLowerCase() === wanted);
+  return match ? { categoryId: match.id } : null;
 }
 
 // Convert Google Drive sharing link to direct image URL
@@ -133,6 +147,11 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
 
   const importPlayers = useMutation(api.players.bulkImport);
   const existingPlayers = useQuery(api.players.listByTournament, { tournamentId });
+  const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
+  const categories = tournament?.settings.categories;
+  const unknownCategoryRows = parsed.flatMap((p, i) =>
+    matchCategory(p.category, categories) ? [] : [`Row ${parsedRows[i]}: Unknown category "${p.category}" for "${p.name}" — add it in Tournament Settings`],
+  );
 
   // Get the starting player number for new imports
   const startingPlayerNumber = (existingPlayers?.reduce((max, p) =>
@@ -217,6 +236,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
           const rawJerseyNumber = getColumnValue(row, 'Jersey Number', 'Jersey No', 'jersey number');
           const rawJerseyName = getColumnValue(row, 'Jersey Name', 'jersey name', 'Jersey Name On Back', 'Name On Jersey');
           const rawBasePrice = getColumnValue(row, 'Base Price', 'base price', 'Price');
+          const rawCategory = getColumnValue(row, 'Category', 'Set', 'Player Category');
 
           const player: ParsedPlayer = {
             name: String(getColumnValue(row, 'Player Name', 'Name', 'player name') || '').trim(),
@@ -229,6 +249,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
             jerseyName: rawJerseyName ? String(rawJerseyName).trim() : undefined,
             basePrice: rawBasePrice ? (parseInt(String(rawBasePrice)) || undefined) : undefined,
             photoUrl: resolvedPhotoUrl,
+            category: rawCategory ? String(rawCategory).trim() || undefined : undefined,
           };
 
 
@@ -287,6 +308,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
           'Jersey Number': 7,
           'Jersey Name': 'JOHN',
           'Base Price': 100000,
+          'Category': '',
           'Profile Photo': 'https://drive.google.com/file/d/FILE_ID/view?usp=sharing',
         },
         {
@@ -298,7 +320,8 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
           'T-Shirt Size': 'M',
           'Jersey Number': 11,
           'Jersey Name': 'JANE',
-          'Base Price': 200000,
+          'Base Price': '',
+          'Category': 'Marquee',
           'Profile Photo': '',
         },
       ];
@@ -314,6 +337,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
         { wch: 14 }, // Jersey Number
         { wch: 14 }, // Jersey Name
         { wch: 12 }, // Base Price
+        { wch: 14 }, // Category
         { wch: 45 }, // Profile Photo
       ];
 
@@ -332,10 +356,19 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       return;
     }
 
+    if (unknownCategoryRows.length > 0) {
+      setErrors(unknownCategoryRows);
+      toast.error('Fix the unknown categories before importing');
+      return;
+    }
+
     try {
       const result = await importPlayers({
         tournamentId,
-        players: parsed,
+        players: parsed.map(({ category, ...player }) => ({
+          ...player,
+          ...matchCategory(category, categories),
+        })),
       });
 
       if (!result.success) {
@@ -435,6 +468,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                     <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Jersey #</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Jersey Name</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">T-Shirt</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Category</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold bg-slate-900">Base Price</th>
                   </tr>
                 </thead>
@@ -493,6 +527,9 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                       <td className="px-4 py-3 text-sm">{player.jerseyNumber || '-'}</td>
                       <td className="px-4 py-3 text-sm">{player.jerseyName || '-'}</td>
                       <td className="px-4 py-3 text-sm">{player.tshirtSize || '-'}</td>
+                      <td className={`px-4 py-3 text-sm ${matchCategory(player.category, categories) ? '' : 'text-red-400 font-semibold'}`}>
+                        {player.category || '-'}
+                      </td>
                       <td className="px-4 py-3 text-sm font-semibold">
                         {player.basePrice ? `₹${(player.basePrice / 100000).toFixed(1)}L` : 'Default'}
                       </td>
