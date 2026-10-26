@@ -10,6 +10,9 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
+import { ShareResultsButton } from '@/components/results/ShareResultsButton';
+import { ExportResultsButton } from '@/components/results/ExportResultsButton';
+import type { Id } from '@/convex/_generated/dataModel';
 
 interface SoldPlayer {
   _id: string;
@@ -40,6 +43,8 @@ interface AuctionCompleteScreenProps {
     sold: number;
     unsold: number;
   };
+  /** Shows "Export results (.xlsx)". */
+  isAdmin?: boolean;
 }
 
 export function AuctionCompleteScreen({
@@ -49,6 +54,7 @@ export function AuctionCompleteScreen({
   soldPlayers,
   teams,
   stats,
+  isAdmin = false,
 }: AuctionCompleteScreenProps) {
   const [showSummary, setShowSummary] = useState(false);
 
@@ -308,8 +314,18 @@ export function AuctionCompleteScreen({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 1 }}
-            className="flex justify-center gap-4 mt-8"
+            className="flex flex-wrap justify-center gap-4 mt-8"
           >
+            {tournamentId && (
+              <ShareResultsButton
+                tournamentId={tournamentId}
+                tournamentName={tournamentName}
+                className="h-11 px-5 border-slate-500 bg-slate-800 text-slate-100 hover:bg-slate-700 hover:text-white"
+              />
+            )}
+            {isAdmin && tournamentId && (
+              <ExportResultsButton tournamentId={tournamentId as Id<"tournaments">} />
+            )}
             <Link href={`/tournament/${tournamentId}`}>
               <Button size="lg" variant="outline">
                 Back to Tournament

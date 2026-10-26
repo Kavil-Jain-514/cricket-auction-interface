@@ -29,7 +29,6 @@ import {
 import {
   bidTimerEndsAt,
   bidTimerSeconds,
-  DEFAULT_BASE_PRICE,
   effectiveBasePrice,
   isSquadFull,
   maxAllowedBid,
@@ -646,6 +645,9 @@ export const finalizePlayerSale = mutation({
             amount: winningBid.amount,
             playerName: player.name,
             teamName: team.name,
+            // Only the winning bid is archived to `bids`, so keep the count
+            // here for the results export's sale log.
+            bidCount: allLiveBids.length,
           },
           timestamp: now,
         }),
