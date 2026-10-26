@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 import { Id, Doc } from "./_generated/dataModel";
 import { requireAdmin, logAdminAction } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { toPublicPlayer } from "./projections";
 
 /** In-place Fisher–Yates shuffle. Used to reshuffle each unsold round's queue. */
 function shuffleInPlace<T>(arr: T[]): T[] {
@@ -1319,7 +1320,9 @@ export const getAuctionRoster = query({
     });
 
     return {
-      currentPlayer,
+      // Always the public projection: this query is shared by every viewer and
+      // must stay identity-free, so never branch on the caller's role here.
+      currentPlayer: currentPlayer ? toPublicPlayer(currentPlayer) : null,
       teams: teamsWithMaxBid,
       // Trimmed projection, not the raw doc — keeps this fan-out payload
       // bounded regardless of what other fields end up on the tournament
