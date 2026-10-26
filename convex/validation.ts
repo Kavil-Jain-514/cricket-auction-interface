@@ -64,6 +64,24 @@ export function validateSettings(settings: {
   return null;
 }
 
+export const MAX_FOOTER_TEXT = 120;
+
+/**
+ * Trim the optional viewer footer text. Blank means "hidden" (undefined).
+ */
+export function normalizeFooterText(
+  raw: string | undefined,
+): { ok: true; text: string | undefined } | { ok: false; error: string } {
+  const text = (raw ?? "").trim();
+  if (text.length > MAX_FOOTER_TEXT) {
+    return {
+      ok: false,
+      error: `Footer text must be at most ${MAX_FOOTER_TEXT} characters`,
+    };
+  }
+  return { ok: true, text: text === "" ? undefined : text };
+}
+
 export function validateTeamName(name: string): string | null {
   return lengthError("Team name", name, 2, 29);
 }

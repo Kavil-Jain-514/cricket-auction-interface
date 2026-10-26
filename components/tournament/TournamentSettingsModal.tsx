@@ -24,6 +24,7 @@ interface TournamentSettingsModalProps {
       bidTimerSeconds?: number;
       maxPlayersPerTeam: number;
       basePrice?: number;
+      footerText?: string;
     };
     status?: string;
   };
@@ -48,6 +49,7 @@ export function TournamentSettingsModal({
     minBidIncrement: String(currentSettings.settings.minBidIncrement),
     maxPlayersPerTeam: String(currentSettings.settings.maxPlayersPerTeam),
     basePrice: String(currentSettings.settings.basePrice || 100000),
+    footerText: currentSettings.settings.footerText || '',
   });
 
   const parsed = {
@@ -79,6 +81,9 @@ export function TournamentSettingsModal({
   if (formData.maxPlayersPerTeam.trim() === '' || !Number.isInteger(parsed.maxPlayersPerTeam) || parsed.maxPlayersPerTeam < 1 || parsed.maxPlayersPerTeam > 50) {
     fieldErrors.maxPlayersPerTeam = 'Enter a whole number from 1 to 50';
   }
+  if (formData.footerText.trim().length > 120) {
+    fieldErrors.footerText = 'Keep it to 120 characters or fewer';
+  }
   const hasErrors = Object.keys(fieldErrors).length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -94,6 +99,8 @@ export function TournamentSettingsModal({
       parsed.minBidIncrement !== current.minBidIncrement ||
       parsed.maxPlayersPerTeam !== current.maxPlayersPerTeam ||
       parsed.basePrice !== (current.basePrice || 100000);
+    // Footer text is not locked, so it can change during a live auction.
+    const footerChanged = formData.footerText.trim() !== (current.footerText || '');
 
     try {
       await updateTournament({
@@ -101,7 +108,14 @@ export function TournamentSettingsModal({
         name: formData.name,
         description: formData.description || undefined,
         logoUrl: formData.logoUrl || undefined,
-        ...(settingsChanged ? { settings: parsed } : {}),
+        ...(settingsChanged || footerChanged
+          ? {
+              settings: {
+                ...parsed,
+                ...(footerChanged ? { footerText: formData.footerText.trim() } : {}),
+              },
+            }
+          : {}),
       });
 
       toast.success('Tournament updated successfully!');
@@ -186,6 +200,22 @@ export function TournamentSettingsModal({
                   aspectRatio="square"
                 />
               </div>
+            </div>
+
+            <div>
+              <Label htmlFor="footerText">Viewer Footer Text</Label>
+              <Input
+                id="footerText"
+                value={formData.footerText}
+                onChange={(e) => setFormData({ ...formData, footerText: e.target.value })}
+                placeholder="e.g., Hosted by Sunrise Cricket Club"
+                maxLength={120}
+                className="mt-2"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                Optional. Shown under the Bid11Pro name on the live viewer page. Leave empty to hide.
+              </p>
+              {fieldError('footerText')}
             </div>
           </div>
 
