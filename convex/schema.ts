@@ -45,6 +45,16 @@ export default defineSchema({
       maxPlayersPerTeam: v.number(),
       basePrice: v.optional(v.number()), // Default base price for players, if not provided it's 1,00,000 for legacy reasons
       footerText: v.optional(v.string()), // Shown under the brand on the viewer page; absent = hidden
+      // Who may bid. Absent = "admin_only" (legacy behaviour). "confirm": owner
+      // raises queue as bidRequests for the auctioneer to accept. "open": valid
+      // owner raises go straight to liveBids. Not locked during a live auction.
+      bidMode: v.optional(
+        v.union(
+          v.literal("admin_only"),
+          v.literal("confirm"),
+          v.literal("open"),
+        ),
+      ),
     }),
     logoUrl: v.optional(v.string()),
     // Visibility flag (independent of the auction lifecycle `status` above).
@@ -102,6 +112,52 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_tournament", ["tournamentId"]),
+
+  // Team members — users linked to a team (owners bid from their own phones).
+  // A user belongs to at most one team per tournament (enforced by claimInvite).
+  teamMembers: defineTable({
+    teamId: v.id("teams"),
+    tournamentId: v.id("tournaments"),
+    userId: v.id("users"),
+    role: v.union(v.literal("owner"), v.literal("viewer")),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_team", ["teamId"]),
+
+  // One-time owner invite links. Only the SHA-256 of the token is stored.
+  teamInvites: defineTable({
+    teamId: v.id("teams"),
+    tournamentId: v.id("tournaments"),
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+    createdBy: v.id("users"),
+    usedBy: v.optional(v.id("users")),
+    usedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_team", ["teamId"]),
+
+  // Owner raises waiting for the auctioneer (bidMode "confirm"). At most one
+  // "pending" request per team and player; a newer raise supersedes the older.
+  bidRequests: defineTable({
+    auctionRoomId: v.id("auctionRooms"),
+    playerId: v.id("players"),
+    teamId: v.id("teams"),
+    userId: v.id("users"),
+    amount: v.number(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("rejected"),
+      v.literal("superseded"),
+    ),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_room_player_status", ["auctionRoomId", "playerId", "status"])
+    .index("by_team", ["teamId"]),
 
   // Players table
   players: defineTable({
@@ -239,6 +295,9 @@ export default defineSchema({
     teamId: v.id("teams"),
     amount: v.number(),
     timestamp: v.number(),
+    // Who placed it. Optional: absent on bids from before owner bidding.
+    source: v.optional(v.union(v.literal("admin"), v.literal("owner"))),
+    userId: v.optional(v.id("users")),
   })
     // Get latest bid for a player (used in queries and finalization)
     .index("by_player", ["playerId", "timestamp"])
@@ -253,6 +312,8 @@ export default defineSchema({
     amount: v.number(),
     timestamp: v.number(),
     isFinal: v.boolean(), // True if this was the winning bid
+    source: v.optional(v.union(v.literal("admin"), v.literal("owner"))),
+    userId: v.optional(v.id("users")),
   })
     .index("by_auction_room", ["auctionRoomId"])
     .index("by_player", ["playerId"])

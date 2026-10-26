@@ -7,9 +7,10 @@ import { Users, Download } from 'lucide-react';
 import { useState } from 'react';
 import { formatCurrency, getErrorMessage } from '@/lib/utils';
 import { motion } from 'framer-motion';
-import { Trash2, Edit } from 'lucide-react';
+import { Trash2, Edit, UserPlus } from 'lucide-react';
 import { TeamEditForm } from './TeamEditForm';
 import { TeamDetailsModal } from './TeamDetailsModal';
+import { TeamOwnersModal } from './TeamOwnersModal';
 import { useMutation } from 'convex/react';
 import { toast } from 'sonner';
 import { TeamLogo } from '@/components/ui/team-logo';
@@ -32,6 +33,7 @@ interface TeamCardProps {
 export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
   const [showEdit, setShowEdit] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [showOwners, setShowOwners] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const players = useQuery(api.players.listByTournament, {
@@ -248,6 +250,14 @@ export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
               {canModify && (
                 <>
                   <button
+                    onClick={(e) => { e.stopPropagation(); setShowOwners(true); }}
+                    className="flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-purple-500/15 hover:text-purple-400 active:scale-95 touch-target"
+                    aria-label="Invite owner"
+                    title="Invite owner"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                  </button>
+                  <button
                     onClick={(e) => { e.stopPropagation(); setShowEdit(true); }}
                     className="flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-blue-500/15 hover:text-blue-400 active:scale-95 touch-target"
                     aria-label="Edit team"
@@ -280,6 +290,13 @@ export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
           team={team}
           onClose={() => setShowEdit(false)}
           onSuccess={() => setShowEdit(false)}
+        />
+      )}
+
+      {showOwners && (
+        <TeamOwnersModal
+          team={team}
+          onClose={() => setShowOwners(false)}
         />
       )}
 

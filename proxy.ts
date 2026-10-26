@@ -7,6 +7,8 @@ const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
   "/tournament(.*)",
   "/auction/create(.*)",
+  // Owner invite links: sign in first, then the page claims the invite.
+  "/join(.*)",
 ]);
 
 // Routes that are always public (auth pages, landing, API routes handled separately)

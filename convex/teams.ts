@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUser, isAdmin, logAdminAction, requireAdmin } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { deleteTeamMembershipData } from "./members";
 import { Doc } from "./_generated/dataModel";
 import { toPublicPlayer } from "./projections";
 import { validateOwnerName, validateTeamName } from "./validation";
@@ -366,6 +367,9 @@ export const deleteTeam = mutation({
           .map((bid) => ctx.db.delete(bid._id)),
       );
     }
+
+    // Owners, invite links and queued raises all belong to the team.
+    await deleteTeamMembershipData(ctx, args.id);
 
     // Check if team has players - release them first
     const players = await ctx.db
