@@ -45,6 +45,14 @@ const borderSizeClasses = {
   '3xl': 'border-4',
 };
 
+/** The exact image URL PlayerAvatar requests at `size` — for preloading. */
+export function playerAvatarSrc(
+  photoUrl: string | null | undefined,
+  size: keyof typeof sizeWidths,
+): string | undefined {
+  return optimizeImageUrl(photoUrl, sizeWidths[size]);
+}
+
 export function PlayerAvatar({
   name,
   photoUrl,

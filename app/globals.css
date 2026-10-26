@@ -122,6 +122,12 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Broadcast overlay: see-through from the first paint in OBS / vMix
+     (BroadcastOverlay also clears it at runtime for browsers without :has). */
+  html:has([data-broadcast-overlay]),
+  html:has([data-broadcast-overlay]) body {
+    background: transparent;
+  }
 }
 
 /* iPad-Friendly Utilities */
