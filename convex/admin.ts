@@ -10,6 +10,7 @@ import {
   isSquadFull,
   maxAllowedBid,
   reserveBasePrice,
+  teamPurseTotal,
 } from "./bidRules";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -447,6 +448,7 @@ export const clearCurrentPlayerBids = mutation({
   },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
+    const reason = requireReason(args.reason);
 
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
@@ -487,12 +489,139 @@ export const clearCurrentPlayerBids = mutation({
       targetType: "auction",
       targetId: args.auctionRoomId,
       previousData: { bidCount: bids.length },
-      newData: { reason: args.reason },
+      newData: { reason },
       tournamentId: auctionRoom.tournamentId,
       auctionRoomId: args.auctionRoomId,
     });
 
     return { success: true, message: `Cleared ${bids.length} bids` };
+  },
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PURSE TOOLS — keep remaining + spent == basePurse + purseAdjustment
+// ═══════════════════════════════════════════════════════════════════════════
+
+const MAX_REASON_LENGTH = 200;
+
+/** Trimmed reason; throws when blank (every money change must say why). */
+function requireReason(raw: string): string {
+  const reason = raw.trim();
+  if (reason === "") throw new Error("A reason is required");
+  if (reason.length > MAX_REASON_LENGTH) {
+    throw new Error(`Keep the reason to ${MAX_REASON_LENGTH} characters or fewer`);
+  }
+  return reason;
+}
+
+/**
+ * Give a team money or take it away outside a sale (a penalty, a sponsor
+ * top-up). Recorded in team.purseAdjustment so the reconciliation stays ok:
+ * remaining moves by `amount`, spent is untouched.
+ */
+export const adjustTeamPurse = mutation({
+  args: {
+    teamId: v.id("teams"),
+    amount: v.number(), // positive adds, negative deducts
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const reason = requireReason(args.reason);
+    if (!Number.isInteger(args.amount) || args.amount === 0) {
+      throw new Error("Adjustment must be a non-zero whole number of rupees");
+    }
+
+    const team = await ctx.db.get(args.teamId);
+    if (!team) throw new Error("Team not found");
+
+    const purseRemaining = team.purseRemaining + args.amount;
+    if (purseRemaining < 0) {
+      throw new Error(
+        `That would take ${team.name}'s purse below zero (${formatPurse(team.purseRemaining)} left)`,
+      );
+    }
+    const purseAdjustment = (team.purseAdjustment ?? 0) + args.amount;
+
+    await ctx.db.patch(args.teamId, {
+      purseRemaining,
+      purseAdjustment,
+      updatedAt: Date.now(),
+    });
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "adjust_team_purse",
+      targetType: "team",
+      targetId: args.teamId,
+      previousData: {
+        purseRemaining: team.purseRemaining,
+        purseAdjustment: team.purseAdjustment ?? 0,
+      },
+      newData: { purseRemaining, purseAdjustment, amount: args.amount, reason },
+      tournamentId: team.tournamentId,
+    });
+
+    return { success: true, purseRemaining, purseAdjustment };
+  },
+});
+
+/**
+ * Repair a team's purse from the source of truth: spent = sum of its sold
+ * players' prices, remaining = basePurse + purseAdjustment - spent. Replaces
+ * the old resetTeamPurse, which zeroed the purse even with players sold.
+ */
+export const recalculateTeamPurse = mutation({
+  args: {
+    teamId: v.id("teams"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const reason = requireReason(args.reason);
+
+    const team = await ctx.db.get(args.teamId);
+    if (!team) throw new Error("Team not found");
+    const tournament = await ctx.db.get(team.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
+      .collect();
+    const purseSpent = players
+      .filter((p) => p.auctionStatus === "sold")
+      .reduce((sum, p) => sum + (p.soldPrice ?? 0), 0);
+    const purseRemaining =
+      teamPurseTotal(tournament.settings.basePurse, team) - purseSpent;
+    if (purseRemaining < 0) {
+      throw new Error(
+        `${team.name}'s sold players cost ${formatPurse(purseSpent)}, more than its purse. Correct the sold prices first.`,
+      );
+    }
+
+    await ctx.db.patch(args.teamId, {
+      purseRemaining,
+      purseSpent,
+      updatedAt: Date.now(),
+    });
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "recalculate_team_purse",
+      targetType: "team",
+      targetId: args.teamId,
+      previousData: {
+        purseRemaining: team.purseRemaining,
+        purseSpent: team.purseSpent,
+      },
+      newData: { purseRemaining, purseSpent, reason },
+      tournamentId: team.tournamentId,
+    });
+
+    return { success: true, purseRemaining, purseSpent };
   },
 });
 

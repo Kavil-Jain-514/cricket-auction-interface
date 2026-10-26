@@ -7,6 +7,17 @@
 export const DEFAULT_BASE_PRICE = 100000;
 
 /**
+ * A team's whole purse: the tournament base purse plus any admin adjustments.
+ * The money invariant is purseRemaining + purseSpent == teamPurseTotal.
+ */
+export function teamPurseTotal(
+  basePurse: number,
+  team: { purseAdjustment?: number },
+): number {
+  return basePurse + (team.purseAdjustment ?? 0);
+}
+
+/**
  * Price used to reserve purse for each future squad slot: the cheapest base
  * price still in the pending pool, else the current player's base price, else
  * the tournament default.

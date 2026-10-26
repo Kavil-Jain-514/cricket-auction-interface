@@ -65,3 +65,13 @@ describe("buildResultsSheets", () => {
     expect(withContacts["Contacts"]).toHaveLength(2);
   });
 });
+
+describe("buildResultsSheets — purse adjustments", () => {
+  test("a team's purse includes its adjustments", () => {
+    const sheets = buildResultsSheets({
+      ...data,
+      teams: [{ ...data.teams[1], purseAdjustment: -50_000, purseRemaining: 750_000 }],
+    });
+    expect(sheets["Team summary"][1].slice(0, 4)).toEqual(["Team B", 950_000, 200_000, 750_000]);
+  });
+});

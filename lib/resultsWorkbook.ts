@@ -3,7 +3,7 @@
 // Pure (rows only) so it is unit-testable; the button turns the rows into a
 // workbook with the xlsx package. Money is written as plain rupee numbers so
 // the sheets can be summed.
-import { categoryFor, type PlayerCategory } from '@/convex/bidRules';
+import { categoryFor, teamPurseTotal, type PlayerCategory } from '@/convex/bidRules';
 import { formatCurrency, getRoleDisplay } from '@/lib/utils';
 
 type Status = 'pending' | 'in_auction' | 'sold' | 'unsold' | 'final_unsold';
@@ -11,7 +11,15 @@ type Status = 'pending' | 'in_auction' | 'sold' | 'unsold' | 'final_unsold';
 export interface ResultsExportData {
   tournament: { name: string; basePurse: number };
   categories: PlayerCategory[];
-  teams: Array<{ _id: string; name: string; purseSpent: number; purseRemaining: number; captainPlayerId?: string }>;
+  teams: Array<{
+    _id: string;
+    name: string;
+    purseSpent: number;
+    purseRemaining: number;
+    /** Admin penalties / top-ups; the team's purse is basePurse + this. */
+    purseAdjustment?: number;
+    captainPlayerId?: string;
+  }>;
   players: Array<{
     _id: string;
     name: string;
@@ -92,7 +100,7 @@ export function buildResultsSheets(data: ResultsExportData): Sheets {
     const top = squad[0];
     summary.push([
       team.name,
-      data.tournament.basePurse,
+      teamPurseTotal(data.tournament.basePurse, team),
       team.purseSpent,
       team.purseRemaining,
       squad.length,

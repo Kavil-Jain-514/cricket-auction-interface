@@ -11,6 +11,8 @@ const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
   "/tournament(.*)",
   "/auction/create(.*)",
+  // Back office: sign in first; app/admin/layout.tsx shows non-admins a 403.
+  "/admin(.*)",
   // Owner invite links: sign in first, then the page claims the invite.
   "/join(.*)",
 ]);

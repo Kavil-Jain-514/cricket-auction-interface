@@ -129,6 +129,10 @@ export default defineSchema({
     captainHand: v.optional(v.union(v.literal("Right"), v.literal("Left"))),
     purseRemaining: v.number(),
     purseSpent: v.number(),
+    // Signed total of admin purse adjustments (penalties, top-ups), each logged
+    // with a reason. Absent = 0. purseRemaining + purseSpent always equals
+    // settings.basePurse + purseAdjustment (see teamPurseTotal in bidRules.ts).
+    purseAdjustment: v.optional(v.number()),
     colorPrimary: v.string(), // Hex color for UI
     colorSecondary: v.string(),
     createdAt: v.number(),

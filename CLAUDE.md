@@ -31,7 +31,8 @@ npx tsc --noEmit     # typecheck
 - **Status changes resync counts.** Any mutation that changes a player's `auctionStatus` must call
   `syncTournamentAuctionCounts` (`convex/auctionCounts.ts`).
 - **Money invariants.** Any mutation that moves money must keep, for every team:
-  - `purseRemaining + purseSpent == basePurse`
+  - `purseRemaining + purseSpent == basePurse + purseAdjustment` (absent adjustment = 0; see
+    `teamPurseTotal` in `convex/bidRules.ts`; only `admin:adjustTeamPurse` changes the adjustment)
   - `purseSpent == sum(soldPrice of the team's players)`
 
   It must also call `logAdminAction` (`convex/auth.ts`).

@@ -105,39 +105,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
-// Delete an image from Cloudinary
-export async function DELETE(request: NextRequest) {
-  try {
-    // Authorization check — admins only
-    const denied = await requireConvexAdmin();
-    if (denied) return denied;
-
-    const { publicId } = await request.json();
-
-    if (!publicId) {
-      return NextResponse.json(
-        { error: "No public ID provided" },
-        { status: 400 },
-      );
-    }
-
-    // Validate publicId starts with our namespace to prevent deleting other assets
-    if (!publicId.startsWith("cricket-auction/")) {
-      return NextResponse.json(
-        { error: "Invalid public ID" },
-        { status: 400 },
-      );
-    }
-
-    await cloudinary.uploader.destroy(publicId);
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Cloudinary delete error:", error);
-    return NextResponse.json(
-      { error: "Failed to delete image" },
-      { status: 500 },
-    );
-  }
-}
