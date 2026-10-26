@@ -6,6 +6,7 @@ import { TeamLogo } from '@/components/ui/team-logo';
 import { Input } from '@/components/ui/input';
 import { formatCurrency } from '@/lib/utils';
 import { toast } from 'sonner';
+import { RuleStatusLine, type RuleStatus } from './RuleStatusLine';
 
 export interface AdminTeamsPanelProps {
   teams: Array<{
@@ -18,6 +19,9 @@ export interface AdminTeamsPanelProps {
     maxAllowedBid?: number;
     playersNeeded?: number;
     isSquadFull?: boolean;
+    /** Squad rule stopping this team from taking the current player. */
+    ruleBlock?: string | null;
+    ruleStatus?: RuleStatus[];
   }>;
   soldPlayers: Array<{ _id: string; teamId?: string }> | undefined;
   currentBidTeamId?: string;
@@ -86,6 +90,7 @@ export function AdminTeamsPanel({
           const canBid =
             hasSufficientPurse &&
             !hasReachedMaxPlayers &&
+            !team.ruleBlock &&
             isValidBid &&
             !!currentPlayer &&
             auctionRoomStatus === 'live';
@@ -94,6 +99,8 @@ export function AdminTeamsPanel({
           let bidError: string | null = null;
           if (hasReachedMaxPlayers) {
             bidError = 'Squad full';
+          } else if (team.ruleBlock && currentPlayer) {
+            bidError = team.ruleBlock;
           } else if (exceedsMaxAllowed && team.playersNeeded && team.playersNeeded > 1) {
             bidError = `Max bid: ${formatCurrency(maxAllowedBid)} (need ${team.playersNeeded} more players)`;
           } else if (!hasSufficientPurse) {
@@ -118,7 +125,7 @@ export function AdminTeamsPanel({
                     ? 'border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/20'
                     : 'border-slate-700 bg-slate-800/50'
                 }
-                ${hasReachedMaxPlayers || exceedsMaxAllowed ? 'opacity-50' : ''}
+                ${hasReachedMaxPlayers || exceedsMaxAllowed || (team.ruleBlock && currentPlayer) ? 'opacity-50' : ''}
               `}
             >
               {bidding === team._id && (
@@ -146,6 +153,11 @@ export function AdminTeamsPanel({
                   <Gavel className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 animate-pulse shrink-0" />
                 )}
               </div>
+
+              <RuleStatusLine status={team.ruleStatus} className="mb-2" />
+              {team.ruleBlock && currentPlayer && !hasReachedMaxPlayers && (
+                <p className="text-[10px] text-red-400 mb-1">{team.ruleBlock}</p>
+              )}
 
               {/* Custom Bid Input */}
               {currentPlayer && !hasReachedMaxPlayers && (

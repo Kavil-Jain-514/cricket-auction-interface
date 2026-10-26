@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { IncrementSlab, PlayerCategory } from '@/convex/bidRules';
+import { SQUAD_RULE_ROLES, type SquadRule } from '@/convex/squadRules';
 import { formatCurrency } from '@/lib/utils';
 
 // Numeric fields are raw input strings (as in TournamentSettingsModal) so an
@@ -23,10 +24,19 @@ export interface SlabRow {
 
 export type PresentationOrder = 'random' | 'by_category';
 
+/** `target` is "category:<id>" or "role:<role>"; min/max are raw input strings. */
+export interface SquadRuleRow {
+  id: string;
+  target: string;
+  min: string;
+  max: string;
+}
+
 export interface RulesFormValues {
   categories: CategoryRow[];
   slabs: SlabRow[];
   presentationOrder: PresentationOrder;
+  squadRules: SquadRuleRow[];
 }
 
 const DEFAULT_COLOURS = ['#f59e0b', '#2563eb', '#16a34a', '#db2777', '#7c3aed', '#0891b2'];
@@ -35,9 +45,16 @@ export function rulesFormFromSettings(settings: {
   categories?: PlayerCategory[];
   incrementSlabs?: IncrementSlab[];
   presentationOrder?: PresentationOrder;
+  squadRules?: SquadRule[];
 }): RulesFormValues {
   return {
     presentationOrder: settings.presentationOrder ?? 'random',
+    squadRules: (settings.squadRules ?? []).map((r) => ({
+      id: r.id,
+      target: r.categoryId !== undefined ? `category:${r.categoryId}` : `role:${r.role}`,
+      min: r.min === undefined ? '' : String(r.min),
+      max: r.max === undefined ? '' : String(r.max),
+    })),
     categories: [...(settings.categories ?? [])]
       .sort((a, b) => a.order - b.order)
       .map((c) => ({ id: c.id, name: c.name, basePrice: String(c.basePrice), colour: c.colour })),
@@ -66,8 +83,26 @@ export function slabsFromForm(rows: SlabRow[]): IncrementSlab[] {
     .sort((a, b) => a.fromAmount - b.fromAmount);
 }
 
+/** Blank min/max are omitted; a blank target becomes an (invalid) empty role. */
+export function squadRulesFromForm(rows: SquadRuleRow[]): SquadRule[] {
+  return rows.map((r) => {
+    const [kind, ...rest] = r.target.split(':');
+    const value = rest.join(':');
+    return {
+      id: r.id,
+      ...(kind === 'category' ? { categoryId: value } : { role: value }),
+      ...(r.min.trim() !== '' ? { min: Number(r.min) } : {}),
+      ...(r.max.trim() !== '' ? { max: Number(r.max) } : {}),
+    };
+  });
+}
+
+function newId(prefix: string): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function newCategoryId(): string {
-  return `cat_${Math.random().toString(36).slice(2, 10)}`;
+  return newId('cat');
 }
 
 interface AuctionRulesEditorProps {
@@ -91,6 +126,11 @@ export function AuctionRulesEditor({ value, onChange, minBidIncrement, error }: 
   };
   const patchSlab = (i: number, patch: Partial<SlabRow>) =>
     setSlabs(value.slabs.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+  const setSquadRules = (squadRules: SquadRuleRow[]) => onChange({ ...value, squadRules });
+  const patchRule = (i: number, patch: Partial<SquadRuleRow>) =>
+    setSquadRules(value.squadRules.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  // Rules can only target categories that are already saved or being added.
+  const namedCategories = value.categories.filter((c) => c.name.trim() !== '');
 
   return (
     <div className="space-y-6">
@@ -212,6 +252,64 @@ export function AuctionRulesEditor({ value, onChange, minBidIncrement, error }: 
           onClick={() => setSlabs([...value.slabs, { fromAmount: '', increment: String(minBidIncrement) }])}
         >
           <Plus className="w-4 h-4" /> Add slab
+        </Button>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-300">Squad rules</h3>
+          <p className="text-xs text-slate-400 mt-1">
+            A bid that would take a team over a maximum is refused. For minimums, each team keeps enough purse to buy the
+            cheapest remaining eligible player, and keeps squad slots free for them. Captains don&apos;t count.
+          </p>
+        </div>
+
+        {value.squadRules.map((r, i) => (
+          <div key={r.id} className="grid grid-cols-[1fr_5rem_5rem_auto] items-end gap-2">
+            <div>
+              <Label htmlFor={`rule-target-${r.id}`} className="text-xs">Applies to</Label>
+              <select
+                id={`rule-target-${r.id}`}
+                value={r.target}
+                onChange={(e) => patchRule(i, { target: e.target.value })}
+                className="mt-1 h-9 w-full bg-slate-800 border border-slate-600 rounded-md px-2 text-sm text-white"
+              >
+                {namedCategories.length > 0 && (
+                  <optgroup label="Category">
+                    {namedCategories.map((c) => (
+                      <option key={c.id} value={`category:${c.id}`}>{c.name.trim()}</option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label="Role">
+                  {SQUAD_RULE_ROLES.map((role) => (
+                    <option key={role} value={`role:${role}`}>{role}</option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+            <div>
+              <Label htmlFor={`rule-min-${r.id}`} className="text-xs">Min</Label>
+              <Input id={`rule-min-${r.id}`} type="number" min="0" value={r.min} onChange={(e) => patchRule(i, { min: e.target.value })} className="mt-1" />
+            </div>
+            <div>
+              <Label htmlFor={`rule-max-${r.id}`} className="text-xs">Max</Label>
+              <Input id={`rule-max-${r.id}`} type="number" min="0" value={r.max} onChange={(e) => patchRule(i, { max: e.target.value })} className="mt-1" />
+            </div>
+            <button type="button" aria-label="Remove squad rule" onClick={() => setSquadRules(value.squadRules.filter((_, j) => j !== i))} className="mb-1 p-2 text-slate-400 hover:text-red-400">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white"
+          onClick={() => setSquadRules([...value.squadRules, { id: newId('rule'), target: 'role:Wicket Keeper', min: '1', max: '' }])}
+        >
+          <Plus className="w-4 h-4" /> Add squad rule
         </Button>
       </section>
     </div>

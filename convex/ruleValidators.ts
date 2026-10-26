@@ -19,3 +19,11 @@ export const incrementSlabValidator = v.object({
 export const presentationOrderValidator = v.optional(
   v.union(v.literal("random"), v.literal("by_category")),
 );
+
+export const squadRuleValidator = v.object({
+  id: v.string(),
+  categoryId: v.optional(v.string()),
+  role: v.optional(v.string()),
+  min: v.optional(v.number()),
+  max: v.optional(v.number()),
+});

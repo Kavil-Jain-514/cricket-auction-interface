@@ -4,6 +4,7 @@ import {
   categoryValidator,
   incrementSlabValidator,
   presentationOrderValidator,
+  squadRuleValidator,
 } from "./ruleValidators";
 
 export default defineSchema({
@@ -69,6 +70,9 @@ export default defineSchema({
       // Main-round order. Absent = "random" (legacy). "by_category": lowest
       // category order first, random within a category, uncategorised last.
       presentationOrder: presentationOrderValidator,
+      // Squad composition, per category or role (e.g. max 2 Marquee, min 1
+      // Wicket Keeper). Enforced in applyBid; see squadRules.ts.
+      squadRules: v.optional(v.array(squadRuleValidator)),
     }),
     logoUrl: v.optional(v.string()),
     // Visibility flag (independent of the auction lifecycle `status` above).
@@ -89,6 +93,10 @@ export default defineSchema({
         unsold: v.number(),
         inAuction: v.number(),
         minPendingBasePrice: v.optional(v.number()), // undefined when no pending players
+        // Cheapest pending base price per squad min rule (reserve for unmet minimums).
+        minPendingBasePriceByRule: v.optional(
+          v.array(v.object({ ruleId: v.string(), price: v.number() })),
+        ),
       }),
     ),
     createdAt: v.number(),

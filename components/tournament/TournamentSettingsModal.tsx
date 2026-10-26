@@ -12,13 +12,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { toast } from 'sonner';
 import { bidTimerSeconds, type IncrementSlab, type PlayerCategory } from '@/convex/bidRules';
-import { validateCategories, validateIncrementSlabs } from '@/convex/validation';
+import { validateCategories, validateIncrementSlabs, validateSquadRules } from '@/convex/validation';
+import type { SquadRule } from '@/convex/squadRules';
 import { bidTimerLabel, bidTimerOptions } from '@/lib/bidTimer';
 import {
   AuctionRulesEditor,
   categoriesFromForm,
   rulesFormFromSettings,
   slabsFromForm,
+  squadRulesFromForm,
   type RulesFormValues,
 } from './AuctionRulesEditor';
 
@@ -47,6 +49,7 @@ interface TournamentSettingsModalProps {
       categories?: PlayerCategory[];
       incrementSlabs?: IncrementSlab[];
       presentationOrder?: 'random' | 'by_category';
+      squadRules?: SquadRule[];
     };
     status?: string;
   };
@@ -113,9 +116,11 @@ export function TournamentSettingsModal({
   const nextCategories = categoriesFromForm(rules.categories);
   const nextSlabs = slabsFromForm(rules.slabs);
   // Same validators the server runs (convex/validation.ts).
+  const nextSquadRules = squadRulesFromForm(rules.squadRules);
   const rulesError =
     validateCategories(nextCategories, parsed.basePurse) ??
-    validateIncrementSlabs(nextSlabs, parsed.basePurse);
+    validateIncrementSlabs(nextSlabs, parsed.basePurse) ??
+    validateSquadRules(nextSquadRules, nextCategories.map((c) => c.id), parsed.maxPlayersPerTeam);
   const hasErrors = Object.keys(fieldErrors).length > 0 || rulesError !== null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -138,7 +143,9 @@ export function TournamentSettingsModal({
       JSON.stringify(nextCategories) !== JSON.stringify(categoriesFromForm(rulesFormFromSettings(current).categories));
     const slabsChanged = JSON.stringify(nextSlabs) !== JSON.stringify(current.incrementSlabs ?? []);
     const orderChanged = rules.presentationOrder !== (current.presentationOrder ?? 'random');
-    const rulesChanged = categoriesChanged || slabsChanged || orderChanged;
+    const squadRulesChanged =
+      JSON.stringify(nextSquadRules) !== JSON.stringify(squadRulesFromForm(rulesFormFromSettings(current).squadRules));
+    const rulesChanged = categoriesChanged || slabsChanged || orderChanged || squadRulesChanged;
     // Footer text is not locked, so it can change during a live auction.
     const footerChanged = formData.footerText.trim() !== (current.footerText || '');
     // Neither is bid mode — the auctioneer can switch modes mid-auction.
@@ -160,6 +167,7 @@ export function TournamentSettingsModal({
                 ...(categoriesChanged ? { categories: nextCategories } : {}),
                 ...(slabsChanged ? { incrementSlabs: nextSlabs } : {}),
                 ...(orderChanged ? { presentationOrder: rules.presentationOrder } : {}),
+                ...(squadRulesChanged ? { squadRules: nextSquadRules } : {}),
               },
             }
           : {}),

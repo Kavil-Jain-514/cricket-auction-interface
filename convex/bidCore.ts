@@ -15,6 +15,7 @@ import {
   nextMinimumBid,
   reserveBasePrice,
 } from "./bidRules";
+import { maxRuleViolation, minRuleShortfall, minRuleSlots } from "./squadRules";
 
 export type BidSource = "admin" | "owner";
 
@@ -90,8 +91,18 @@ export async function loadBidContext(
     : null;
 
   // Squad-completion reserve — same rule getAuctionRoster displays (bidRules.ts).
-  // minPendingBasePrice comes from the denormalized tournament.auctionCounts,
-  // so no pending-player scan on this hot path.
+  // minPendingBasePrice (and the per-min-rule prices) come from the
+  // denormalized tournament.auctionCounts, so no pending-player scan on this
+  // hot path. Min-rule slots depend on who is being bought.
+  const squadRules = tournament.settings.squadRules;
+  const ruleSlots = player
+    ? minRuleSlots(
+        squadRules,
+        teamPlayers,
+        player,
+        tournament.auctionCounts?.minPendingBasePriceByRule,
+      )
+    : [];
   const allowedMax = maxAllowedBid({
     purseRemaining: team.purseRemaining,
     playersOnTeam: teamPlayers.length,
@@ -101,7 +112,19 @@ export async function loadBidContext(
       currentPlayerBasePrice: playerBasePrice ?? undefined,
       tournamentBasePrice,
     }),
+    minRuleSlots: ruleSlots,
   });
+
+  // Why this team may not take this player at all under the squad rules.
+  const squadRuleBlock = player
+    ? (maxRuleViolation(squadRules, tournament.settings.categories, teamPlayers, player) ??
+      minRuleShortfall(
+        ruleSlots,
+        squadRules,
+        tournament.settings.categories,
+        Math.max(0, maxPlayersPerTeam - teamPlayers.length - 1),
+      ))
+    : null;
 
   return {
     player,
@@ -110,6 +133,7 @@ export async function loadBidContext(
     latestBid,
     playerBasePrice,
     allowedMax,
+    squadRuleBlock,
     minNextBid:
       playerBasePrice === null
         ? null
@@ -173,6 +197,10 @@ export async function applyBid(
 
   if (isSquadFull(teamPlayers.length, tournament.settings.maxPlayersPerTeam)) {
     return { success: false, reason: "Squad is full" };
+  }
+
+  if (bidCtx.squadRuleBlock) {
+    return { success: false, reason: bidCtx.squadRuleBlock };
   }
 
   if (team.purseRemaining < amount) {

@@ -11,6 +11,7 @@ import {
   categoryValidator,
   incrementSlabValidator,
   presentationOrderValidator,
+  squadRuleValidator,
 } from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import {
@@ -18,6 +19,7 @@ import {
   validateCategories,
   validateIncrementSlabs,
   validateSettings,
+  validateSquadRules,
   validateTournamentName,
 } from "./validation";
 
@@ -44,6 +46,7 @@ export const create = mutation({
       categories: v.optional(v.array(categoryValidator)),
       incrementSlabs: v.optional(v.array(incrementSlabValidator)),
       presentationOrder: presentationOrderValidator,
+      squadRules: v.optional(v.array(squadRuleValidator)),
     }),
   },
   handler: async (ctx, args) => {
@@ -195,7 +198,9 @@ function settingsChanged(
     (next.incrementSlabs !== undefined &&
       !sameJson(next.incrementSlabs, current.incrementSlabs ?? [])) ||
     (next.presentationOrder !== undefined &&
-      next.presentationOrder !== (current.presentationOrder ?? "random"))
+      next.presentationOrder !== (current.presentationOrder ?? "random")) ||
+    (next.squadRules !== undefined &&
+      !sameJson(next.squadRules, current.squadRules ?? []))
   );
 }
 
@@ -204,11 +209,13 @@ function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** Categories and increment slabs, checked against the (new) base purse. */
+/** Categories, increment slabs and squad rules, checked against the new settings. */
 function validateRuleSettings(settings: {
   basePurse: number;
+  maxPlayersPerTeam: number;
   categories?: TournamentSettings["categories"];
   incrementSlabs?: TournamentSettings["incrementSlabs"];
+  squadRules?: TournamentSettings["squadRules"];
 }): string | null {
   return (
     (settings.categories
@@ -216,6 +223,13 @@ function validateRuleSettings(settings: {
       : null) ??
     (settings.incrementSlabs
       ? validateIncrementSlabs(settings.incrementSlabs, settings.basePurse)
+      : null) ??
+    (settings.squadRules
+      ? validateSquadRules(
+          settings.squadRules,
+          (settings.categories ?? []).map((c) => c.id),
+          settings.maxPlayersPerTeam,
+        )
       : null)
   );
 }
@@ -250,6 +264,7 @@ export const update = mutation({
         categories: v.optional(v.array(categoryValidator)),
         incrementSlabs: v.optional(v.array(incrementSlabValidator)),
         presentationOrder: presentationOrderValidator,
+        squadRules: v.optional(v.array(squadRuleValidator)),
       }),
     ),
   },
@@ -347,10 +362,30 @@ export const update = mutation({
         args.settings.categories ?? tournament.settings.categories;
       const incrementSlabs =
         args.settings.incrementSlabs ?? tournament.settings.incrementSlabs;
+      const squadRules =
+        args.settings.squadRules ?? tournament.settings.squadRules;
+
+      // Removing a category a squad rule still uses gets a clearer message
+      // than the generic "rule refers to a category that doesn't exist".
+      const categoryIds = new Set((categories ?? []).map((c) => c.id));
+      const orphaned = (squadRules ?? []).find(
+        (r) => r.categoryId !== undefined && !categoryIds.has(r.categoryId),
+      );
+      const orphanedName = tournament.settings.categories?.find(
+        (c) => c.id === orphaned?.categoryId,
+      )?.name;
+      if (orphaned && orphanedName && !args.settings.squadRules) {
+        throw new Error(
+          `${orphanedName} is used by a squad rule. Remove the rule first.`,
+        );
+      }
+
       const rulesError = validateRuleSettings({
         basePurse: args.settings.basePurse,
+        maxPlayersPerTeam: args.settings.maxPlayersPerTeam,
         categories,
         incrementSlabs,
+        squadRules,
       });
       if (rulesError) throw new Error(rulesError);
 
@@ -389,6 +424,7 @@ export const update = mutation({
         presentationOrder:
           args.settings.presentationOrder ??
           tournament.settings.presentationOrder,
+        squadRules,
       };
 
       // Base purse is denormalized onto each team's purse. When it changes,

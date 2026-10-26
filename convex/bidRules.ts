@@ -37,22 +37,42 @@ export function isSquadFull(
 
 /**
  * Most a team may pay for its next player while still being able to fill the
- * rest of its squad at `reservePrice` per slot. 0 when the squad is full.
+ * rest of its squad. 0 when the squad is full.
+ *
+ * Reserve formula. After this purchase the team has
+ *   S = maxPlayersPerTeam - playersOnTeam - 1   future slots.
+ * Each squad min rule r still unmet after this purchase needs U_r of them
+ * (minRuleSlots in squadRules.ts), reserved at P_r = max(the cheapest pending
+ * player r would accept, reservePrice). The other slots use reservePrice:
+ *   reserve = sum(U_r * P_r) + max(0, S - sum(U_r)) * reservePrice
+ * With no min rules this is S * reservePrice, exactly as before. Overlapping
+ * rules (a Marquee wicket keeper fills both) are counted separately, so the
+ * reserve errs high, never low. If sum(U_r) > S the minimums can no longer
+ * fit in the squad and the team can't bid at all (0).
  */
 export function maxAllowedBid({
   purseRemaining,
   playersOnTeam,
   maxPlayersPerTeam,
   reservePrice,
+  minRuleSlots = [],
 }: {
   purseRemaining: number;
   playersOnTeam: number;
   maxPlayersPerTeam: number;
   reservePrice: number;
+  minRuleSlots?: Array<{ unfilled: number; price: number | undefined }>;
 }): number {
   if (isSquadFull(playersOnTeam, maxPlayersPerTeam)) return 0;
-  const playersNeeded = maxPlayersPerTeam - playersOnTeam;
-  const reserve = Math.max(0, playersNeeded - 1) * reservePrice;
+  const futureSlots = Math.max(0, maxPlayersPerTeam - playersOnTeam - 1);
+  const ruleSlots = minRuleSlots.reduce((n, r) => n + r.unfilled, 0);
+  if (ruleSlots > futureSlots) return 0;
+  const reserve =
+    minRuleSlots.reduce(
+      (sum, r) => sum + r.unfilled * Math.max(r.price ?? 0, reservePrice),
+      0,
+    ) +
+    (futureSlots - ruleSlots) * reservePrice;
   return Math.max(0, purseRemaining - reserve);
 }
 

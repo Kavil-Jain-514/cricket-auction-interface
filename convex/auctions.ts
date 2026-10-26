@@ -21,6 +21,12 @@ import {
 import { toPublicPlayer } from "./projections";
 import { nextPresentationSet } from "./presentation";
 import {
+  maxRuleViolation,
+  minRuleShortfall,
+  minRuleSlots,
+  ruleStatus,
+} from "./squadRules";
+import {
   bidTimerEndsAt,
   bidTimerSeconds,
   DEFAULT_BASE_PRICE,
@@ -1546,9 +1552,40 @@ export const getAuctionRoster = query({
       }
     }
 
+    // Squad rules need each team's players (role + category); group the sold
+    // players already loaded above — no extra reads.
+    const squadRules = tournament?.settings.squadRules;
+    const categories = tournament?.settings.categories;
+    const soldByTeam = new Map<string, Doc<"players">[]>();
+    if (squadRules?.length) {
+      for (const p of soldPlayersRaw) {
+        if (!p.teamId || captainPlayerIds.has(p._id)) continue;
+        soldByTeam.set(p.teamId, [...(soldByTeam.get(p.teamId) ?? []), p]);
+      }
+    }
+
     // Calculate max allowed bids without extra DB queries — same helpers as placeBid
     const teamsWithMaxBid = teams.map((team) => {
       const currentTeamPlayerCount = teamPlayerCounts.get(team._id) || 0;
+      const teamSquad = soldByTeam.get(team._id) ?? [];
+      const ruleSlots = currentPlayer
+        ? minRuleSlots(
+            squadRules,
+            teamSquad,
+            currentPlayer,
+            tournament?.auctionCounts?.minPendingBasePriceByRule,
+          )
+        : [];
+      // Same block placeBid returns as its reason (bidCore.loadBidContext).
+      const ruleBlock = currentPlayer
+        ? (maxRuleViolation(squadRules, categories, teamSquad, currentPlayer) ??
+          minRuleShortfall(
+            ruleSlots,
+            squadRules,
+            categories,
+            Math.max(0, maxPlayersPerTeam - currentTeamPlayerCount - 1),
+          ))
+        : null;
 
       return {
         ...team,
@@ -1560,7 +1597,11 @@ export const getAuctionRoster = query({
           playersOnTeam: currentTeamPlayerCount,
           maxPlayersPerTeam,
           reservePrice: minBasePrice,
+          minRuleSlots: ruleSlots,
         }),
+        ruleBlock,
+        // "WK 0/1"-style status for the team card; [] without squad rules.
+        ruleStatus: ruleStatus(squadRules, categories, teamSquad),
       };
     });
 
@@ -1662,6 +1703,8 @@ export const getMyPaddle = query({
         tournament.settings.maxPlayersPerTeam - bidCtx.teamPlayers.length,
       ),
       maxAllowedBid: bidCtx.allowedMax,
+      // Squad rule stopping this team from taking the current player, if any.
+      ruleBlock: bidCtx.squadRuleBlock,
       minNextBid: bidCtx.minNextBid,
       minBidIncrement: tournament.settings.minBidIncrement,
       incrementSlabs: tournament.settings.incrementSlabs ?? [],
