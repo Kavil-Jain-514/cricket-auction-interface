@@ -665,6 +665,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   if (auctionRoom.status === 'completed') {
     return (
       <AuctionCompleteScreen
+        isAdmin={isAdmin}
         tournamentName={auctionData.tournament?.name || 'Tournament'}
         tournamentId={auctionData.tournament?._id || ''}
         tournamentLogoUrl={auctionData.tournament?.logoUrl}

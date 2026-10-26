@@ -5,6 +5,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // without signing in (viewer mode). Admin controls are enforced by Convex.
 // /auction/<roomId>/overlay (the OBS/vMix broadcast overlay) is public too:
 // a venue PC's Browser Source has no session.
+// /results/<tournamentId> (public results, shared on WhatsApp) is public too;
+// getPublicResults only returns data for completed, active tournaments.
 const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
   "/tournament(.*)",

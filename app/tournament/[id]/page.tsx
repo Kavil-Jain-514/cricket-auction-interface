@@ -12,6 +12,8 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { formatCurrency, getErrorMessage, getCaptainPlayerIds } from '@/lib/utils';
 import { TournamentSettingsModal } from '@/components/tournament/TournamentSettingsModal';
+import { ExportResultsButton } from '@/components/results/ExportResultsButton';
+import { ShareResultsButton } from '@/components/results/ShareResultsButton';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
@@ -401,6 +403,15 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                   <Link2 className="w-4 h-4 mr-2" />
                   Copy Auction Link
                 </Button>
+              )}
+
+              {/* Public results page — only exists once completed and active. */}
+              {tournament.status === 'completed' && isTournamentActive && (
+                <ShareResultsButton tournamentId={tournamentId} tournamentName={tournament.name} />
+              )}
+
+              {isAdmin && auctionRooms && auctionRooms.length > 0 && (
+                <ExportResultsButton tournamentId={tournamentId} />
               )}
 
               {/* Restart Auction Button - show when auction exists (active or completed) */}
