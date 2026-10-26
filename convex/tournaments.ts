@@ -309,7 +309,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
-    await requireTournamentRole(ctx, args.id, OWNER_ONLY);
+    const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     // Cannot edit completed tournaments
     if (tournament.status === "completed") {
@@ -497,6 +497,30 @@ export const update = mutation({
     // Base prices (tournament or category) feed minPendingBasePrice, the
     // squad reserve. Cheap no-op when nothing count-relevant changed.
     if (nextSettings) await syncTournamentAuctionCounts(ctx, id);
+
+    // Audit only what actually changed (a base purse change moves every
+    // team's purse, so it must be on record).
+    const before: Record<string, unknown> = { ...tournament.settings };
+    const after: Record<string, unknown> = { ...(nextSettings ?? tournament.settings) };
+    for (const key of ["name", "description", "logoUrl", "status"] as const) {
+      before[key] = tournament[key];
+      after[key] = rest[key] ?? tournament[key];
+    }
+    const changed = Object.keys({ ...before, ...after }).filter(
+      (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]),
+    );
+    if (changed.length > 0) {
+      await logAdminAction(ctx, {
+        userId: admin._id,
+        userEmail: admin.email,
+        action: "update_tournament",
+        targetType: "tournament",
+        targetId: id,
+        previousData: Object.fromEntries(changed.map((k) => [k, before[k]])),
+        newData: Object.fromEntries(changed.map((k) => [k, after[k]])),
+        tournamentId: id,
+      });
+    }
 
     return { success: true };
   },

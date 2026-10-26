@@ -13,13 +13,13 @@ const PAGE_SIZE = 25;
 
 // Every action logAdminAction is called with (grep `action: "` in convex/).
 const ACTIONS = [
-  'accept_bid_request', 'activate_tournament', 'adjust_team_purse', 'bulk_import_players', 'clear_player_bids',
+  'accept_bid_request', 'activate_tournament', 'add_tournament_staff', 'adjust_team_purse', 'bulk_import_players', 'clear_player_bids',
   'continue_stalled_unsold_round', 'create_owner_invite', 'create_player', 'create_team', 'deactivate_tournament',
   'delete_all_players', 'delete_player', 'delete_team', 'delete_tournament', 'lock_group_draw', 'pause_auction',
   'player_final_unsold', 'reassign_player', 'recalculate_team_purse', 'reject_bid_request', 'remove_team_member',
-  'reset_group_draw', 'restart_auction', 'restart_current_player', 'resume_auction', 'revert_last_bid',
+  'remove_tournament_staff', 'reset_group_draw', 'restart_auction', 'restart_current_player', 'resume_auction', 'revert_last_bid',
   'revoke_owner_invite', 'run_group_draw', 'set_user_role', 'start_next_player', 'update_player',
-  'update_player_status', 'update_sold_price', 'update_team',
+  'update_player_status', 'update_sold_price', 'update_team', 'update_tournament',
 ];
 
 const label = (action: string) => action.replace(/_/g, ' ');

@@ -309,3 +309,34 @@ describe("tournaments.update — bid timer setting (X5)", () => {
     ).rejects.toThrow(/locked/);
   });
 });
+
+describe("tournaments.update — audit log", () => {
+  test("a settings change writes one audit row with before and after", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId } = await setup(t);
+
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      name: "Renamed Cup",
+      settings: { ...SETTINGS, basePurse: 2_000_000 },
+    });
+
+    const logs = await t.run((ctx) => ctx.db.query("auditLogs").collect());
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({
+      action: "update_tournament",
+      tournamentId,
+      previousData: { name: "Test Cup", basePurse: 1_000_000 },
+      newData: { name: "Renamed Cup", basePurse: 2_000_000 },
+    });
+  });
+
+  test("an update that changes nothing writes no audit row", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId } = await setup(t);
+    await asAdmin.mutation(api.tournaments.update, { id: tournamentId, name: "Test Cup" });
+    expect(await t.run((ctx) => ctx.db.query("auditLogs").collect())).toHaveLength(0);
+  });
+});
