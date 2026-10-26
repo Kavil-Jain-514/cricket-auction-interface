@@ -725,6 +725,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                 key={player._id}
                 player={player}
                 isCaptain={captainPlayerIds.has(player._id)}
+                categories={tournament?.settings.categories}
                 onClick={() => setSelectedPlayer(player)}
               />
             ))}

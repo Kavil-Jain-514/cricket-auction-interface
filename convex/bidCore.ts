@@ -9,8 +9,10 @@ import { Doc, Id } from "./_generated/dataModel";
 import {
   bidTimerEndsAt,
   DEFAULT_BASE_PRICE,
+  effectiveBasePrice,
   isSquadFull,
   maxAllowedBid,
+  nextMinimumBid,
   reserveBasePrice,
 } from "./bidRules";
 
@@ -37,24 +39,26 @@ export async function latestLiveBid(
     .first();
 }
 
-/** Base price for a player, falling back to the tournament default. */
+/** Base price for a player: its own, else its category's, else the tournament's. */
 export function playerBasePriceFor(
   player: Doc<"players">,
   tournament: Doc<"tournaments">,
 ): number {
-  return (
-    player.basePrice ?? tournament.settings.basePrice ?? DEFAULT_BASE_PRICE
-  );
+  return effectiveBasePrice(player, tournament.settings);
 }
 
-/** Lowest bid that would be accepted next: base price first, then +increment. */
+/** Lowest bid that would be accepted next: base price first, then the slab increment. */
 export function minNextBidFor(
   latestBid: Doc<"liveBids"> | null,
   playerBasePrice: number,
   tournament: Doc<"tournaments">,
 ): number {
   return latestBid
-    ? latestBid.amount + tournament.settings.minBidIncrement
+    ? nextMinimumBid(
+        latestBid.amount,
+        tournament.settings.incrementSlabs,
+        tournament.settings.minBidIncrement,
+      )
     : playerBasePrice;
 }
 
@@ -192,9 +196,6 @@ export async function applyBid(
     return { success: false, reason: "Please wait before bidding again" };
   }
 
-  const currentBid = latestBid?.amount || playerBasePrice;
-  const minBidIncrement = tournament.settings.minBidIncrement;
-
   if (!latestBid) {
     if (amount < playerBasePrice) {
       return {
@@ -203,10 +204,11 @@ export async function applyBid(
       };
     }
   } else {
-    if (amount < currentBid + minBidIncrement) {
+    const minRaise = minNextBidFor(latestBid, playerBasePrice, tournament);
+    if (amount < minRaise) {
       return {
         success: false,
-        reason: "Minimum bid is " + (currentBid + minBidIncrement),
+        reason: "Minimum bid is " + minRaise,
       };
     }
   }

@@ -23,6 +23,7 @@ import {
   bidTimerEndsAt,
   bidTimerSeconds,
   DEFAULT_BASE_PRICE,
+  effectiveBasePrice,
   isSquadFull,
   maxAllowedBid,
   reserveBasePrice,
@@ -569,8 +570,7 @@ export const finalizePlayerSale = mutation({
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
 
-    const playerBasePrice =
-      player.basePrice ?? tournament.settings.basePrice ?? 100000;
+    const playerBasePrice = playerBasePriceFor(player, tournament);
 
     const now = Date.now();
     const result = {
@@ -744,8 +744,10 @@ export const markPlayerFinalUnsold = mutation({
     // Resolve the effective base price now so it can be stored on the event
     // (lets getLatestSaleEvent avoid a per-bid room read — P1-2).
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
-    const playerBasePrice =
-      player.basePrice ?? tournament?.settings.basePrice ?? 100000;
+    const playerBasePrice = effectiveBasePrice(
+      player,
+      tournament?.settings ?? {},
+    );
 
     // Clear any live bids placed on this player before removing them.
     const liveBids = await ctx.db
@@ -912,8 +914,7 @@ export const startNextPlayer = mutation({
       roomPatch: RoomRoundPatch,
     ) => {
       const now = Date.now();
-      const basePrice =
-        player.basePrice ?? tournament.settings.basePrice ?? 100000;
+      const basePrice = playerBasePriceFor(player, tournament);
       await Promise.all([
         ctx.db.patch(player._id, {
           auctionStatus: "in_auction",
@@ -1445,7 +1446,12 @@ export const getAuctionRoster = query({
       }));
 
     const maxPlayersPerTeam = tournament?.settings.maxPlayersPerTeam || 15;
+    const tournamentSettings = tournament?.settings ?? {};
     const tournamentBasePrice = tournament?.settings.basePrice ?? 100000;
+    // Player's own price, else its category's, else the tournament's.
+    const currentPlayerBasePrice = currentPlayer
+      ? effectiveBasePrice(currentPlayer, tournamentSettings)
+      : undefined;
 
     // Pending/unsold counts + min pending base price from the denormalized
     // counts. Fall back to a live scan for tournaments created before the
@@ -1487,8 +1493,8 @@ export const getAuctionRoster = query({
       minPendingBasePrice =
         pendingNonCaptains.length > 0
           ? Math.min(
-              ...pendingNonCaptains.map(
-                (p) => p.basePrice ?? tournamentBasePrice,
+              ...pendingNonCaptains.map((p) =>
+                effectiveBasePrice(p, tournamentSettings),
               ),
             )
           : undefined;
@@ -1498,9 +1504,7 @@ export const getAuctionRoster = query({
     // price, else the current player's base price, else the tournament default.
     const minBasePrice = reserveBasePrice({
       minPendingBasePrice,
-      currentPlayerBasePrice: currentPlayer
-        ? (currentPlayer.basePrice ?? tournamentBasePrice)
-        : undefined,
+      currentPlayerBasePrice,
       tournamentBasePrice,
     });
 
@@ -1536,7 +1540,11 @@ export const getAuctionRoster = query({
     return {
       // Always the public projection: this query is shared by every viewer and
       // must stay identity-free, so never branch on the caller's role here.
-      currentPlayer: currentPlayer ? toPublicPlayer(currentPlayer) : null,
+      // basePrice is resolved (player → category → tournament) so every
+      // client shows the price placeBid enforces.
+      currentPlayer: currentPlayer
+        ? { ...toPublicPlayer(currentPlayer), basePrice: currentPlayerBasePrice }
+        : null,
       teams: teamsWithMaxBid,
       // Trimmed projection, not the raw doc — keeps this fan-out payload
       // bounded regardless of what other fields end up on the tournament
@@ -1629,6 +1637,7 @@ export const getMyPaddle = query({
       maxAllowedBid: bidCtx.allowedMax,
       minNextBid: bidCtx.minNextBid,
       minBidIncrement: tournament.settings.minBidIncrement,
+      incrementSlabs: tournament.settings.incrementSlabs ?? [],
       isLeading: bidCtx.latestBid?.teamId === team._id,
       currentPlayerId: playerId ?? null,
       myPending: myPending
@@ -1808,7 +1817,7 @@ export const getAuctionHistory = query({
     ]);
 
     const teamMap = new Map(teams.map((t) => [t._id, t]));
-    const tournamentBasePrice = tournament?.settings.basePrice ?? 100000;
+    const tournamentSettings = tournament?.settings ?? {};
 
     // Captains are never auctioned — keep them out of sold/unsold history.
     const captainPlayerIds = new Set(
@@ -1833,8 +1842,8 @@ export const getAuctionHistory = query({
       })
       .sort((a, b) => b.soldPrice - a.soldPrice);
 
-    // basePrice can be undefined on the player (inherited from tournament),
-    // so fall back to the tournament default the same way the rest of the app does.
+    // basePrice can be undefined on the player (inherited from its category or
+    // the tournament), so resolve it the same way placeBid does.
     const unsold = unsoldPlayers
       .filter((p) => !captainPlayerIds.has(p._id))
       .map((p) => ({
@@ -1842,7 +1851,7 @@ export const getAuctionHistory = query({
         name: p.name,
         role: p.role,
         photoUrl: p.photoUrl,
-        basePrice: p.basePrice ?? tournamentBasePrice,
+        basePrice: effectiveBasePrice(p, tournamentSettings),
       }));
 
     return { sold, unsold };
@@ -1926,11 +1935,7 @@ export const getReconciliation = query({
       }
     }
 
-    const expected = computeAuctionCounts(
-      players,
-      teams,
-      tournament.settings.basePrice ?? DEFAULT_BASE_PRICE,
-    );
+    const expected = computeAuctionCounts(players, teams, tournament.settings);
     if (!auctionCountsEqual(tournament.auctionCounts, expected)) {
       const stored = tournament.auctionCounts;
       issues.push({

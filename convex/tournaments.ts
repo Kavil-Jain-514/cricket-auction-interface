@@ -7,8 +7,12 @@ import {
   DEFAULT_BID_TIMER_SECONDS,
   validateBidTimerSeconds,
 } from "./bidRules";
+import { categoryValidator, incrementSlabValidator } from "./ruleValidators";
+import { syncTournamentAuctionCounts } from "./auctionCounts";
 import {
   normalizeFooterText,
+  validateCategories,
+  validateIncrementSlabs,
   validateSettings,
   validateTournamentName,
 } from "./validation";
@@ -33,6 +37,8 @@ export const create = mutation({
       basePrice: v.optional(v.number()),
       footerText: v.optional(v.string()),
       bidMode: bidModeValidator,
+      categories: v.optional(v.array(categoryValidator)),
+      incrementSlabs: v.optional(v.array(incrementSlabValidator)),
     }),
   },
   handler: async (ctx, args) => {
@@ -49,6 +55,8 @@ export const create = mutation({
       const timerError = validateBidTimerSeconds(args.settings.bidTimerSeconds);
       if (timerError) throw new Error(timerError);
     }
+    const rulesError = validateRuleSettings(args.settings);
+    if (rulesError) throw new Error(rulesError);
     // Get current user (implement auth first)
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
@@ -176,7 +184,32 @@ function settingsChanged(
       (current.basePrice ?? DEFAULT_BASE_PRICE) ||
     (next.bidTimerSeconds !== undefined &&
       next.bidTimerSeconds !==
-        (current.bidTimerSeconds ?? DEFAULT_BID_TIMER_SECONDS))
+        (current.bidTimerSeconds ?? DEFAULT_BID_TIMER_SECONDS)) ||
+    (next.categories !== undefined &&
+      !sameJson(next.categories, current.categories ?? [])) ||
+    (next.incrementSlabs !== undefined &&
+      !sameJson(next.incrementSlabs, current.incrementSlabs ?? []))
+  );
+}
+
+/** Order-sensitive structural equality for small settings arrays. */
+function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Categories and increment slabs, checked against the (new) base purse. */
+function validateRuleSettings(settings: {
+  basePurse: number;
+  categories?: TournamentSettings["categories"];
+  incrementSlabs?: TournamentSettings["incrementSlabs"];
+}): string | null {
+  return (
+    (settings.categories
+      ? validateCategories(settings.categories, settings.basePurse)
+      : null) ??
+    (settings.incrementSlabs
+      ? validateIncrementSlabs(settings.incrementSlabs, settings.basePurse)
+      : null)
   );
 }
 
@@ -206,6 +239,9 @@ export const update = mutation({
         footerText: v.optional(v.string()),
         // Not a locked setting either (see bidModeValidator).
         bidMode: bidModeValidator,
+        // Locked while live. Omitted keeps the stored value; [] clears it.
+        categories: v.optional(v.array(categoryValidator)),
+        incrementSlabs: v.optional(v.array(incrementSlabValidator)),
       }),
     ),
   },
@@ -298,6 +334,39 @@ export const update = mutation({
         if (timerError) throw new Error(timerError);
       }
 
+      // Categories and slabs: omitted keeps the stored ones.
+      const categories =
+        args.settings.categories ?? tournament.settings.categories;
+      const incrementSlabs =
+        args.settings.incrementSlabs ?? tournament.settings.incrementSlabs;
+      const rulesError = validateRuleSettings({
+        basePurse: args.settings.basePurse,
+        categories,
+        incrementSlabs,
+      });
+      if (rulesError) throw new Error(rulesError);
+
+      // A category still assigned to players can't be removed: their base
+      // price would silently fall back to the tournament default.
+      const keptIds = new Set((categories ?? []).map((c) => c.id));
+      const removed = (tournament.settings.categories ?? []).filter(
+        (c) => !keptIds.has(c.id),
+      );
+      if (removed.length > 0) {
+        const players = await ctx.db
+          .query("players")
+          .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+          .collect();
+        for (const category of removed) {
+          const inUse = players.filter((p) => p.categoryId === category.id);
+          if (inUse.length > 0) {
+            throw new Error(
+              `${inUse.length} player${inUse.length === 1 ? " is" : "s are"} still in ${category.name}. Move them to another category first.`,
+            );
+          }
+        }
+      }
+
       // Keep the stored bid timer if the caller didn't send one.
       nextSettings = {
         ...args.settings,
@@ -307,6 +376,8 @@ export const update = mutation({
           DEFAULT_BID_TIMER_SECONDS,
         footerText,
         bidMode,
+        categories,
+        incrementSlabs,
       };
 
       // Base purse is denormalized onto each team's purse. When it changes,
@@ -338,6 +409,10 @@ export const update = mutation({
       ...(nextSettings ? { settings: nextSettings } : {}),
       updatedAt: Date.now(),
     });
+
+    // Base prices (tournament or category) feed minPendingBasePrice, the
+    // squad reserve. Cheap no-op when nothing count-relevant changed.
+    if (nextSettings) await syncTournamentAuctionCounts(ctx, id);
 
     return { success: true };
   },

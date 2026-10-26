@@ -11,8 +11,16 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { toast } from 'sonner';
-import { bidTimerSeconds } from '@/convex/bidRules';
+import { bidTimerSeconds, type IncrementSlab, type PlayerCategory } from '@/convex/bidRules';
+import { validateCategories, validateIncrementSlabs } from '@/convex/validation';
 import { bidTimerLabel, bidTimerOptions } from '@/lib/bidTimer';
+import {
+  AuctionRulesEditor,
+  categoriesFromForm,
+  rulesFormFromSettings,
+  slabsFromForm,
+  type RulesFormValues,
+} from './AuctionRulesEditor';
 
 type BidMode = 'admin_only' | 'confirm' | 'open';
 
@@ -36,6 +44,8 @@ interface TournamentSettingsModalProps {
       basePrice?: number;
       footerText?: string;
       bidMode?: BidMode;
+      categories?: PlayerCategory[];
+      incrementSlabs?: IncrementSlab[];
     };
     status?: string;
   };
@@ -49,6 +59,8 @@ export function TournamentSettingsModal({
 }: TournamentSettingsModalProps) {
   const updateTournament = useMutation(api.tournaments.update);
   const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<'general' | 'rules'>('general');
+  const [rules, setRules] = useState<RulesFormValues>(() => rulesFormFromSettings(currentSettings.settings));
 
   // Numeric fields are kept as the raw input strings so an empty or partial
   // value never turns into NaN in state; they're parsed with Number() on submit.
@@ -97,7 +109,13 @@ export function TournamentSettingsModal({
   if (formData.footerText.trim().length > 120) {
     fieldErrors.footerText = 'Keep it to 120 characters or fewer';
   }
-  const hasErrors = Object.keys(fieldErrors).length > 0;
+  const nextCategories = categoriesFromForm(rules.categories);
+  const nextSlabs = slabsFromForm(rules.slabs);
+  // Same validators the server runs (convex/validation.ts).
+  const rulesError =
+    validateCategories(nextCategories, parsed.basePurse) ??
+    validateIncrementSlabs(nextSlabs, parsed.basePurse);
+  const hasErrors = Object.keys(fieldErrors).length > 0 || rulesError !== null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,6 +131,12 @@ export function TournamentSettingsModal({
       parsed.maxPlayersPerTeam !== current.maxPlayersPerTeam ||
       parsed.basePrice !== (current.basePrice || 100000) ||
       formData.bidTimerSeconds !== bidTimerSeconds(current);
+    // Categories and slabs are locked like the money settings; only send them
+    // when they changed so unrelated edits still work during a live auction.
+    const categoriesChanged =
+      JSON.stringify(nextCategories) !== JSON.stringify(categoriesFromForm(rulesFormFromSettings(current).categories));
+    const slabsChanged = JSON.stringify(nextSlabs) !== JSON.stringify(current.incrementSlabs ?? []);
+    const rulesChanged = categoriesChanged || slabsChanged;
     // Footer text is not locked, so it can change during a live auction.
     const footerChanged = formData.footerText.trim() !== (current.footerText || '');
     // Neither is bid mode — the auctioneer can switch modes mid-auction.
@@ -124,13 +148,15 @@ export function TournamentSettingsModal({
         name: formData.name,
         description: formData.description || undefined,
         logoUrl: formData.logoUrl || undefined,
-        ...(settingsChanged || footerChanged || bidModeChanged
+        ...(settingsChanged || rulesChanged || footerChanged || bidModeChanged
           ? {
               settings: {
                 ...parsed,
                 bidTimerSeconds: formData.bidTimerSeconds,
                 ...(footerChanged ? { footerText: formData.footerText.trim() } : {}),
                 ...(bidModeChanged ? { bidMode: formData.bidMode } : {}),
+                ...(categoriesChanged ? { categories: nextCategories } : {}),
+                ...(slabsChanged ? { incrementSlabs: nextSlabs } : {}),
               },
             }
           : {}),
@@ -177,7 +203,38 @@ export function TournamentSettingsModal({
           </p>
         </div>
 
+        <div role="tablist" aria-label="Settings sections" className="mb-6 flex gap-1 rounded-lg bg-slate-800 p-1">
+          {([
+            ['general', 'General'],
+            ['rules', 'Categories & Rules'],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => setTab(key)}
+              className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold transition ${tab === key ? 'bg-slate-950 text-white' : 'text-slate-400 hover:text-white'}`}
+            >
+              {label}
+              {(key === 'rules' ? rulesError !== null : Object.keys(fieldErrors).length > 0) && (
+                <span className="ml-2 inline-block h-2 w-2 rounded-full bg-red-500" aria-label="has errors" />
+              )}
+            </button>
+          ))}
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-6">
+          {tab === 'rules' && (
+            <AuctionRulesEditor
+              value={rules}
+              onChange={setRules}
+              minBidIncrement={parsed.minBidIncrement || currentSettings.settings.minBidIncrement}
+              error={rulesError}
+            />
+          )}
+
+          <div className={tab === 'general' ? 'space-y-6' : 'hidden'}>
           {/* Basic Info Section */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-slate-300 border-b border-slate-700 pb-2">
@@ -346,6 +403,8 @@ export function TournamentSettingsModal({
                 </p>
               </div>
             </div>
+          </div>
+
           </div>
 
           {/* Actions */}

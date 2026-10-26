@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   normalizePhone,
+  validateCategories,
+  validateIncrementSlabs,
   validateAge,
   validateJersey,
   validateOwnerName,
@@ -136,5 +138,75 @@ describe("normalizePhone", () => {
     expect(normalizePhone("12345").ok).toBe(false);
     expect(normalizePhone("98765abcde").ok).toBe(false);
     expect(normalizePhone("+1 9876543210").ok).toBe(false);
+  });
+});
+
+const marquee = { id: "marquee", name: "Marquee", basePrice: 500_000, order: 0, colour: "#f59e0b" };
+
+describe("validateCategories", () => {
+  test("accepts a valid list (and an empty one)", () => {
+    expect(validateCategories([], 10_000_000)).toBeNull();
+    expect(
+      validateCategories(
+        [marquee, { id: "a", name: "Set A", basePrice: 200_000, order: 1, colour: "#2563eb" }],
+        10_000_000,
+      ),
+    ).toBeNull();
+  });
+
+  test("rejects blank or duplicate names and ids", () => {
+    expect(validateCategories([{ ...marquee, name: "  " }], 10_000_000)).not.toBeNull();
+    expect(validateCategories([marquee, { ...marquee, id: "m2", name: "marquee" }], 10_000_000)).not.toBeNull();
+    expect(validateCategories([marquee, { ...marquee, name: "Other" }], 10_000_000)).not.toBeNull();
+    expect(validateCategories([{ ...marquee, id: "" }], 10_000_000)).not.toBeNull();
+  });
+
+  test("rejects a bad base price or colour", () => {
+    for (const basePrice of [0, -1, NaN, 20_000_000]) {
+      expect(validateCategories([{ ...marquee, basePrice }], 10_000_000)).not.toBeNull();
+    }
+    expect(validateCategories([{ ...marquee, colour: "orange" }], 10_000_000)).not.toBeNull();
+  });
+});
+
+describe("validateIncrementSlabs", () => {
+  test("accepts strictly ascending slabs (and none)", () => {
+    expect(validateIncrementSlabs([], 10_000_000)).toBeNull();
+    expect(
+      validateIncrementSlabs(
+        [
+          { fromAmount: 0, increment: 25_000 },
+          { fromAmount: 500_000, increment: 50_000 },
+        ],
+        10_000_000,
+      ),
+    ).toBeNull();
+  });
+
+  test("rejects unsorted or duplicate thresholds", () => {
+    expect(
+      validateIncrementSlabs(
+        [
+          { fromAmount: 500_000, increment: 50_000 },
+          { fromAmount: 0, increment: 25_000 },
+        ],
+        10_000_000,
+      ),
+    ).not.toBeNull();
+    expect(
+      validateIncrementSlabs(
+        [
+          { fromAmount: 0, increment: 25_000 },
+          { fromAmount: 0, increment: 50_000 },
+        ],
+        10_000_000,
+      ),
+    ).not.toBeNull();
+  });
+
+  test("rejects increments below ₹5,000 or above 10% of the purse, and negative thresholds", () => {
+    expect(validateIncrementSlabs([{ fromAmount: 0, increment: 1_000 }], 10_000_000)).not.toBeNull();
+    expect(validateIncrementSlabs([{ fromAmount: 0, increment: 2_000_000 }], 10_000_000)).not.toBeNull();
+    expect(validateIncrementSlabs([{ fromAmount: -1, increment: 25_000 }], 10_000_000)).not.toBeNull();
   });
 });

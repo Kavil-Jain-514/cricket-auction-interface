@@ -32,7 +32,8 @@ import { BidTimerRing } from '@/components/auction/BidTimerRing';
 import { GoingOnceHelper } from '@/components/auction/GoingOnceHelper';
 import { useBidCountdown } from '@/hooks/useBidCountdown';
 import { BroadcastMenu } from '@/components/broadcast/BroadcastMenu';
-import { bidTimerSeconds } from '@/convex/bidRules';
+import { CategoryChip } from '@/components/players/CategoryChip';
+import { bidTimerSeconds, incrementFor } from '@/convex/bidRules';
 
 // Lazy-load heavy components that are only used conditionally
 const PlayerResultPopup = dynamic(() => import('@/components/auction/PlayerResultPopup').then(m => ({ default: m.PlayerResultPopup })), { ssr: false });
@@ -663,7 +664,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   }
 
   const currentBid = auctionRoom.currentBidAmount || currentPlayer?.basePrice || 0;
-  const minNextBid = currentBid + (auctionData.tournament?.settings.minBidIncrement || 25000);
+  // Increment comes from the price band the current bid sits in (slabs), or
+  // the flat minBidIncrement when the tournament has none.
+  const minBidIncrement = auctionData.tournament?.settings.minBidIncrement || 25000;
+  const bidIncrement = incrementFor(currentBid, auctionData.tournament?.settings.incrementSlabs, minBidIncrement);
+  const minNextBid = currentBid + bidIncrement;
 
   const isFirstBid = !recentBids || recentBids.length === 0;
 
@@ -1068,7 +1073,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               minNextBid={minNextBid}
               maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15}
               tournamentBasePrice={auctionData.tournament?.settings.basePrice ?? 100000}
-              minBidIncrement={auctionData.tournament?.settings.minBidIncrement || 25000}
+              minBidIncrement={bidIncrement}
               bidding={bidding}
               getCustomBidAmount={getCustomBidAmount}
               setCustomBidAmount={setCustomBidAmount}
@@ -1135,6 +1140,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                         </h2>
 
                         <div className="flex flex-wrap justify-center lg:justify-start gap-2 sm:gap-3 mb-5 sm:mb-6 lg:mb-8">
+                          <CategoryChip categoryId={currentPlayer.categoryId} categories={auctionData.tournament?.settings.categories} size="lg" />
                           {roleDisplay ? (
                             <span className="px-4 py-2 lg:px-5 lg:py-2.5 bg-purple-600 rounded-full text-sm sm:text-base lg:text-lg font-semibold">
                               {roleDisplay}
@@ -1225,6 +1231,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       </div>
 
                       <div className="flex flex-wrap justify-center sm:justify-start gap-2 mb-3 sm:mb-4">
+                        <CategoryChip categoryId={currentPlayer.categoryId} categories={auctionData.tournament?.settings.categories} size="md" />
                         {roleDisplay ? (
                           <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-purple-600 rounded-full text-xs sm:text-sm font-semibold">
                             {roleDisplay}

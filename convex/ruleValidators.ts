@@ -1,0 +1,17 @@
+// convex/ruleValidators.ts
+// Argument/schema validators for the auction-rule settings, shared by
+// schema.ts and the tournaments mutations so the two can't drift.
+import { v } from "convex/values";
+
+export const categoryValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  basePrice: v.number(),
+  order: v.number(),
+  colour: v.string(),
+});
+
+export const incrementSlabValidator = v.object({
+  fromAmount: v.number(),
+  increment: v.number(),
+});

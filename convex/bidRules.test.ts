@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
   DEFAULT_BASE_PRICE,
+  effectiveBasePrice,
+  incrementFor,
   isSquadFull,
+  nextMinimumBid,
   maxAllowedBid,
   reserveBasePrice,
 } from "./bidRules";
@@ -136,5 +139,61 @@ describe("reserveBasePrice", () => {
         reservePrice,
       }),
     ).toBe(800_000);
+  });
+});
+
+describe("nextMinimumBid — increment slabs", () => {
+  const slabs = [
+    { fromAmount: 0, increment: 25_000 },
+    { fromAmount: 500_000, increment: 50_000 },
+    { fromAmount: 1_000_000, increment: 100_000 },
+  ];
+
+  test("no slabs: currentBid + minBidIncrement, exactly as before", () => {
+    expect(nextMinimumBid(475_000, undefined, 25_000)).toBe(500_000);
+    expect(nextMinimumBid(475_000, [], 25_000)).toBe(500_000);
+  });
+
+  test("uses the band the current bid sits in", () => {
+    expect(nextMinimumBid(100_000, slabs, 10_000)).toBe(125_000);
+    expect(nextMinimumBid(475_000, slabs, 10_000)).toBe(500_000);
+  });
+
+  test("exactly at a boundary uses the new band", () => {
+    expect(nextMinimumBid(500_000, slabs, 10_000)).toBe(550_000);
+    expect(nextMinimumBid(499_999, slabs, 10_000)).toBe(524_999);
+    expect(nextMinimumBid(1_000_000, slabs, 10_000)).toBe(1_100_000);
+  });
+
+  test("below the first slab falls back to minBidIncrement", () => {
+    const fromFive = [{ fromAmount: 500_000, increment: 50_000 }];
+    expect(incrementFor(200_000, fromFive, 20_000)).toBe(20_000);
+    expect(incrementFor(500_000, fromFive, 20_000)).toBe(50_000);
+  });
+});
+
+describe("effectiveBasePrice — player, then category, then tournament", () => {
+  const settings = {
+    basePrice: 150_000,
+    categories: [
+      { id: "marquee", name: "Marquee", basePrice: 500_000, order: 0, colour: "#f59e0b" },
+    ],
+  };
+
+  test("a player's own base price wins", () => {
+    expect(effectiveBasePrice({ basePrice: 80_000, categoryId: "marquee" }, settings)).toBe(80_000);
+  });
+
+  test("falls back to the player's category", () => {
+    expect(effectiveBasePrice({ categoryId: "marquee" }, settings)).toBe(500_000);
+  });
+
+  test("an unknown or absent category falls back to the tournament", () => {
+    expect(effectiveBasePrice({ categoryId: "gone" }, settings)).toBe(150_000);
+    expect(effectiveBasePrice({}, settings)).toBe(150_000);
+  });
+
+  test("no tournament base price: the legacy default", () => {
+    expect(effectiveBasePrice({}, {})).toBe(DEFAULT_BASE_PRICE);
   });
 });

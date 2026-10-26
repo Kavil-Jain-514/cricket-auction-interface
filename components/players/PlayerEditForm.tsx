@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Doc } from '@/convex/_generated/dataModel';
 import { toast } from 'sonner';
@@ -9,18 +9,21 @@ import { getErrorMessage, getRoles } from '@/lib/utils';
 import {
   PlayerFormModal,
   PlayerFormFields,
+  inheritedPlaceholder,
   type PlayerFormValues,
   type TshirtSize,
 } from './PlayerFormFields';
 
 interface PlayerEditFormProps {
-  player: Doc<"players">;
+  /** From players:listByTournament, whose basePrice is the resolved price. */
+  player: Doc<"players"> & { basePriceOverride?: number };
   onClose: () => void;
   onSuccess: () => void;
 }
 
 export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormProps) {
   const updatePlayer = useMutation(api.players.update);
+  const tournament = useQuery(api.tournaments.getById, { id: player.tournamentId });
   const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState<PlayerFormValues>({
@@ -32,7 +35,9 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
     tshirtSize: (player.tshirtSize || 'L') as TshirtSize,
     jerseyNumber: player.jerseyNumber,
     jerseyName: player.jerseyName || '',
-    basePrice: player.basePrice,
+    // The player's own override only: an inherited price must stay inherited.
+    basePrice: 'basePriceOverride' in player ? player.basePriceOverride : player.basePrice,
+    categoryId: player.categoryId,
     photoUrl: player.photoUrl || '',
   });
 
@@ -59,7 +64,9 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
         tshirtSize: formData.tshirtSize,
         jerseyNumber: formData.jerseyNumber,
         jerseyName: formData.jerseyName || undefined,
-        basePrice: formData.basePrice,
+        // null clears: an empty field means "inherit" / "no category".
+        basePrice: formData.basePrice ?? null,
+        categoryId: formData.categoryId ?? null,
         photoUrl: formData.photoUrl || undefined,
       });
 
@@ -88,11 +95,12 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
       <PlayerFormFields
         values={formData}
         onChange={patchForm}
-        basePricePlaceholder="Inherit from tournament"
+        categories={tournament?.settings.categories}
+        basePricePlaceholder={inheritedPlaceholder(formData.categoryId, tournament?.settings)}
         basePriceHint={
           formData.basePrice
             ? `Overridden: ₹${(formData.basePrice / 100000).toFixed(2)}L`
-            : 'Leaving empty inherits from tournament'
+            : 'Leave empty to inherit'
         }
       />
     </PlayerFormModal>
