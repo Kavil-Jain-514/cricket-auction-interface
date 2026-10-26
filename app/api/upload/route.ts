@@ -1,6 +1,8 @@
 import { v2 as cloudinary } from "cloudinary";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@/convex/_generated/api";
 
 // Configure Cloudinary
 cloudinary.config({
@@ -16,13 +18,35 @@ function sanitizeFolder(folder: string): string {
   return `cricket-auction/${sanitized || "uploads"}`;
 }
 
+/**
+ * Only Convex admins may upload or delete images. A Clerk session alone is not
+ * enough: we exchange it for a Convex token and ask the backend (auth.me) for
+ * the caller's role. Returns an error response, or null when the caller is an
+ * admin.
+ */
+async function requireConvexAdmin(): Promise<NextResponse | null> {
+  const { userId, getToken } = await auth();
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const token = await getToken({ template: "convex" });
+  if (!token) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  convex.setAuth(token);
+  const me = await convex.query(api.auth.me, {});
+  if (!me?.isAdmin) {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    // Authentication check
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    // Authorization check — admins only
+    const denied = await requireConvexAdmin();
+    if (denied) return denied;
 
     const formData = await request.formData();
     const file = formData.get("file") as File;
@@ -33,15 +57,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file type
-    const validTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "image/svg+xml",
-    ];
+    // SVG is excluded: it can carry script and is served from our Cloudinary.
+    const validTypes = ["image/jpeg", "image/png", "image/webp"];
     if (!validTypes.includes(file.type)) {
       return NextResponse.json(
-        { error: "Invalid file type. Allowed: JPG, PNG, WebP, SVG" },
+        { error: "Invalid file type. Allowed: JPG, PNG, WebP" },
         { status: 400 },
       );
     }
@@ -89,11 +109,9 @@ export async function POST(request: NextRequest) {
 // Delete an image from Cloudinary
 export async function DELETE(request: NextRequest) {
   try {
-    // Authentication check
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    // Authorization check — admins only
+    const denied = await requireConvexAdmin();
+    if (denied) return denied;
 
     const { publicId } = await request.json();
 

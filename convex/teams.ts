@@ -4,6 +4,7 @@ import { getCurrentUser, isAdmin, logAdminAction, requireAdmin } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { Doc } from "./_generated/dataModel";
 import { toPublicPlayer } from "./projections";
+import { validateOwnerName, validateTeamName } from "./validation";
 
 /**
  * Denormalize captain display fields from a player doc so existing UI and
@@ -33,6 +34,18 @@ function deriveCaptainFields(player: Doc<"players">) {
   };
 }
 
+/** Team names are unique per tournament, ignoring case and outer spaces. */
+function isDuplicateTeamName(
+  teams: Doc<"teams">[],
+  name: string,
+  exceptId?: Doc<"teams">["_id"],
+): boolean {
+  const wanted = name.trim().toLowerCase();
+  return teams.some(
+    (t) => t._id !== exceptId && t.name.trim().toLowerCase() === wanted,
+  );
+}
+
 export const create = mutation({
   args: {
     tournamentId: v.id("tournaments"),
@@ -60,16 +73,10 @@ export const create = mutation({
     // Admin only
     await requireAdmin(ctx);
 
-    // Validation
-    if (!args.name || args.name.trim().length < 2) {
-      throw new Error("Team name must be at least 2 characters");
-    }
-    if (args.name.trim().length > 30) {
-      throw new Error("Team name must be less than 30 characters");
-    }
-    if (!args.ownerName || args.ownerName.trim().length < 2) {
-      throw new Error("Owner name must be at least 2 characters");
-    }
+    // Validation (shared with update — convex/validation.ts)
+    const error =
+      validateTeamName(args.name) ?? validateOwnerName(args.ownerName);
+    if (error) throw new Error(error);
 
     // Get tournament to get base purse
     const tournament = await ctx.db.get(args.tournamentId);
@@ -83,11 +90,7 @@ export const create = mutation({
       )
       .collect();
 
-    if (
-      existingTeams.some(
-        (t) => t.name.toLowerCase() === args.name.toLowerCase(),
-      )
-    ) {
+    if (isDuplicateTeamName(existingTeams, args.name)) {
       throw new Error(`Team "${args.name}" already exists in this tournament`);
     }
 
@@ -217,11 +220,34 @@ export const update = mutation({
       throw new Error("Cannot edit team after tournament is completed");
     }
 
+    const fieldError =
+      (args.name !== undefined ? validateTeamName(args.name) : null) ??
+      (args.ownerName !== undefined ? validateOwnerName(args.ownerName) : null);
+    if (fieldError) throw new Error(fieldError);
+
     const { id, captainPlayerId, ...updates } = args;
     const patch: Partial<Doc<"teams">> = {
       ...updates,
       updatedAt: Date.now(),
     };
+
+    const otherTeams =
+      args.name !== undefined || captainPlayerId
+        ? await ctx.db
+            .query("teams")
+            .withIndex("by_tournament", (q) =>
+              q.eq("tournamentId", team.tournamentId),
+            )
+            .collect()
+        : [];
+
+    if (
+      args.name !== undefined &&
+      args.name.trim().toLowerCase() !== team.name.trim().toLowerCase() &&
+      isDuplicateTeamName(otherTeams, args.name, team._id)
+    ) {
+      throw new Error(`Team "${args.name}" already exists in this tournament`);
+    }
 
     if (captainPlayerId === null) {
       // Explicitly unlink the player; manual captain fields (if any) still apply
@@ -232,12 +258,6 @@ export const update = mutation({
       if (captain.tournamentId !== team.tournamentId) {
         throw new Error("Captain must be a player in this tournament");
       }
-      const otherTeams = await ctx.db
-        .query("teams")
-        .withIndex("by_tournament", (q) =>
-          q.eq("tournamentId", team.tournamentId),
-        )
-        .collect();
       if (
         otherTeams.some(
           (t) => t._id !== team._id && t.captainPlayerId === captainPlayerId,

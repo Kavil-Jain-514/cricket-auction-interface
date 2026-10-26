@@ -38,19 +38,62 @@ export function TournamentSettingsModal({
   const updateTournament = useMutation(api.tournaments.update);
   const [loading, setLoading] = useState(false);
 
+  // Numeric fields are kept as the raw input strings so an empty or partial
+  // value never turns into NaN in state; they're parsed with Number() on submit.
   const [formData, setFormData] = useState({
     name: currentSettings.name,
     description: currentSettings.description || '',
     logoUrl: currentSettings.logoUrl || '',
-    basePurse: currentSettings.settings.basePurse,
-    minBidIncrement: currentSettings.settings.minBidIncrement,
-    maxPlayersPerTeam: currentSettings.settings.maxPlayersPerTeam,
-    basePrice: currentSettings.settings.basePrice || 100000,
+    basePurse: String(currentSettings.settings.basePurse),
+    minBidIncrement: String(currentSettings.settings.minBidIncrement),
+    maxPlayersPerTeam: String(currentSettings.settings.maxPlayersPerTeam),
+    basePrice: String(currentSettings.settings.basePrice || 100000),
   });
+
+  const parsed = {
+    basePurse: Number(formData.basePurse),
+    minBidIncrement: Number(formData.minBidIncrement),
+    maxPlayersPerTeam: Number(formData.maxPlayersPerTeam),
+    basePrice: Number(formData.basePrice),
+  };
+
+  // Mirrors convex/validation.ts; the server re-checks every value.
+  const fieldErrors: Partial<Record<keyof typeof formData, string>> = {};
+  const name = formData.name.trim();
+  if (name.length < 3 || name.length > 50) {
+    fieldErrors.name = 'Name must be 3–50 characters';
+  }
+  if (formData.basePurse.trim() === '' || !Number.isFinite(parsed.basePurse) || parsed.basePurse < 100000 || parsed.basePurse > 1000000000) {
+    fieldErrors.basePurse = 'Enter an amount between ₹1L and ₹100Cr';
+  }
+  if (formData.minBidIncrement.trim() === '' || !Number.isFinite(parsed.minBidIncrement) || parsed.minBidIncrement < 5000) {
+    fieldErrors.minBidIncrement = 'Must be at least ₹5,000';
+  } else if (!fieldErrors.basePurse && parsed.minBidIncrement > parsed.basePurse / 10) {
+    fieldErrors.minBidIncrement = 'Cannot exceed 10% of the base purse';
+  }
+  if (formData.basePrice.trim() === '' || !Number.isFinite(parsed.basePrice) || parsed.basePrice <= 0) {
+    fieldErrors.basePrice = 'Must be greater than 0';
+  } else if (!fieldErrors.basePurse && parsed.basePrice > parsed.basePurse) {
+    fieldErrors.basePrice = 'Cannot exceed the base purse';
+  }
+  if (formData.maxPlayersPerTeam.trim() === '' || !Number.isInteger(parsed.maxPlayersPerTeam) || parsed.maxPlayersPerTeam < 1 || parsed.maxPlayersPerTeam > 50) {
+    fieldErrors.maxPlayersPerTeam = 'Enter a whole number from 1 to 50';
+  }
+  const hasErrors = Object.keys(fieldErrors).length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (hasErrors) return;
     setLoading(true);
+
+    // Only send settings when one actually changed, so name/description/logo
+    // edits still go through while the auction is live (settings are locked).
+    const current = currentSettings.settings;
+    const settingsChanged =
+      parsed.basePurse !== current.basePurse ||
+      parsed.minBidIncrement !== current.minBidIncrement ||
+      parsed.maxPlayersPerTeam !== current.maxPlayersPerTeam ||
+      parsed.basePrice !== (current.basePrice || 100000);
 
     try {
       await updateTournament({
@@ -58,12 +101,7 @@ export function TournamentSettingsModal({
         name: formData.name,
         description: formData.description || undefined,
         logoUrl: formData.logoUrl || undefined,
-        settings: {
-          basePurse: formData.basePurse,
-          minBidIncrement: formData.minBidIncrement,
-          maxPlayersPerTeam: formData.maxPlayersPerTeam,
-          basePrice: formData.basePrice,
-        },
+        ...(settingsChanged ? { settings: parsed } : {}),
       });
 
       toast.success('Tournament updated successfully!');
@@ -76,6 +114,11 @@ export function TournamentSettingsModal({
       setLoading(false);
     }
   };
+
+  const fieldError = (field: keyof typeof formData) =>
+    fieldErrors[field] ? (
+      <p className="text-xs text-red-400 mt-1">{fieldErrors[field]}</p>
+    ) : null;
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
@@ -119,6 +162,7 @@ export function TournamentSettingsModal({
                 placeholder="e.g., IPL 2026"
                 className="mt-2"
               />
+              {fieldError('name')}
             </div>
 
             <div>
@@ -161,12 +205,13 @@ export function TournamentSettingsModal({
                   min="100000"
                   step="100000"
                   value={formData.basePurse}
-                  onChange={(e) => setFormData({ ...formData, basePurse: parseInt(e.target.value) })}
+                  onChange={(e) => setFormData({ ...formData, basePurse: e.target.value })}
                   className="mt-2"
                 />
                 <p className="text-xs text-slate-400 mt-1">
-                  ₹{(formData.basePurse / 100000).toFixed(1)}L per team
+                  ₹{((parsed.basePurse || 0) / 100000).toFixed(1)}L per team
                 </p>
+                {fieldError('basePurse')}
               </div>
 
               <div>
@@ -178,12 +223,13 @@ export function TournamentSettingsModal({
                   min="5000"
                   step="5000"
                   value={formData.minBidIncrement}
-                  onChange={(e) => setFormData({ ...formData, minBidIncrement: parseInt(e.target.value) })}
+                  onChange={(e) => setFormData({ ...formData, minBidIncrement: e.target.value })}
                   className="mt-2"
                 />
                 <p className="text-xs text-slate-400 mt-1">
-                  ₹{(formData.minBidIncrement / 1000).toFixed(0)}K increment
+                  ₹{((parsed.minBidIncrement || 0) / 1000).toFixed(0)}K increment
                 </p>
+                {fieldError('minBidIncrement')}
               </div>
 
               <div>
@@ -193,12 +239,13 @@ export function TournamentSettingsModal({
                   type="number"
                   required
                   value={formData.basePrice}
-                  onChange={(e) => setFormData({ ...formData, basePrice: parseInt(e.target.value) })}
+                  onChange={(e) => setFormData({ ...formData, basePrice: e.target.value })}
                   className="mt-2"
                 />
                 <p className="text-xs text-slate-400 mt-1">
-                  Default: ₹{(formData.basePrice / 100000).toFixed(1)}L
+                  Default: ₹{((parsed.basePrice || 0) / 100000).toFixed(1)}L
                 </p>
+                {fieldError('basePrice')}
               </div>
 
               <div>
@@ -208,12 +255,13 @@ export function TournamentSettingsModal({
                   type="number"
                   required
                   value={formData.maxPlayersPerTeam}
-                  onChange={(e) => setFormData({ ...formData, maxPlayersPerTeam: parseInt(e.target.value) })}
+                  onChange={(e) => setFormData({ ...formData, maxPlayersPerTeam: e.target.value })}
                   className="mt-2"
                 />
                 <p className="text-xs text-slate-400 mt-1">
                   Maximum squad size
                 </p>
+                {fieldError('maxPlayersPerTeam')}
               </div>
             </div>
           </div>
@@ -230,7 +278,7 @@ export function TournamentSettingsModal({
             </Button>
             <Button
               type="submit"
-              disabled={loading}
+              disabled={loading || hasErrors}
               className="flex-1"
             >
               {loading ? 'Saving...' : 'Save Changes'}

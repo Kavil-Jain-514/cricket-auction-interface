@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { normalizePhone, validatePlayerFields } from "./validation";
 
 // Shared validator for T-shirt size — reused across create, bulkImport, and update
 const tshirtSizeValidator = v.optional(
@@ -39,28 +40,18 @@ export const create = mutation({
     // Admin only
     await requireAdmin(ctx);
 
-    // Validation
-    if (!args.name || args.name.trim().length < 2) {
-      throw new Error("Player name must be at least 2 characters");
-    }
-    if (args.name.trim().length > 50) {
-      throw new Error("Player name must be less than 50 characters");
-    }
-    if (
-      args.jerseyNumber !== undefined &&
-      (args.jerseyNumber < 1 || args.jerseyNumber > 99)
-    ) {
-      throw new Error("Jersey number must be between 1 and 99");
-    }
-    if (args.phoneNumber && !/^[0-9]{10}$/.test(args.phoneNumber)) {
-      throw new Error("Phone number must be 10 digits");
-    }
-
     // Verify tournament exists
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) {
       throw new Error("Tournament not found");
     }
+
+    // Validation (shared with update and bulkImport — convex/validation.ts)
+    const { errors, phoneNumber } = validatePlayerFields(
+      args,
+      tournament.settings.basePurse,
+    );
+    if (errors.length > 0) throw new Error(errors[0].message);
 
     // Get the next player number for this tournament
     const existingPlayers = await ctx.db
@@ -78,7 +69,7 @@ export const create = mutation({
     const playerId = await ctx.db.insert("players", {
       tournamentId: args.tournamentId,
       name: args.name,
-      phoneNumber: args.phoneNumber,
+      phoneNumber,
       age: args.age,
       photoUrl: args.photoUrl,
       role: args.role,
@@ -102,7 +93,9 @@ export const create = mutation({
 
 /**
  * Bulk-import multiple players from a parsed Excel sheet.
- * All inserts run in parallel (Promise.all) since Convex handles concurrency safely.
+ * Every row is validated first (field rules + duplicates of an existing or
+ * earlier row by name + phone). If any row fails, nothing is inserted and the
+ * row errors are returned so the UI can list them.
  * Player numbers continue from the current max to avoid conflicts.
  */
 export const bulkImport = mutation({
@@ -130,6 +123,9 @@ export const bulkImport = mutation({
     // Admin only
     await requireAdmin(ctx);
 
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+
     const now = Date.now();
 
     // Get the current max player number for this tournament
@@ -140,12 +136,48 @@ export const bulkImport = mutation({
       )
       .collect();
 
+    // Duplicate key: same name (case-insensitive) + same normalised phone.
+    const duplicateKey = (name: string, phone: string | undefined) =>
+      `${name.trim().toLowerCase()}|${phone ?? ""}`;
+    const seen = new Set(
+      existingPlayers.map((p) => {
+        // Legacy rows may hold an un-normalised phone; compare on digits.
+        const phone = normalizePhone(p.phoneNumber);
+        return duplicateKey(p.name, phone.ok ? phone.phone : p.phoneNumber);
+      }),
+    );
+
+    const errors: { row: number; field: string; message: string }[] = [];
+    const rows = args.players.map((player, row) => {
+      const result = validatePlayerFields(
+        player,
+        tournament.settings.basePurse,
+      );
+      errors.push(...result.errors.map((e) => ({ row, ...e })));
+
+      const key = duplicateKey(player.name, result.phoneNumber);
+      if (seen.has(key)) {
+        errors.push({
+          row,
+          field: "name",
+          message: `Duplicate player "${player.name.trim()}" (same name and phone)`,
+        });
+      }
+      seen.add(key);
+
+      return { ...player, phoneNumber: result.phoneNumber };
+    });
+
+    if (errors.length > 0) {
+      return { success: false as const, errors };
+    }
+
     const maxPlayerNumber = existingPlayers.reduce((max, player) => {
       return Math.max(max, player.playerNumber || 0);
     }, 0);
 
     // Batch insert all players with incrementing player numbers
-    const insertPromises = args.players.map((player, index) =>
+    const insertPromises = rows.map((player, index) =>
       ctx.db.insert("players", {
         tournamentId: args.tournamentId,
         name: player.name,
@@ -170,7 +202,7 @@ export const bulkImport = mutation({
     // Bulk pending insert — refresh denormalized counts once for the batch.
     await syncTournamentAuctionCounts(ctx, args.tournamentId);
 
-    return { count: playerIds.length, ids: playerIds };
+    return { success: true as const, count: playerIds.length, ids: playerIds };
   },
 });
 
@@ -273,10 +305,21 @@ export const update = mutation({
       throw new Error("Cannot edit player currently in auction");
     }
 
+    const tournament = await ctx.db.get(player.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+
+    // Validation (shared with create — convex/validation.ts)
+    const { errors, phoneNumber } = validatePlayerFields(
+      args,
+      tournament.settings.basePurse,
+    );
+    if (errors.length > 0) throw new Error(errors[0].message);
+
     const { id, ...updates } = args;
 
     await ctx.db.patch(id, {
       ...updates,
+      ...(args.phoneNumber !== undefined ? { phoneNumber } : {}),
       updatedAt: Date.now(),
     });
 

@@ -1,6 +1,9 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUser, logAdminAction, requireAdmin } from "./auth";
+import type { Doc } from "./_generated/dataModel";
+import { DEFAULT_BASE_PRICE } from "./bidRules";
+import { validateSettings, validateTournamentName } from "./validation";
 
 export const create = mutation({
   args: {
@@ -21,25 +24,11 @@ export const create = mutation({
     // Admin only
     await requireAdmin(ctx);
 
-    // Validation
-    if (!args.name || args.name.trim().length < 3) {
-      throw new Error("Tournament name must be at least 3 characters");
-    }
-    if (args.name.trim().length > 50) {
-      throw new Error("Tournament name must be less than 50 characters");
-    }
-    if (args.settings.basePurse < 100000) {
-      throw new Error("Base purse must be at least ₹1 Lakh");
-    }
-    if (args.settings.basePurse > 1000000000) {
-      throw new Error("Base purse cannot exceed ₹100 Crore");
-    }
-    if (args.settings.minBidIncrement < 5000) {
-      throw new Error("Minimum bid increment must be at least ₹5,000");
-    }
-    if (args.settings.minBidIncrement > args.settings.basePurse / 10) {
-      throw new Error("Bid increment cannot exceed 10% of base purse");
-    }
+    // Validation (shared with update — convex/validation.ts)
+    const error =
+      validateTournamentName(args.name) ?? validateSettings(args.settings);
+    if (error) throw new Error(error);
+
     // Bid timer is no longer set from the UI, but validate any value a client
     // does send so a bad number can't corrupt bidTimerEndsAt math later.
     if (
@@ -155,6 +144,28 @@ export const getById = query({
   },
 });
 
+type TournamentSettings = Doc<"tournaments">["settings"];
+
+/**
+ * True when a money or squad setting differs from what is stored. Absent
+ * optional values compare as their server-side defaults, so a client that
+ * resends the defaults does not trip the live-auction lock.
+ */
+function settingsChanged(
+  current: TournamentSettings,
+  next: TournamentSettings,
+): boolean {
+  return (
+    next.basePurse !== current.basePurse ||
+    next.minBidIncrement !== current.minBidIncrement ||
+    next.maxPlayersPerTeam !== current.maxPlayersPerTeam ||
+    (next.basePrice ?? DEFAULT_BASE_PRICE) !==
+      (current.basePrice ?? DEFAULT_BASE_PRICE) ||
+    (next.bidTimerSeconds !== undefined &&
+      next.bidTimerSeconds !== (current.bidTimerSeconds ?? 30))
+  );
+}
+
 export const update = mutation({
   args: {
     id: v.id("tournaments"),
@@ -192,10 +203,20 @@ export const update = mutation({
       throw new Error("Cannot edit tournament after it is completed");
     }
 
-    // Merged settings we'll actually write (preserving the legacy bid timer).
-    let nextSettings = args.settings;
+    if (args.name !== undefined) {
+      const nameError = validateTournamentName(args.name);
+      if (nameError) throw new Error(nameError);
+    }
 
-    if (args.settings) {
+    // Merged settings we'll actually write (preserving the legacy bid timer).
+    // Stays undefined when the caller sent settings identical to the stored
+    // ones, so name/description/logo edits work during a live auction.
+    let nextSettings: typeof args.settings = undefined;
+
+    if (args.settings && settingsChanged(tournament.settings, args.settings)) {
+      const settingsError = validateSettings(args.settings);
+      if (settingsError) throw new Error(settingsError);
+
       // Settings are locked once the auction is actually running (live/paused).
       // To change them, the admin must restart the auction (which returns the
       // room to "waiting"). This keeps every place that reads the settings
