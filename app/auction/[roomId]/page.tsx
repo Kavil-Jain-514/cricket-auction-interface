@@ -24,6 +24,8 @@ import { PlayerIntroFlash } from '@/components/auction/PlayerIntroFlash';
 import { ViewerActionBar, ViewerSheets, type ViewerSheetType } from '@/components/auction/ViewerPanels';
 import { AuctionLiveBids } from '@/components/auction/AuctionLiveBids';
 import { AdminTeamsPanel } from '@/components/auction/AdminTeamsPanel';
+import { OwnerPaddle } from '@/components/auction/OwnerPaddle';
+import { IncomingRaisesTray } from '@/components/auction/IncomingRaisesTray';
 import { ConnectionStatus } from '@/components/ui/connection-status';
 import { ReconciliationBadge } from '@/components/auction/ReconciliationBadge';
 
@@ -75,6 +77,13 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const latestSaleEvent = useQuery(
     api.auctions.getLatestSaleEvent,
     isAdmin ? 'skip' : { auctionRoomId },
+  );
+
+  // Owner paddle — per-identity, so only signed-in non-admins subscribe.
+  // Anonymous viewers never touch it; it returns null for non-owners.
+  const paddle = useQuery(
+    api.auctions.getMyPaddle,
+    isSignedIn && !isAdmin && !isRoleLoading ? { auctionRoomId } : 'skip',
   );
 
   // Sold/unsold history — fetched lazily, only while a history sheet is open.
@@ -1025,7 +1034,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         )}
       </AnimatePresence>
 
-      <main className={`w-full max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 safe-bottom ${isAdmin ? 'py-4 sm:py-6 lg:py-8 pb-20' : 'flex-1 min-h-0 overflow-y-auto flex flex-col py-3 sm:py-4 pb-28 sm:pb-32'}`}>
+      <main className={`w-full max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 safe-bottom ${isAdmin ? 'py-4 sm:py-6 lg:py-8 pb-20' : `flex-1 min-h-0 overflow-y-auto flex flex-col py-3 sm:py-4 ${paddle ? 'pb-80' : 'pb-28 sm:pb-32'}`}`}>
         <div className={isAdmin ? 'grid gap-4 sm:gap-5 lg:gap-6 grid-cols-12' : 'w-full my-auto'}>
           {/* Teams Panel - Only shown to admins */}
           {isAdmin && (
@@ -1044,7 +1053,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               getCustomBidAmount={getCustomBidAmount}
               setCustomBidAmount={setCustomBidAmount}
               onBid={(teamId, amount) => handleBid(teamId as Id<"teams">, amount)}
-            />
+            >
+              {auctionData.tournament?.settings.bidMode === 'confirm' && (
+                <IncomingRaisesTray auctionRoomId={auctionRoomId} />
+              )}
+            </AdminTeamsPanel>
           )}
 
           {/* Center Stage */}
@@ -1364,6 +1377,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             teamsCount={teams?.length ?? 0}
             active={activeSheet}
             onOpen={(sheet) => setActiveSheet((cur) => (cur === sheet ? null : sheet))}
+            above={
+              paddle ? (
+                <OwnerPaddle
+                  auctionRoomId={auctionRoomId}
+                  paddle={paddle}
+                  biddingOpen={auctionRoom.status === 'live' && !!currentPlayer}
+                />
+              ) : undefined
+            }
           />
           <ViewerSheets
             active={activeSheet}

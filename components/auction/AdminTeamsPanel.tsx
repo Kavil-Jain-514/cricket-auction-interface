@@ -32,6 +32,8 @@ export interface AdminTeamsPanelProps {
   getCustomBidAmount: (teamId: string, minBid: number) => number;
   setCustomBidAmount: (teamId: string, amount: number) => void;
   onBid: (teamId: string, amount: number) => void;
+  /** Rendered above the teams list (the confirm-mode raises tray). */
+  children?: React.ReactNode;
 }
 
 export function AdminTeamsPanel({
@@ -49,9 +51,11 @@ export function AdminTeamsPanel({
   getCustomBidAmount,
   setCustomBidAmount,
   onBid,
+  children,
 }: AdminTeamsPanelProps) {
   return (
     <aside className="col-span-12 lg:col-span-3 order-2 lg:order-2">
+      {children}
       <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2 mb-3 sm:mb-4">
         <Users className="w-4 h-4 sm:w-5 sm:h-5" />
         Teams
