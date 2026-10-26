@@ -12,6 +12,7 @@ import type * as admin from "../admin.js";
 import type * as auctionCounts from "../auctionCounts.js";
 import type * as auctions from "../auctions.js";
 import type * as auth from "../auth.js";
+import type * as bidCore from "../bidCore.js";
 import type * as bidRules from "../bidRules.js";
 import type * as groupDraws from "../groupDraws.js";
 import type * as members from "../members.js";
@@ -33,6 +34,7 @@ declare const fullApi: ApiFromModules<{
   auctionCounts: typeof auctionCounts;
   auctions: typeof auctions;
   auth: typeof auth;
+  bidCore: typeof bidCore;
   bidRules: typeof bidRules;
   groupDraws: typeof groupDraws;
   members: typeof members;
