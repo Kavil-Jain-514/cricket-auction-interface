@@ -2,9 +2,10 @@
 
 import { UserButton, useUser } from "@clerk/nextjs";
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
+import { Menu, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { useUserRole } from "@/hooks/useUserRole";
 
 // Cricket Ball SVG Icon Component
 export function CricketBallIcon({ className }: { className?: string }) {
@@ -46,6 +47,7 @@ export function CricketBallIcon({ className }: { className?: string }) {
 
 export function Navbar() {
   const { isSignedIn } = useUser();
+  const { isAdmin } = useUserRole();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
@@ -68,6 +70,15 @@ export function Navbar() {
 
           {/* Auth Section */}
           <div className="flex items-center gap-3 sm:gap-4">
+            {isSignedIn && isAdmin && (
+              <Link
+                href="/admin"
+                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition touch-target"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span className="hidden sm:inline">Admin</span>
+              </Link>
+            )}
             {isSignedIn ? (
               <UserButton
                 afterSignOutUrl="/"

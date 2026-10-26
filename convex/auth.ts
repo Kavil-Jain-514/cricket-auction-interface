@@ -1,5 +1,6 @@
 // convex/auth.ts - Role-Based Access Control utilities
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 
@@ -129,32 +130,50 @@ export const me = query({
 });
 
 /**
- * Get audit logs for a tournament (admin only)
+ * Admin audit log, newest first, one page at a time. Filters: tournament
+ * (by_tournament index), action, and a timestamp range (by_timestamp index
+ * when no tournament is given). Non-admins get an empty page.
  */
-export const getAuditLogs = query({
+export const listAuditLogs = query({
   args: {
     tournamentId: v.optional(v.id("tournaments")),
-    limit: v.optional(v.number()),
+    action: v.optional(v.string()),
+    from: v.optional(v.number()),
+    to: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
     const user = await getCurrentUser(ctx);
     if (!user || user.role !== "admin") {
-      return [];
+      return { page: [], isDone: true, continueCursor: "" };
     }
 
-    let query = ctx.db.query("auditLogs").order("desc");
+    const { tournamentId, action, from, to } = args;
+    const base = tournamentId
+      ? ctx.db
+          .query("auditLogs")
+          .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId))
+      : ctx.db.query("auditLogs").withIndex("by_timestamp", (q) => {
+          if (from !== undefined && to !== undefined) {
+            return q.gte("timestamp", from).lte("timestamp", to);
+          }
+          if (from !== undefined) return q.gte("timestamp", from);
+          if (to !== undefined) return q.lte("timestamp", to);
+          return q;
+        });
 
-    if (args.tournamentId) {
-      query = ctx.db
-        .query("auditLogs")
-        .withIndex("by_tournament", (q) =>
-          q.eq("tournamentId", args.tournamentId),
-        )
-        .order("desc");
-    }
-
-    const logs = await query.take(args.limit || 50);
-    return logs;
+    // The tournament index can't range on time, so dates filter there.
+    const filterDates = tournamentId !== undefined;
+    return await base
+      .filter((q) =>
+        q.and(
+          action !== undefined ? q.eq(q.field("action"), action) : true,
+          filterDates && from !== undefined ? q.gte(q.field("timestamp"), from) : true,
+          filterDates && to !== undefined ? q.lte(q.field("timestamp"), to) : true,
+        ),
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
   },
 });
 
@@ -175,6 +194,19 @@ export const setUserRole = mutation({
 
     const targetUser = await ctx.db.get(args.userId);
     if (!targetUser) throw new Error("User not found");
+
+    // Never leave the app with no admin: the last one can't be demoted
+    // (in practice, the only admin demoting themselves).
+    if (targetUser.role === "admin" && args.role !== "admin") {
+      const admins = (await ctx.db.query("users").collect()).filter(
+        (u) => u.role === "admin",
+      );
+      if (admins.length <= 1) {
+        throw new Error(
+          "You are the last admin. Promote someone else before stepping down.",
+        );
+      }
+    }
 
     const previousRole = targetUser.role;
 

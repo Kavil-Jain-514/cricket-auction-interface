@@ -30,6 +30,7 @@ import {
   bidTimerEndsAt,
   bidTimerSeconds,
   effectiveBasePrice,
+  teamPurseTotal,
   isSquadFull,
   maxAllowedBid,
   reserveBasePrice,
@@ -1935,7 +1936,8 @@ export const getAuctionHistory = query({
  * ADMIN-ONLY reconciliation — proves every purse and status count is correct.
  *
  * For each team: purseSpent must equal the sum of its sold players' soldPrice,
- * and purseRemaining + purseSpent must equal settings.basePurse. Player counts
+ * and purseRemaining + purseSpent must equal settings.basePurse plus the
+ * team's purseAdjustment. Player counts
  * per status must match the denormalized tournament.auctionCounts.
  *
  * Reads only the tournament, its teams and its players — never the auction
@@ -1998,11 +2000,14 @@ export const getReconciliation = query({
           message: `${team.name}: spent ₹${team.purseSpent} but sold players total ₹${sold}`,
         });
       }
-      if (team.purseRemaining + team.purseSpent !== basePurse) {
+      const purseTotal = teamPurseTotal(basePurse, team);
+      if (team.purseRemaining + team.purseSpent !== purseTotal) {
         issues.push({
           kind: "purse_total",
           teamId: team._id,
-          message: `${team.name}: remaining ₹${team.purseRemaining} + spent ₹${team.purseSpent} ≠ base purse ₹${basePurse}`,
+          message: team.purseAdjustment
+            ? `${team.name}: remaining ₹${team.purseRemaining} + spent ₹${team.purseSpent} ≠ base purse ₹${basePurse} + adjustments ₹${team.purseAdjustment}`
+            : `${team.name}: remaining ₹${team.purseRemaining} + spent ₹${team.purseSpent} ≠ base purse ₹${basePurse}`,
         });
       }
     }
@@ -2031,30 +2036,6 @@ export const getAuctionRooms = query({
         q.eq("tournamentId", args.tournamentId),
       )
       .collect();
-  },
-});
-
-// Check if auction is active (live or paused) for a tournament
-export const isAuctionActive = query({
-  args: { tournamentId: v.id("tournaments") },
-  handler: async (ctx, args) => {
-    const auctionRooms = await ctx.db
-      .query("auctionRooms")
-      .withIndex("by_tournament", (q) =>
-        q.eq("tournamentId", args.tournamentId),
-      )
-      .collect();
-
-    // Check if any auction room is live or paused
-    const activeRoom = auctionRooms.find(
-      (room) => room.status === "live" || room.status === "paused",
-    );
-
-    return {
-      isActive: !!activeRoom,
-      status: activeRoom?.status || null,
-      auctionRoomId: activeRoom?._id || null,
-    };
   },
 });
 
@@ -2158,7 +2139,8 @@ export const restartAuction = mutation({
       teams.map(
         (team) => () =>
           ctx.db.patch(team._id, {
-            purseRemaining: basePurse,
+            // Admin adjustments (penalties, top-ups) are kept across a restart.
+            purseRemaining: teamPurseTotal(basePurse, team),
             purseSpent: 0,
             updatedAt: now,
           }),

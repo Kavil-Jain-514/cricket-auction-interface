@@ -34,6 +34,7 @@ import { useBidCountdown } from '@/hooks/useBidCountdown';
 import { BroadcastMenu } from '@/components/broadcast/BroadcastMenu';
 import { CategoryChip } from '@/components/players/CategoryChip';
 import { SetBanner } from '@/components/auction/SetBanner';
+import { ConsoleMoreMenu } from '@/components/auction/ConsoleMoreMenu';
 import { bidTimerSeconds, categoryFor, incrementFor } from '@/convex/bidRules';
 
 // Lazy-load heavy components that are only used conditionally
@@ -945,6 +946,13 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
                 {/* OBS / vMix overlay URLs */}
                 <BroadcastMenu auctionRoomId={auctionRoomId} />
+
+                {/* Rare, destructive actions that need a reason */}
+                <ConsoleMoreMenu
+                  auctionRoomId={auctionRoomId}
+                  currentPlayerName={currentPlayer?.name ?? null}
+                  bidCount={auctionData.totalBidsCount ?? 0}
+                />
 
                 {/* Final Unsold: only during the second (unsold) round, once the
                     pending pool is exhausted. Grouped with management (kept away

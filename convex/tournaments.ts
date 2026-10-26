@@ -5,6 +5,7 @@ import type { Doc } from "./_generated/dataModel";
 import {
   DEFAULT_BASE_PRICE,
   DEFAULT_BID_TIMER_SECONDS,
+  teamPurseTotal,
   validateBidTimerSeconds,
 } from "./bidRules";
 import {
@@ -440,7 +441,8 @@ export const update = mutation({
             ctx.db.patch(team._id, {
               purseRemaining: Math.max(
                 0,
-                args.settings!.basePurse - team.purseSpent,
+                teamPurseTotal(args.settings!.basePurse, team) -
+                  team.purseSpent,
               ),
               updatedAt: Date.now(),
             }),

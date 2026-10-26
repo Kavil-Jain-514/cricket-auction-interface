@@ -153,6 +153,7 @@ export const getResultsExport = query({
         name: t.name,
         purseSpent: t.purseSpent,
         purseRemaining: t.purseRemaining,
+        purseAdjustment: t.purseAdjustment,
         captainPlayerId: t.captainPlayerId,
       })),
       players: players.map((p) => ({
