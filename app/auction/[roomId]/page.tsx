@@ -25,6 +25,7 @@ import { ViewerActionBar, ViewerSheets, type ViewerSheetType } from '@/component
 import { AuctionLiveBids } from '@/components/auction/AuctionLiveBids';
 import { AdminTeamsPanel } from '@/components/auction/AdminTeamsPanel';
 import { ConnectionStatus } from '@/components/ui/connection-status';
+import { ReconciliationBadge } from '@/components/auction/ReconciliationBadge';
 
 // Lazy-load heavy components that are only used conditionally
 const PlayerResultPopup = dynamic(() => import('@/components/auction/PlayerResultPopup').then(m => ({ default: m.PlayerResultPopup })), { ssr: false });
@@ -195,6 +196,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
       // Another admin tab already finalized this player — silently ignore.
       if (res && !res.success && res.reason === "No player in auction") return;
+      // Any other refusal (e.g. the winning team can no longer afford the bid)
+      // means nothing was sold — surface it instead of showing a result.
+      if (res && !res.success) {
+        toast.error(res.reason ?? 'Could not finalize this player');
+        return;
+      }
 
       const isSold = res?.sold ?? hadBidder;
       const finalTeamName = res?.teamName ?? bidderTeam?.name ?? null;
@@ -727,6 +734,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   {auctionRoom.status === 'paused' && 'Auction Paused'}
                 </p>
               </div>
+              {isAdmin && (
+                <ReconciliationBadge tournamentId={auctionRoom.tournamentId} />
+              )}
             </div>
 
             {/* Admin Controls - Only visible to admins */}

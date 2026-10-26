@@ -71,7 +71,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     // Validation (shared with update — convex/validation.ts)
     const error =
@@ -132,6 +132,20 @@ export const create = mutation({
       purseSpent: 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+    });
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "create_team",
+      targetType: "team",
+      targetId: teamId,
+      newData: {
+        name: args.name,
+        ownerName: args.ownerName,
+        captainPlayerId: args.captainPlayerId,
+      },
+      tournamentId: args.tournamentId,
     });
 
     return teamId;
@@ -206,7 +220,7 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const team = await ctx.db.get(args.id);
     if (!team) throw new Error("Team not found");
@@ -272,6 +286,20 @@ export const update = mutation({
     }
 
     await ctx.db.patch(id, patch);
+
+    const { updatedAt: _updatedAt, ...changed } = patch;
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "update_team",
+      targetType: "team",
+      targetId: id,
+      previousData: Object.fromEntries(
+        Object.keys(changed).map((k) => [k, team[k as keyof typeof team]]),
+      ),
+      newData: changed,
+      tournamentId: team.tournamentId,
+    });
 
     return { success: true };
   },

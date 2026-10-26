@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAdmin } from "./auth";
+import { logAdminAction, requireAdmin } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { normalizePhone, validatePlayerFields } from "./validation";
 
@@ -38,7 +38,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     // Verify tournament exists
     const tournament = await ctx.db.get(args.tournamentId);
@@ -87,6 +87,16 @@ export const create = mutation({
     // New pending player — refresh denormalized counts / min pending base price.
     await syncTournamentAuctionCounts(ctx, args.tournamentId);
 
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "create_player",
+      targetType: "player",
+      targetId: playerId,
+      newData: { name: args.name, basePrice: args.basePrice },
+      tournamentId: args.tournamentId,
+    });
+
     return playerId;
   },
 });
@@ -121,7 +131,7 @@ export const bulkImport = mutation({
   },
   handler: async (ctx, args) => {
     // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
@@ -201,6 +211,16 @@ export const bulkImport = mutation({
 
     // Bulk pending insert — refresh denormalized counts once for the batch.
     await syncTournamentAuctionCounts(ctx, args.tournamentId);
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "bulk_import_players",
+      targetType: "tournament",
+      targetId: args.tournamentId,
+      newData: { count: playerIds.length },
+      tournamentId: args.tournamentId,
+    });
 
     return { success: true as const, count: playerIds.length, ids: playerIds };
   },
@@ -290,7 +310,7 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
@@ -327,6 +347,24 @@ export const update = mutation({
     // price (cheap no-op write when nothing count-relevant actually changed).
     await syncTournamentAuctionCounts(ctx, player.tournamentId);
 
+    // Phone numbers are PII — record that they changed, not their values.
+    const { phoneNumber: _phone, ...auditable } = updates;
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "update_player",
+      targetType: "player",
+      targetId: id,
+      previousData: Object.fromEntries(
+        Object.keys(auditable).map((k) => [k, player[k as keyof typeof player]]),
+      ),
+      newData: {
+        ...auditable,
+        ...(args.phoneNumber !== undefined ? { phoneNumberChanged: true } : {}),
+      },
+      tournamentId: player.tournamentId,
+    });
+
     return { success: true };
   },
 });
@@ -336,7 +374,7 @@ export const deletePlayer = mutation({
   args: { id: v.id("players") },
   handler: async (ctx, args) => {
     // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
@@ -377,6 +415,20 @@ export const deletePlayer = mutation({
     // Player removed from the pool — refresh denormalized counts.
     await syncTournamentAuctionCounts(ctx, player.tournamentId);
 
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "delete_player",
+      targetType: "player",
+      targetId: args.id,
+      previousData: {
+        name: player.name,
+        auctionStatus: player.auctionStatus,
+        playerNumber: player.playerNumber,
+      },
+      tournamentId: player.tournamentId,
+    });
+
     return { success: true };
   },
 });
@@ -392,7 +444,7 @@ export const deleteAllByTournament = mutation({
   },
   handler: async (ctx, args) => {
     // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const players = await ctx.db
       .query("players")
@@ -431,6 +483,19 @@ export const deleteAllByTournament = mutation({
 
     // Bulk removal — refresh denormalized counts once.
     await syncTournamentAuctionCounts(ctx, args.tournamentId);
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "delete_all_players",
+      targetType: "tournament",
+      targetId: args.tournamentId,
+      previousData: {
+        deletedCount: playersToDelete.length,
+        includesSold: args.includesSold ?? false,
+      },
+      tournamentId: args.tournamentId,
+    });
 
     return {
       success: true,
