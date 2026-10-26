@@ -4,7 +4,11 @@ import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id, Doc } from "./_generated/dataModel";
 import { requireAdmin, logAdminAction } from "./auth";
-import { syncTournamentAuctionCounts } from "./auctionCounts";
+import {
+  auctionCountsEqual,
+  computeAuctionCounts,
+  syncTournamentAuctionCounts,
+} from "./auctionCounts";
 import { toPublicPlayer } from "./projections";
 import {
   DEFAULT_BASE_PRICE,
@@ -126,7 +130,7 @@ export const pauseAuction = mutation({
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
@@ -157,6 +161,17 @@ export const pauseAuction = mutation({
         data: { remainingTime },
         timestamp: now,
       }),
+      logAdminAction(ctx, {
+        userId: admin._id,
+        userEmail: admin.email,
+        action: "pause_auction",
+        targetType: "auction",
+        targetId: args.auctionRoomId,
+        previousData: { status: auctionRoom.status },
+        newData: { status: "paused", remainingTime },
+        tournamentId: auctionRoom.tournamentId,
+        auctionRoomId: args.auctionRoomId,
+      }),
     ]);
 
     return { success: true, remainingTime };
@@ -172,7 +187,7 @@ export const resumeAuction = mutation({
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
@@ -210,6 +225,17 @@ export const resumeAuction = mutation({
         type: "auction_resumed",
         data: {},
         timestamp: now,
+      }),
+      logAdminAction(ctx, {
+        userId: admin._id,
+        userEmail: admin.email,
+        action: "resume_auction",
+        targetType: "auction",
+        targetId: args.auctionRoomId,
+        previousData: { status: auctionRoom.status },
+        newData: { status: "live" },
+        tournamentId: auctionRoom.tournamentId,
+        auctionRoomId: args.auctionRoomId,
       }),
     ]);
 
@@ -421,6 +447,15 @@ export const finalizePlayerSale = mutation({
       // PLAYER SOLD
       const team = await ctx.db.get(winningBid.teamId);
       if (!team) throw new Error("Winning team not found");
+
+      // Defensive: placeBid already checked the purse, but a correction since
+      // then could have lowered it. Never debit a team below zero.
+      if (team.purseRemaining < winningBid.amount) {
+        return {
+          success: false,
+          reason: `${team.name} can no longer afford this bid (₹${team.purseRemaining} left, bid ₹${winningBid.amount}). Revert the bid or restart the player.`,
+        };
+      }
 
       result.teamName = team.name;
       result.sold = true;
@@ -1028,7 +1063,7 @@ export const revertLastBid = mutation({
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
@@ -1050,6 +1085,22 @@ export const revertLastBid = mutation({
     }
 
     await ctx.db.delete(latestBid._id);
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "revert_last_bid",
+      targetType: "auction",
+      targetId: args.auctionRoomId,
+      previousData: {
+        playerId: latestBid.playerId,
+        teamId: latestBid.teamId,
+        amount: latestBid.amount,
+      },
+      tournamentId: auctionRoom.tournamentId,
+      auctionRoomId: args.auctionRoomId,
+    });
+
     return { success: true };
   },
 });
@@ -1063,7 +1114,7 @@ export const restartCurrentPlayer = mutation({
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
@@ -1105,6 +1156,19 @@ export const restartCurrentPlayer = mutation({
         type: "player_restarted",
         data: { playerId: auctionRoom.currentPlayerId },
         timestamp: now,
+      }),
+      logAdminAction(ctx, {
+        userId: admin._id,
+        userEmail: admin.email,
+        action: "restart_current_player",
+        targetType: "auction",
+        targetId: args.auctionRoomId,
+        previousData: {
+          playerId: auctionRoom.currentPlayerId,
+          bidCount: allBids.length,
+        },
+        tournamentId: auctionRoom.tournamentId,
+        auctionRoomId: args.auctionRoomId,
       }),
     ]);
 
@@ -1513,6 +1577,101 @@ export const getAuctionHistory = query({
 });
 
 // Get auction rooms for a tournament
+/**
+ * ADMIN-ONLY reconciliation — proves every purse and status count is correct.
+ *
+ * For each team: purseSpent must equal the sum of its sold players' soldPrice,
+ * and purseRemaining + purseSpent must equal settings.basePurse. Player counts
+ * per status must match the denormalized tournament.auctionCounts.
+ *
+ * Reads only the tournament, its teams and its players — never the auction
+ * room or liveBids — so it does not re-run on bids. Subscribed only by the
+ * admin console; NOT part of the viewer hot path, so reading identity is fine.
+ */
+export const getReconciliation = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+
+    const [teams, players] = await Promise.all([
+      ctx.db
+        .query("teams")
+        .withIndex("by_tournament", (q) =>
+          q.eq("tournamentId", args.tournamentId),
+        )
+        .collect(),
+      ctx.db
+        .query("players")
+        .withIndex("by_tournament", (q) =>
+          q.eq("tournamentId", args.tournamentId),
+        )
+        .collect(),
+    ]);
+
+    const issues: Array<{
+      kind: "purse_spent" | "purse_total" | "orphan_sale" | "status_counts";
+      teamId?: Id<"teams">;
+      playerId?: Id<"players">;
+      message: string;
+    }> = [];
+
+    const basePurse = tournament.settings.basePurse;
+    const soldTotals = new Map<Id<"teams">, number>();
+    const teamIds = new Set(teams.map((t) => t._id));
+
+    for (const p of players) {
+      if (p.auctionStatus !== "sold") continue;
+      if (!p.teamId || !teamIds.has(p.teamId)) {
+        issues.push({
+          kind: "orphan_sale",
+          playerId: p._id,
+          message: `${p.name} is marked sold but has no team in this tournament`,
+        });
+        continue;
+      }
+      soldTotals.set(p.teamId, (soldTotals.get(p.teamId) ?? 0) + (p.soldPrice ?? 0));
+    }
+
+    for (const team of teams) {
+      const sold = soldTotals.get(team._id) ?? 0;
+      if (team.purseSpent !== sold) {
+        issues.push({
+          kind: "purse_spent",
+          teamId: team._id,
+          message: `${team.name}: spent ₹${team.purseSpent} but sold players total ₹${sold}`,
+        });
+      }
+      if (team.purseRemaining + team.purseSpent !== basePurse) {
+        issues.push({
+          kind: "purse_total",
+          teamId: team._id,
+          message: `${team.name}: remaining ₹${team.purseRemaining} + spent ₹${team.purseSpent} ≠ base purse ₹${basePurse}`,
+        });
+      }
+    }
+
+    const expected = computeAuctionCounts(
+      players,
+      teams,
+      tournament.settings.basePrice ?? DEFAULT_BASE_PRICE,
+    );
+    if (!auctionCountsEqual(tournament.auctionCounts, expected)) {
+      const stored = tournament.auctionCounts;
+      issues.push({
+        kind: "status_counts",
+        message: stored
+          ? `Stored counts (pending ${stored.pending}, sold ${stored.sold}, unsold ${stored.unsold}, on block ${stored.inAuction}) differ from players (pending ${expected.pending}, sold ${expected.sold}, unsold ${expected.unsold}, on block ${expected.inAuction})`
+          : "Status counts have not been computed for this tournament",
+      });
+    }
+
+    return { ok: issues.length === 0, issues };
+  },
+});
+
 export const getAuctionRooms = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
@@ -1555,7 +1714,7 @@ export const restartAuction = mutation({
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
@@ -1663,6 +1822,25 @@ export const restartAuction = mutation({
 
     // All players are back to "pending" — recompute counts from scratch.
     await syncTournamentAuctionCounts(ctx, auctionRoom.tournamentId);
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "restart_auction",
+      targetType: "auction",
+      targetId: args.auctionRoomId,
+      previousData: {
+        status: auctionRoom.status,
+        soldPlayers: players.filter((p) => p.auctionStatus === "sold").length,
+        teamPurses: teams.map((t) => ({
+          teamId: t._id,
+          purseRemaining: t.purseRemaining,
+          purseSpent: t.purseSpent,
+        })),
+      },
+      tournamentId: auctionRoom.tournamentId,
+      auctionRoomId: args.auctionRoomId,
+    });
 
     return { success: true, message: "Auction has been reset" };
   },

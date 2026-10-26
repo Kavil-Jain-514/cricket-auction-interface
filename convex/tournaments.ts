@@ -350,7 +350,7 @@ export const deleteTournament = mutation({
   args: { id: v.id("tournaments") },
   handler: async (ctx, args) => {
     // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
@@ -412,6 +412,22 @@ export const deleteTournament = mutation({
         );
       }
     }
+
+    // Audit before deleting (the log row outlives the tournament).
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "delete_tournament",
+      targetType: "tournament",
+      targetId: args.id,
+      previousData: {
+        name: tournament.name,
+        teams: teams.length,
+        players: players.length,
+        auctionRooms: auctionRooms.length,
+      },
+      tournamentId: args.id,
+    });
 
     // Delete deepest children first so a mid-flight failure never leaves
     // dangling references pointing at already-deleted parents.

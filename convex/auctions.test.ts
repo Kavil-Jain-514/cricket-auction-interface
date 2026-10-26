@@ -745,3 +745,85 @@ describe("public viewer — no sign-in", () => {
     }
   }
 });
+
+describe("audit trail — room controls", () => {
+  async function auditActions(t: ReturnType<typeof convexTest>) {
+    const logs = await t.run((ctx) => ctx.db.query("auditLogs").collect());
+    return logs.map((l) => l.action);
+  }
+
+  test("revertLastBid and restartCurrentPlayer write audit rows", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t);
+    await putPlayerInAuction(t, { tournamentId, roomId });
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+
+    await asAdmin.mutation(api.auctions.revertLastBid, {
+      auctionRoomId: roomId,
+    });
+    await asAdmin.mutation(api.auctions.restartCurrentPlayer, {
+      auctionRoomId: roomId,
+    });
+
+    const actions = await auditActions(t);
+    expect(actions).toContain("revert_last_bid");
+    expect(actions).toContain("restart_current_player");
+    // Individual bids are never audited.
+    expect(actions).not.toContain("place_bid");
+  });
+
+  test("pause, resume and restartAuction write audit rows", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { roomId } = await setup(t);
+
+    await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: roomId });
+    await asAdmin.mutation(api.auctions.resumeAuction, {
+      auctionRoomId: roomId,
+    });
+    await asAdmin.mutation(api.auctions.restartAuction, {
+      auctionRoomId: roomId,
+    });
+
+    expect(await auditActions(t)).toEqual(
+      expect.arrayContaining([
+        "pause_auction",
+        "resume_auction",
+        "restart_auction",
+      ]),
+    );
+  });
+});
+
+describe("finalizePlayerSale — defensive purse guard", () => {
+  test("refuses the sale when the winning team can no longer afford the bid", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t);
+    const playerId = await putPlayerInAuction(t, { tournamentId, roomId });
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 300_000,
+    });
+    // Purse drops below the standing bid after it was placed.
+    await t.run((ctx) =>
+      ctx.db.patch(teamA, { purseRemaining: 200_000, purseSpent: 800_000 }),
+    );
+
+    const res = await asAdmin.mutation(api.auctions.finalizePlayerSale, {
+      auctionRoomId: roomId,
+    });
+
+    expect(res).toMatchObject({ success: false });
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(teamA))?.purseRemaining).toBe(200_000);
+      expect((await ctx.db.get(playerId))?.auctionStatus).toBe("in_auction");
+    });
+  });
+});
