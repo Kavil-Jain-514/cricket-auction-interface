@@ -126,6 +126,9 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
   const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState<ParsedPlayer[]>([]);
+  // Spreadsheet row number for each entry in `parsed`, so server row errors
+  // (indexed into `parsed`) can point at the right sheet row.
+  const [parsedRows, setParsedRows] = useState<number[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
 
   const importPlayers = useMutation(api.players.bulkImport);
@@ -147,6 +150,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
     setParsing(true);
     setErrors([]);
     setParsed([]);
+    setParsedRows([]);
 
     try {
       const data = await file.arrayBuffer();
@@ -177,6 +181,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
 
       const players: ParsedPlayer[] = [];
+      const sheetRows: number[] = [];
       const validationErrors: string[] = [];
 
       jsonData.forEach((row, idx) => {
@@ -242,6 +247,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
           }
 
           players.push(player);
+          sheetRows.push(idx + 2);
         } catch (error) {
           validationErrors.push(`Row ${idx + 2}: ${(error as Error).message}`);
         }
@@ -252,6 +258,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       }
 
       setParsed(players);
+      setParsedRows(sheetRows);
 
       if (players.length > 0 && validationErrors.length === 0) {
         toast.success(`Successfully parsed ${players.length} players`);
@@ -326,10 +333,21 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
     }
 
     try {
-      await importPlayers({
+      const result = await importPlayers({
         tournamentId,
         players: parsed,
       });
+
+      if (!result.success) {
+        // Nothing was imported — list the server's row errors in the error panel.
+        setErrors(
+          result.errors.map(
+            (e) => `Row ${parsedRows[e.row] ?? e.row + 1}: ${e.field} — ${e.message}`,
+          ),
+        );
+        toast.error(`Import blocked: ${result.errors.length} error${result.errors.length > 1 ? 's' : ''} found. Nothing was imported.`);
+        return;
+      }
 
       toast.success(`Imported ${parsed.length} players successfully!`);
       onComplete();
