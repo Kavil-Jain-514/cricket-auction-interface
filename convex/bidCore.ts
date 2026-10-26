@@ -7,6 +7,7 @@
 import { MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import {
+  bidTimerEndsAt,
   DEFAULT_BASE_PRICE,
   isSquadFull,
   maxAllowedBid,
@@ -213,7 +214,7 @@ export async function applyBid(
   if (args.dryRun) return { success: true, amount, teamId: team._id };
 
   const now = Date.now();
-  const bidTimerSeconds = tournament.settings.bidTimerSeconds || 30;
+  const timerEndsAt = bidTimerEndsAt(tournament.settings, now);
 
   // Insert bid AND reset timer on every bid.
   // Note: per-bid audit logging is intentionally omitted here — bidding is
@@ -231,11 +232,17 @@ export async function applyBid(
       source: args.source,
       userId: args.userId,
     }),
-    // Reset timer on every bid
-    ctx.db.patch(room._id, {
-      bidTimerEndsAt: now + bidTimerSeconds * 1000,
-      updatedAt: now,
-    }),
+    // Reset timer on every bid. With the timer off there is nothing to reset,
+    // so skip the room write entirely (the liveBids insert alone invalidates
+    // getLiveAuction).
+    ...(timerEndsAt !== undefined
+      ? [
+          ctx.db.patch(room._id, {
+            bidTimerEndsAt: timerEndsAt,
+            updatedAt: now,
+          }),
+        ]
+      : []),
   ]);
 
   return { success: true, amount, teamId: team._id };

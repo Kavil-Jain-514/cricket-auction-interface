@@ -11,6 +11,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { toast } from 'sonner';
+import { bidTimerSeconds } from '@/convex/bidRules';
+import { bidTimerLabel, bidTimerOptions } from '@/lib/bidTimer';
 
 type BidMode = 'admin_only' | 'confirm' | 'open';
 
@@ -60,6 +62,7 @@ export function TournamentSettingsModal({
     basePrice: String(currentSettings.settings.basePrice || 100000),
     footerText: currentSettings.settings.footerText || '',
     bidMode: currentSettings.settings.bidMode ?? 'admin_only',
+    bidTimerSeconds: bidTimerSeconds(currentSettings.settings),
   });
 
   const parsed = {
@@ -108,7 +111,8 @@ export function TournamentSettingsModal({
       parsed.basePurse !== current.basePurse ||
       parsed.minBidIncrement !== current.minBidIncrement ||
       parsed.maxPlayersPerTeam !== current.maxPlayersPerTeam ||
-      parsed.basePrice !== (current.basePrice || 100000);
+      parsed.basePrice !== (current.basePrice || 100000) ||
+      formData.bidTimerSeconds !== bidTimerSeconds(current);
     // Footer text is not locked, so it can change during a live auction.
     const footerChanged = formData.footerText.trim() !== (current.footerText || '');
     // Neither is bid mode — the auctioneer can switch modes mid-auction.
@@ -124,6 +128,7 @@ export function TournamentSettingsModal({
           ? {
               settings: {
                 ...parsed,
+                bidTimerSeconds: formData.bidTimerSeconds,
                 ...(footerChanged ? { footerText: formData.footerText.trim() } : {}),
                 ...(bidModeChanged ? { bidMode: formData.bidMode } : {}),
               },
@@ -322,6 +327,23 @@ export function TournamentSettingsModal({
                   Maximum squad size
                 </p>
                 {fieldError('maxPlayersPerTeam')}
+              </div>
+
+              <div>
+                <Label htmlFor="bidTimerSeconds">Bid Timer</Label>
+                <select
+                  id="bidTimerSeconds"
+                  value={formData.bidTimerSeconds}
+                  onChange={(e) => setFormData({ ...formData, bidTimerSeconds: Number(e.target.value) })}
+                  className="mt-2 w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+                >
+                  {bidTimerOptions(bidTimerSeconds(currentSettings.settings)).map((s) => (
+                    <option key={s} value={s}>{bidTimerLabel(s)}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400 mt-1">
+                  A countdown that resets on every bid. It never sells on its own — at zero the console prompts you.
+                </p>
               </div>
             </div>
           </div>

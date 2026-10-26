@@ -5,6 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { requireAdmin, logAdminAction } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import {
+  bidTimerEndsAt,
   DEFAULT_BASE_PRICE,
   isSquadFull,
   maxAllowedBid,
@@ -471,11 +472,11 @@ export const clearCurrentPlayerBids = mutation({
 
     // Reset timer — liveBids table is now the source of truth; do not write legacy fields
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
-    const timerSeconds = tournament?.settings.bidTimerSeconds || 30;
+    const now = Date.now();
 
     await ctx.db.patch(args.auctionRoomId, {
-      bidTimerEndsAt: Date.now() + timerSeconds * 1000,
-      updatedAt: Date.now(),
+      bidTimerEndsAt: bidTimerEndsAt(tournament?.settings ?? {}, now),
+      updatedAt: now,
     });
 
     // Log the action

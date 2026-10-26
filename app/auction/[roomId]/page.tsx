@@ -28,6 +28,10 @@ import { OwnerPaddle } from '@/components/auction/OwnerPaddle';
 import { IncomingRaisesTray } from '@/components/auction/IncomingRaisesTray';
 import { ConnectionStatus } from '@/components/ui/connection-status';
 import { ReconciliationBadge } from '@/components/auction/ReconciliationBadge';
+import { BidTimerRing } from '@/components/auction/BidTimerRing';
+import { GoingOnceHelper } from '@/components/auction/GoingOnceHelper';
+import { useBidCountdown } from '@/hooks/useBidCountdown';
+import { bidTimerSeconds } from '@/convex/bidRules';
 
 // Lazy-load heavy components that are only used conditionally
 const PlayerResultPopup = dynamic(() => import('@/components/auction/PlayerResultPopup').then(m => ({ default: m.PlayerResultPopup })), { ssr: false });
@@ -231,6 +235,18 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       toast.error(getErrorMessage(error, "Failed to finalize"));
     }
   }, [isAdmin, showResult, finalizePlayer, auctionRoomId, auctionData]);
+
+  // Advisory bid countdown, ticked locally from the hot query's
+  // bidTimerEndsAt + serverTime. Never auto-finalises.
+  const tournamentSettings = rosterData?.tournament?.settings;
+  const countdown = useBidCountdown({
+    endsAt: liveData?.auctionRoom.bidTimerEndsAt,
+    serverTime: liveData?.serverTime,
+    status: liveData?.auctionRoom.status,
+    pausedTimeRemaining: liveData?.auctionRoom.pausedTimeRemaining,
+    timerSeconds: tournamentSettings ? bidTimerSeconds(tournamentSettings) : undefined,
+    hasCurrentPlayer: Boolean(rosterData?.currentPlayer),
+  });
 
   // Flash a big "Unsold Players Auction" banner when the auction transitions
   // from the main round into the unsold round (for everyone watching live).
@@ -1132,9 +1148,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                           ) : null}
                         </div>
 
-                        {/* Current Bid — the focal number */}
+                        {/* Current Bid — the focal number, with the advisory timer beside it */}
+                        <div className="flex items-center gap-3 sm:gap-4">
                         <motion.div
-                          className="relative bg-linear-to-r from-yellow-600 to-orange-600 rounded-2xl lg:rounded-3xl p-5 sm:p-6 lg:p-8 text-center shadow-xl shadow-orange-900/30"
+                          className="relative flex-1 min-w-0 bg-linear-to-r from-yellow-600 to-orange-600 rounded-2xl lg:rounded-3xl p-5 sm:p-6 lg:p-8 text-center shadow-xl shadow-orange-900/30"
                           animate={{ scale: [1, 1.015, 1] }}
                           transition={{ repeat: Infinity, duration: 2 }}
                         >
@@ -1155,6 +1172,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                             </div>
                           )}
                         </motion.div>
+                        <BidTimerRing countdown={countdown} size="lg" />
+                        </div>
 
                         {/* Base / Next / Bids */}
                         <div className="mt-4 lg:mt-5 grid grid-cols-3 gap-2 sm:gap-3">
@@ -1221,9 +1240,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     </div>
                   </div>
 
-                  {/* Current Bid Display */}
+                  {/* Current Bid Display, with the advisory timer beside it */}
+                  <div className="flex items-center gap-3 sm:gap-4">
                   <motion.div
-                    className="bg-linear-to-r from-yellow-600 to-orange-600 rounded-xl p-4 sm:p-5 lg:p-6 text-center"
+                    className="flex-1 min-w-0 bg-linear-to-r from-yellow-600 to-orange-600 rounded-xl p-4 sm:p-5 lg:p-6 text-center"
                     animate={{ scale: [1, 1.02, 1] }}
                     transition={{ repeat: Infinity, duration: 2 }}
                   >
@@ -1244,6 +1264,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                       </div>
                     )}
                   </motion.div>
+                  <BidTimerRing countdown={countdown} size="md" />
+                  </div>
+
+                  <GoingOnceHelper
+                    visible={countdown.expired && auctionRoom.status === 'live' && !showResult}
+                    hasBids={!isFirstBid}
+                    resetKey={`${currentPlayer._id}:${auctionData.totalBidsCount}:${auctionRoom.bidTimerEndsAt ?? ''}`}
+                    onFinalize={handleFinalize}
+                  />
                     </>
                   )}
                 </motion.div>

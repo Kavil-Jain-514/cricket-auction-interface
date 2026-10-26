@@ -20,6 +20,8 @@ import {
 } from "./auctionCounts";
 import { toPublicPlayer } from "./projections";
 import {
+  bidTimerEndsAt,
+  bidTimerSeconds,
   DEFAULT_BASE_PRICE,
   isSquadFull,
   maxAllowedBid,
@@ -215,7 +217,7 @@ export const resumeAuction = mutation({
     const now = Date.now();
     const timerDuration = auctionRoom.pausedTimeRemaining
       ? auctionRoom.pausedTimeRemaining * 1000
-      : (tournament.settings.bidTimerSeconds || 30) * 1000;
+      : bidTimerSeconds(tournament.settings) * 1000;
 
     const updates: Record<string, unknown> = {
       status: "live",
@@ -223,7 +225,8 @@ export const resumeAuction = mutation({
       updatedAt: now,
     };
 
-    if (auctionRoom.currentPlayerId) {
+    // timerDuration is 0 only when the timer is off: then no countdown resumes.
+    if (auctionRoom.currentPlayerId && timerDuration > 0) {
       updates.bidTimerEndsAt = now + timerDuration;
     }
 
@@ -902,8 +905,6 @@ export const startNextPlayer = mutation({
         .collect()
     ).filter((p) => !captainPlayerIds.has(p._id));
 
-    const bidTimerSeconds = tournament.settings.bidTimerSeconds || 30;
-
     // Put a player into the auction ring and broadcast it. `roomPatch` carries
     // the round bookkeeping (phase / roundNumber / queue cursor) for this case.
     const presentPlayer = async (
@@ -920,7 +921,7 @@ export const startNextPlayer = mutation({
         }),
         ctx.db.patch(args.auctionRoomId, {
           currentPlayerId: player._id,
-          bidTimerEndsAt: now + bidTimerSeconds * 1000,
+          bidTimerEndsAt: bidTimerEndsAt(tournament.settings, now),
           roundStalled: undefined,
           updatedAt: now,
           ...roomPatch,
@@ -1271,7 +1272,6 @@ export const restartCurrentPlayer = mutation({
       .collect();
 
     const now = Date.now();
-    const bidTimerSeconds = tournament.settings.bidTimerSeconds || 30;
 
     // Delete bids in bounded chunks (consistent with other mutations in this file).
     const CHUNK = 200;
@@ -1284,7 +1284,7 @@ export const restartCurrentPlayer = mutation({
     // Reset the timer and record the event once all deletes are done.
     await Promise.all([
       ctx.db.patch(args.auctionRoomId, {
-        bidTimerEndsAt: now + bidTimerSeconds * 1000,
+        bidTimerEndsAt: bidTimerEndsAt(tournament.settings, now),
         updatedAt: now,
       }),
       ctx.db.insert("auctionEvents", {

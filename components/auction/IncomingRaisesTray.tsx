@@ -7,16 +7,10 @@ import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { formatCurrency, getErrorMessage } from '@/lib/utils';
+import { hotkeyBelongsToSomethingElse } from '@/lib/keyboard';
 
 interface IncomingRaisesTrayProps {
   auctionRoomId: Id<"auctionRooms">;
-}
-
-/** Enter should not fire while the auctioneer is typing or a dialog is open. */
-function enterBelongsToSomethingElse(e: KeyboardEvent): boolean {
-  const el = e.target as HTMLElement | null;
-  if (el?.closest('input, textarea, select, button, a, [contenteditable="true"]')) return true;
-  return !!document.querySelector('[role="dialog"], [role="alertdialog"]');
 }
 
 /**
@@ -63,7 +57,7 @@ export function IncomingRaisesTray({ auctionRoomId }: IncomingRaisesTrayProps) {
   useEffect(() => {
     if (!highlighted) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.repeat || enterBelongsToSomethingElse(e)) return;
+      if (e.key !== 'Enter' || e.repeat || hotkeyBelongsToSomethingElse(e, { activatingKey: true })) return;
       e.preventDefault();
       accept(highlighted._id);
     };
