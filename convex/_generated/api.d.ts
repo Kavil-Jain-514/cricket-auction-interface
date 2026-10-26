@@ -14,11 +14,13 @@ import type * as auctions from "../auctions.js";
 import type * as auth from "../auth.js";
 import type * as bidRules from "../bidRules.js";
 import type * as groupDraws from "../groupDraws.js";
+import type * as members from "../members.js";
 import type * as notifications from "../notifications.js";
 import type * as players from "../players.js";
 import type * as projections from "../projections.js";
 import type * as teams from "../teams.js";
 import type * as tournaments from "../tournaments.js";
+import type * as validation from "../validation.js";
 
 import type {
   ApiFromModules,
@@ -33,11 +35,13 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   bidRules: typeof bidRules;
   groupDraws: typeof groupDraws;
+  members: typeof members;
   notifications: typeof notifications;
   players: typeof players;
   projections: typeof projections;
   teams: typeof teams;
   tournaments: typeof tournaments;
+  validation: typeof validation;
 }>;
 
 /**

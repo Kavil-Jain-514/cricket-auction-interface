@@ -195,3 +195,59 @@ describe("tournaments.update — footer text", () => {
     ).rejects.toThrow(/120/);
   });
 });
+
+describe("tournaments.update — bid mode", () => {
+  test("legacy tournaments have no bidMode (admin-only bidding)", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const tournament = await t.run((ctx) => ctx.db.get(tournamentId));
+    expect(tournament?.settings.bidMode).toBeUndefined();
+  });
+
+  test("bidMode can change while a room is live", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId } = await setup(t, { roomStatus: "live" });
+
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      settings: { ...SETTINGS, bidMode: "confirm" },
+    });
+    let tournament = await t.run((ctx) => ctx.db.get(tournamentId));
+    expect(tournament?.settings.bidMode).toBe("confirm");
+    expect(tournament?.settings.basePurse).toBe(SETTINGS.basePurse);
+
+    // Omitting bidMode keeps the stored one.
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      settings: { ...SETTINGS, footerText: "Hosted by the Club" },
+    });
+    tournament = await t.run((ctx) => ctx.db.get(tournamentId));
+    expect(tournament?.settings.bidMode).toBe("confirm");
+
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      settings: { ...SETTINGS, bidMode: "admin_only" },
+    });
+    tournament = await t.run((ctx) => ctx.db.get(tournamentId));
+    expect(tournament?.settings.bidMode).toBe("admin_only");
+  });
+
+  test("a full settings change keeps the stored bidMode", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId } = await setup(t);
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      settings: { ...SETTINGS, bidMode: "open" },
+    });
+
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      settings: { ...SETTINGS, minBidIncrement: 50_000 },
+    });
+    const tournament = await t.run((ctx) => ctx.db.get(tournamentId));
+    expect(tournament?.settings.minBidIncrement).toBe(50_000);
+    expect(tournament?.settings.bidMode).toBe("open");
+  });
+});

@@ -9,6 +9,12 @@ import {
   validateTournamentName,
 } from "./validation";
 
+// Who may bid (see schema.ts). Not a locked setting: the auctioneer can fall
+// back to "admin_only" mid-auction.
+const bidModeValidator = v.optional(
+  v.union(v.literal("admin_only"), v.literal("confirm"), v.literal("open")),
+);
+
 export const create = mutation({
   args: {
     name: v.string(),
@@ -23,6 +29,7 @@ export const create = mutation({
       maxPlayersPerTeam: v.number(),
       basePrice: v.optional(v.number()),
       footerText: v.optional(v.string()),
+      bidMode: bidModeValidator,
     }),
   },
   handler: async (ctx, args) => {
@@ -198,6 +205,8 @@ export const update = mutation({
         basePrice: v.optional(v.number()),
         // Not a locked setting: editable during a live auction.
         footerText: v.optional(v.string()),
+        // Not a locked setting either (see bidModeValidator).
+        bidMode: bidModeValidator,
       }),
     ),
   },
@@ -233,6 +242,12 @@ export const update = mutation({
       if (footerText !== tournament.settings.footerText) {
         nextSettings = { ...tournament.settings, footerText };
       }
+    }
+
+    // Bid mode is never locked either. An omitted bidMode keeps the stored one.
+    const bidMode = args.settings?.bidMode ?? tournament.settings.bidMode;
+    if (bidMode !== tournament.settings.bidMode) {
+      nextSettings = { ...(nextSettings ?? tournament.settings), bidMode };
     }
 
     if (args.settings && settingsChanged(tournament.settings, args.settings)) {
@@ -295,6 +310,7 @@ export const update = mutation({
           tournament.settings.bidTimerSeconds ??
           30,
         footerText,
+        bidMode,
       };
 
       // Base purse is denormalized onto each team's purse. When it changes,
