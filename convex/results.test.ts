@@ -152,7 +152,7 @@ describe("getResultsExport", () => {
     const { tournamentId } = await seedCompleted(t);
     await expect(
       t.withIdentity(USER_IDENTITY).query(api.results.getResultsExport, { tournamentId, includeContacts: false }),
-    ).rejects.toThrow(/Admin/);
+    ).rejects.toThrow(/access to this tournament/);
     await expect(
       t.query(api.results.getResultsExport, { tournamentId, includeContacts: false }),
     ).rejects.toThrow();

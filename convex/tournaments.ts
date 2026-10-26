@@ -1,7 +1,15 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getCurrentUser, logAdminAction, requireAdmin } from "./auth";
-import type { Doc } from "./_generated/dataModel";
+import {
+  getCurrentUser,
+  getTournamentRole,
+  isTournamentStaff,
+  logAdminAction,
+  OWNER_ONLY,
+  requireTournamentRole,
+  requireUser,
+} from "./auth";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   DEFAULT_BASE_PRICE,
   DEFAULT_BID_TIMER_SECONDS,
@@ -51,8 +59,8 @@ export const create = mutation({
     }),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
+    // Any signed-in user may create a tournament; they become its owner.
+    await requireUser(ctx);
 
     // Validation (shared with update — convex/validation.ts)
     const error =
@@ -103,29 +111,14 @@ export const create = mutation({
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+    await ctx.db.insert("tournamentStaff", {
+      tournamentId,
+      userId: user._id,
+      role: "owner",
+      createdAt: Date.now(),
+    });
 
     return tournamentId;
-  },
-});
-
-export const list = query({
-  handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return [];
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
-      .first();
-
-    // Return empty if user hasn't been created yet (will be created on first tournament)
-    if (!user) return [];
-
-    return await ctx.db
-      .query("tournaments")
-      .withIndex("by_creator", (q) => q.eq("createdBy", user._id))
-      .order("desc")
-      .collect();
   },
 });
 
@@ -138,11 +131,22 @@ export const listAll = query({
     if (args.limit !== undefined && args.limit <= 0) {
       throw new Error("limit must be a positive number");
     }
-    // Non-admins never see deactivated tournaments (isActive === false).
-    // Legacy tournaments with isActive === undefined stay visible.
+    // Deactivated tournaments (isActive === false) are visible only to their
+    // staff and the super-admin. Legacy isActive === undefined stays visible.
     const user = await getCurrentUser(ctx);
     const isAdmin = user?.role === "admin";
-    const visible = (t: { isActive?: boolean }) => isAdmin || t.isActive !== false;
+    const staffOf = new Set(
+      user && !isAdmin
+        ? (
+            await ctx.db
+              .query("tournamentStaff")
+              .withIndex("by_user", (q) => q.eq("userId", user._id))
+              .collect()
+          ).map((s) => s.tournamentId)
+        : [],
+    );
+    const visible = (t: { _id: Id<"tournaments">; isActive?: boolean }) =>
+      isAdmin || t.isActive !== false || staffOf.has(t._id);
 
     const tournamentsQuery = ctx.db.query("tournaments").order("desc");
     if (args.limit === undefined) {
@@ -164,13 +168,46 @@ export const getById = query({
     const tournament = await ctx.db.get(args.id);
     if (!tournament) return null;
 
-    // Deactivated tournaments are only reachable by admins.
-    if (tournament.isActive === false) {
-      const user = await getCurrentUser(ctx);
-      if (user?.role !== "admin") return null;
+    // Deactivated tournaments are only reachable by their staff.
+    if (tournament.isActive === false && !(await isTournamentStaff(ctx, args.id))) {
+      return null;
     }
 
     return tournament;
+  },
+});
+
+/**
+ * The caller's access to a tournament, for showing or hiding controls:
+ * "super_admin", "owner", "auctioneer" or null. The server re-checks every
+ * action, so this is for UI only.
+ */
+export const myRole = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    return await getTournamentRole(ctx, args.tournamentId);
+  },
+});
+
+/** Tournaments the caller is on the staff of, newest first, with their role. */
+export const listMine = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return [];
+    const rows = await ctx.db
+      .query("tournamentStaff")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    const tournaments = await Promise.all(
+      rows.map(async (row) => {
+        const t = await ctx.db.get(row.tournamentId);
+        return t ? { ...t, myRole: row.role } : null;
+      }),
+    );
+    return tournaments
+      .filter((t): t is NonNullable<typeof t> => t !== null)
+      .sort((a, b) => b.createdAt - a.createdAt);
   },
 });
 
@@ -270,11 +307,9 @@ export const update = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
-
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
+    await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     // Cannot edit completed tournaments
     if (tournament.status === "completed") {
@@ -475,10 +510,9 @@ export const setActive = mutation({
     isActive: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
+    const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     const previous = tournament.isActive !== false; // legacy undefined = active
     if (previous === args.isActive) {
@@ -508,11 +542,9 @@ export const setActive = mutation({
 export const deleteTournament = mutation({
   args: { id: v.id("tournaments") },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
-
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
+    const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     // Fetch all related data in parallel
     const [teams, players, auctionRooms, groupDraws] = await Promise.all([

@@ -2,7 +2,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
-import { requireAdmin, logAdminAction } from "./auth";
+import { logAdminAction, requireTournamentRole, RUN_AUCTION } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import {
   bidTimerEndsAt,
@@ -199,10 +199,9 @@ export const reassignPlayer = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-
     const player = await ctx.db.get(args.playerId);
     if (!player) throw new Error("Player not found");
+    const admin = await requireTournamentRole(ctx, player.tournamentId, RUN_AUCTION);
 
     const newTeam = await ctx.db.get(args.newTeamId);
     if (!newTeam) throw new Error("New team not found");
@@ -291,10 +290,9 @@ export const updateSoldPrice = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-
     const player = await ctx.db.get(args.playerId);
     if (!player) throw new Error("Player not found");
+    const admin = await requireTournamentRole(ctx, player.tournamentId, RUN_AUCTION);
 
     await assertCorrectable(ctx, player);
 
@@ -356,10 +354,9 @@ export const updatePlayerStatus = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-
     const player = await ctx.db.get(args.playerId);
     if (!player) throw new Error("Player not found");
+    const admin = await requireTournamentRole(ctx, player.tournamentId, RUN_AUCTION);
 
     await assertCorrectable(ctx, player);
 
@@ -447,11 +444,10 @@ export const clearCurrentPlayerBids = mutation({
     reason: v.string(),
   },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-    const reason = requireReason(args.reason);
-
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
+    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+    const reason = requireReason(args.reason);
 
     if (!auctionRoom.currentPlayerId) {
       throw new Error("No player currently in auction");
@@ -526,14 +522,13 @@ export const adjustTeamPurse = mutation({
     reason: v.string(),
   },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
+    const team = await ctx.db.get(args.teamId);
+    if (!team) throw new Error("Team not found");
+    const admin = await requireTournamentRole(ctx, team.tournamentId, RUN_AUCTION);
     const reason = requireReason(args.reason);
     if (!Number.isInteger(args.amount) || args.amount === 0) {
       throw new Error("Adjustment must be a non-zero whole number of rupees");
     }
-
-    const team = await ctx.db.get(args.teamId);
-    if (!team) throw new Error("Team not found");
 
     const purseRemaining = team.purseRemaining + args.amount;
     if (purseRemaining < 0) {
@@ -578,11 +573,10 @@ export const recalculateTeamPurse = mutation({
     reason: v.string(),
   },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-    const reason = requireReason(args.reason);
-
     const team = await ctx.db.get(args.teamId);
     if (!team) throw new Error("Team not found");
+    const admin = await requireTournamentRole(ctx, team.tournamentId, RUN_AUCTION);
+    const reason = requireReason(args.reason);
     const tournament = await ctx.db.get(team.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
 
@@ -637,10 +631,9 @@ export const getPlayerWithTeam = query({
     playerId: v.id("players"),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
-
     const player = await ctx.db.get(args.playerId);
     if (!player) return null;
+    await requireTournamentRole(ctx, player.tournamentId, RUN_AUCTION);
 
     const team = player.teamId ? await ctx.db.get(player.teamId) : null;
 

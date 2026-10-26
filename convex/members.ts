@@ -2,7 +2,13 @@
 import { v } from "convex/values";
 import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
-import { getCurrentUser, logAdminAction, requireAdmin } from "./auth";
+import {
+  getCurrentUser,
+  getTournamentRole,
+  logAdminAction,
+  OWNER_ONLY,
+  requireTournamentRole,
+} from "./auth";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -48,10 +54,9 @@ async function getOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> {
 export const createInvite = mutation({
   args: { teamId: v.id("teams") },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-
     const team = await ctx.db.get(args.teamId);
     if (!team) throw new Error("Team not found");
+    const admin = await requireTournamentRole(ctx, team.tournamentId, OWNER_ONLY);
 
     const token = generateInviteToken();
     const expiresAt = Date.now() + INVITE_TTL_MS;
@@ -166,8 +171,10 @@ export const claimInvite = mutation({
 export const listMembers = query({
   args: { teamId: v.id("teams") },
   handler: async (ctx, args) => {
-    const user = await getCurrentUser(ctx);
-    if (!user || user.role !== "admin") return null;
+    const team = await ctx.db.get(args.teamId);
+    if (!team) return null;
+    const role = await getTournamentRole(ctx, team.tournamentId);
+    if (role !== "owner" && role !== "super_admin") return null;
 
     const [members, invites] = await Promise.all([
       ctx.db
@@ -207,10 +214,9 @@ export const listMembers = query({
 export const removeMember = mutation({
   args: { memberId: v.id("teamMembers") },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-
     const member = await ctx.db.get(args.memberId);
     if (!member) throw new Error("Member not found");
+    const admin = await requireTournamentRole(ctx, member.tournamentId, OWNER_ONLY);
 
     const pending = (
       await ctx.db
@@ -243,10 +249,9 @@ export const removeMember = mutation({
 export const revokeInvite = mutation({
   args: { inviteId: v.id("teamInvites") },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-
     const invite = await ctx.db.get(args.inviteId);
     if (!invite) throw new Error("Invite not found");
+    const admin = await requireTournamentRole(ctx, invite.tournamentId, OWNER_ONLY);
     if (invite.usedBy !== undefined) {
       return { success: false, reason: "Invite was already used — remove the member instead" };
     }

@@ -15,6 +15,7 @@ import { bidTimerSeconds, type IncrementSlab, type PlayerCategory } from '@/conv
 import { validateCategories, validateIncrementSlabs, validateSquadRules } from '@/convex/validation';
 import type { SquadRule } from '@/convex/squadRules';
 import { bidTimerLabel, bidTimerOptions } from '@/lib/bidTimer';
+import { StaffManager } from './StaffManager';
 import {
   AuctionRulesEditor,
   categoriesFromForm,
@@ -63,7 +64,7 @@ export function TournamentSettingsModal({
 }: TournamentSettingsModalProps) {
   const updateTournament = useMutation(api.tournaments.update);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<'general' | 'rules'>('general');
+  const [tab, setTab] = useState<'general' | 'rules' | 'staff'>('general');
   const [rules, setRules] = useState<RulesFormValues>(() => rulesFormFromSettings(currentSettings.settings));
 
   // Numeric fields are kept as the raw input strings so an empty or partial
@@ -218,6 +219,7 @@ export function TournamentSettingsModal({
           {([
             ['general', 'General'],
             ['rules', 'Categories & Rules'],
+            ['staff', 'Staff'],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -228,14 +230,17 @@ export function TournamentSettingsModal({
               className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold transition ${tab === key ? 'bg-slate-950 text-white' : 'text-slate-400 hover:text-white'}`}
             >
               {label}
-              {(key === 'rules' ? rulesError !== null : Object.keys(fieldErrors).length > 0) && (
+              {(key === 'rules' ? rulesError !== null : key === 'general' && Object.keys(fieldErrors).length > 0) && (
                 <span className="ml-2 inline-block h-2 w-2 rounded-full bg-red-500" aria-label="has errors" />
               )}
             </button>
           ))}
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Staff changes save immediately, outside the settings form. */}
+        {tab === 'staff' && <StaffManager tournamentId={tournamentId} />}
+
+        <form onSubmit={handleSubmit} className={tab === 'staff' ? 'hidden' : 'space-y-6'}>
           {tab === 'rules' && (
             <AuctionRulesEditor
               value={rules}

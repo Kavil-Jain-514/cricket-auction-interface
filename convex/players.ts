@@ -1,6 +1,11 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { logAdminAction, requireAdmin } from "./auth";
+import {
+  isTournamentStaff,
+  logAdminAction,
+  OWNER_ONLY,
+  requireTournamentRole,
+} from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { normalizePhone, validatePlayerFields } from "./validation";
 import { categoryFor, effectiveBasePrice } from "./bidRules";
@@ -51,14 +56,12 @@ export const create = mutation({
     tshirtSize: tshirtSizeValidator,
   },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
-
     // Verify tournament exists
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) {
       throw new Error("Tournament not found");
     }
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     // Validation (shared with update and bulkImport — convex/validation.ts)
     const { errors, phoneNumber } = validatePlayerFields(
@@ -148,11 +151,9 @@ export const bulkImport = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
-
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const now = Date.now();
 
@@ -270,18 +271,10 @@ export const listByTournament = query({
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) return [];
 
-    // Check if the current user is an admin to determine PII visibility
-    const identity = await ctx.auth.getUserIdentity();
-    let isAdminUser = false;
-    if (identity?.email) {
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_email", (q) => q.eq("email", identity.email!))
-        .first();
-      isAdminUser = user?.role === "admin";
-    }
+    // Phone numbers (PII) are for this tournament's staff (or a super-admin).
+    const isAdminUser = await isTournamentStaff(ctx, args.tournamentId);
 
-    // Deactivated tournaments are hidden from non-admins even via direct links.
+    // Deactivated tournaments are hidden from everyone but its staff.
     if (tournament.isActive === false && !isAdminUser) return [];
 
     // Use the compound index when filtering by status to avoid a full-collection scan.
@@ -338,11 +331,9 @@ export const update = mutation({
     tshirtSize: tshirtSizeValidator,
   },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
-
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
+    const admin = await requireTournamentRole(ctx, player.tournamentId, OWNER_ONLY);
 
     // Check if player is already sold
     if (player.auctionStatus === "sold") {
@@ -415,11 +406,9 @@ export const update = mutation({
 export const deletePlayer = mutation({
   args: { id: v.id("players") },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
-
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
+    const admin = await requireTournamentRole(ctx, player.tournamentId, OWNER_ONLY);
 
     // Cannot delete sold players
     if (player.auctionStatus === "sold") {
@@ -485,8 +474,7 @@ export const deleteAllByTournament = mutation({
     includesSold: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const players = await ctx.db
       .query("players")

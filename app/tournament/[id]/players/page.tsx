@@ -18,7 +18,7 @@ import { toast } from 'sonner';
 import { getRoles, getRoleDisplay } from '@/lib/utils';
 import jsPDF from 'jspdf';
 
-import { useUserRole } from '@/hooks/useUserRole';
+import { useTournamentRole } from '@/hooks/useTournamentRole';
 
 
 export default function PlayersPage({ params }: { params: Promise<{ id: string }> }) {
@@ -37,7 +37,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
   const allPlayers = useQuery(api.players.listByTournament, { tournamentId });
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
   const deleteAllPlayers = useMutation(api.players.deleteAllByTournament);
-  const { isAdmin } = useUserRole();
+  const { canManage } = useTournamentRole(tournamentId);
 
   // Get team name for a player
   const getTeamName = useCallback((teamId?: Id<"teams">) => {
@@ -430,14 +430,14 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
             <div className="flex flex-wrap gap-2 sm:gap-3">
               {/* Viewer Mode Indicator */}
-              {!isAdmin && (
+              {!canManage && (
                 <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/60 rounded-lg border border-slate-700 h-11">
                   <Eye className="w-4 h-4 text-blue-400" />
                   <span className="text-sm text-slate-300">Viewer Mode</span>
                 </div>
               )}
 
-              {stats.total > 0 && isAdmin && (
+              {stats.total > 0 && canManage && (
                 <>
                   <div className="relative">
                     <Button
@@ -511,7 +511,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                   </Button>
                 </>
               )}
-              {isAdmin && (
+              {canManage && (
                 <>
                   <Button variant="outline" onClick={() => setShowImport(true)} className="h-11 px-3 sm:px-4 text-sm">
                     <Upload className="w-4 h-4 sm:mr-2" />

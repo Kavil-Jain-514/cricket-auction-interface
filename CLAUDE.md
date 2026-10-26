@@ -25,6 +25,12 @@ npx tsc --noEmit     # typecheck
   - `auctions:getAuctionRoster` is the cold query. It re-runs once per player.
   - Never make the hot query read the `players`/`teams` tables broadly. Never make the cold query read the
     `auctionRooms` document.
+- **Tournament access is per tournament.** Tournament-scoped mutations and admin queries call
+  `requireTournamentRole(ctx, tournamentId, RUN_AUCTION | OWNER_ONLY)` (`convex/auth.ts`), after loading
+  the doc that names the tournament and before any other validation. `users.role "admin"` is the platform
+  super-admin and passes every check; `requireAdmin` is only for global functions (`setUserRole`,
+  `getAllUsers`, `listAuditLogs`). A new public mutation must be added to the table in
+  `convex/organiserIsolation.test.ts`.
 - **Shared viewer queries stay identity-free.** Do not read `ctx.auth` in a query every viewer shares
   unless it is necessary. Reading identity per viewer stops Convex from sharing one cached result across
   all viewers. Put private data in separate admin-only queries instead.

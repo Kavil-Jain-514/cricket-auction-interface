@@ -10,7 +10,7 @@ import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { toast } from 'sonner';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
-import { useUserRole } from '@/hooks/useUserRole';
+import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { CategoryChip } from './CategoryChip';
 import type { PlayerCategory } from '@/convex/bidRules';
@@ -29,12 +29,12 @@ export function PlayerCard({ player, onClick, isCaptain, categories }: PlayerCar
   const [showEdit, setShowEdit] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const deletePlayer = useMutation(api.players.deletePlayer);
-  const { isAdmin } = useUserRole();
+  const { canManage } = useTournamentRole(player.tournamentId);
   const confirm = useConfirm();
 
   // Can edit if admin AND player is pending/unsold (not sold or in_auction) —
   // editing attributes of a final_unsold (terminal) player isn't meaningful.
-  const canModify = isAdmin && (player.auctionStatus === "pending" || player.auctionStatus === "unsold");
+  const canModify = canManage && (player.auctionStatus === "pending" || player.auctionStatus === "unsold");
   // Deleting is allowed for final_unsold too — deletePlayer permits it
   // (only sold/in_auction are blocked), so leaving no way to remove these
   // from the UI was a capability gap, not an intentional restriction.

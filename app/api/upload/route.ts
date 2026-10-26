@@ -19,12 +19,12 @@ function sanitizeFolder(folder: string): string {
 }
 
 /**
- * Only Convex admins may upload or delete images. A Clerk session alone is not
- * enough: we exchange it for a Convex token and ask the backend (auth.me) for
- * the caller's role. Returns an error response, or null when the caller is an
- * admin.
+ * Uploads are for the super-admin and organisers (anyone on a tournament's
+ * staff). A Clerk session alone is not enough: we exchange it for a Convex
+ * token and ask the backend. Returns an error response, or null when allowed.
+ * A brand-new organiser adds their logo after creating the tournament.
  */
-async function requireConvexAdmin(): Promise<NextResponse | null> {
+async function requireUploader(): Promise<NextResponse | null> {
   const { userId, getToken } = await auth();
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -36,16 +36,21 @@ async function requireConvexAdmin(): Promise<NextResponse | null> {
   const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
   convex.setAuth(token);
   const me = await convex.query(api.auth.me, {});
-  if (!me?.isAdmin) {
-    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  if (me?.isAdmin) return null;
+  const mine = me ? await convex.query(api.tournaments.listMine, {}) : [];
+  if (mine.length === 0) {
+    return NextResponse.json(
+      { error: "Only tournament organisers can upload images" },
+      { status: 403 },
+    );
   }
   return null;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // Authorization check — admins only
-    const denied = await requireConvexAdmin();
+    // Authorization check — super-admin or tournament staff
+    const denied = await requireUploader();
     if (denied) return denied;
 
     const formData = await request.formData();

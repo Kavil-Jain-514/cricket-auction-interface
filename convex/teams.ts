@@ -1,6 +1,11 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getCurrentUser, isAdmin, logAdminAction, requireAdmin } from "./auth";
+import {
+  isTournamentStaff,
+  logAdminAction,
+  OWNER_ONLY,
+  requireTournamentRole,
+} from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { deleteTeamMembershipData } from "./members";
 import { Doc } from "./_generated/dataModel";
@@ -71,8 +76,7 @@ export const create = mutation({
     captainHand: v.optional(v.union(v.literal("Right"), v.literal("Left"))),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     // Validation (shared with update — convex/validation.ts)
     const error =
@@ -159,10 +163,9 @@ export const listByTournament = query({
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) return [];
 
-    // Deactivated tournaments are hidden from non-admins even via direct links.
-    if (tournament.isActive === false) {
-      const user = await getCurrentUser(ctx);
-      if (user?.role !== "admin") return [];
+    // Deactivated tournaments are hidden from everyone but its staff.
+    if (tournament.isActive === false && !(await isTournamentStaff(ctx, args.tournamentId))) {
+      return [];
     }
 
     return await ctx.db
@@ -185,8 +188,8 @@ export const getWithPlayers = query({
       .withIndex("by_team", (q) => q.eq("teamId", args.id))
       .collect();
 
-    // Phone numbers are admin-only; strip them for everyone else.
-    const admin = await isAdmin(ctx);
+    // Phone numbers are for this tournament's staff; strip them for everyone else.
+    const admin = await isTournamentStaff(ctx, team.tournamentId);
 
     return {
       ...team,
@@ -220,11 +223,9 @@ export const update = mutation({
     captainHand: v.optional(v.union(v.literal("Right"), v.literal("Left"))),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
-
     const team = await ctx.db.get(args.id);
     if (!team) throw new Error("Team not found");
+    const admin = await requireTournamentRole(ctx, team.tournamentId, OWNER_ONLY);
 
     // Check if tournament exists
     const tournament = await ctx.db.get(team.tournamentId);
@@ -309,11 +310,9 @@ export const update = mutation({
 export const deleteTeam = mutation({
   args: { id: v.id("teams") },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
-
     const team = await ctx.db.get(args.id);
     if (!team) throw new Error("Team not found");
+    const admin = await requireTournamentRole(ctx, team.tournamentId, OWNER_ONLY);
 
     // Check if tournament exists
     const tournament = await ctx.db.get(team.tournamentId);

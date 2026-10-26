@@ -11,7 +11,7 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireAdmin } from "./auth";
+import { OWNER_ONLY, requireTournamentRole } from "./auth";
 import { effectiveBasePrice } from "./bidRules";
 
 const TOP_BUYS = 5;
@@ -109,9 +109,9 @@ export const getPublicResults = query({
 export const getResultsExport = query({
   args: { tournamentId: v.id("tournaments"), includeContacts: v.boolean() },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
+    await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const [teams, players, rooms] = await Promise.all([
       ctx.db
