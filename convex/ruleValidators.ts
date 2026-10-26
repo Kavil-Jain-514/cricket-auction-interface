@@ -15,3 +15,7 @@ export const incrementSlabValidator = v.object({
   fromAmount: v.number(),
   increment: v.number(),
 });
+
+export const presentationOrderValidator = v.optional(
+  v.union(v.literal("random"), v.literal("by_category")),
+);

@@ -33,7 +33,8 @@ import { GoingOnceHelper } from '@/components/auction/GoingOnceHelper';
 import { useBidCountdown } from '@/hooks/useBidCountdown';
 import { BroadcastMenu } from '@/components/broadcast/BroadcastMenu';
 import { CategoryChip } from '@/components/players/CategoryChip';
-import { bidTimerSeconds, incrementFor } from '@/convex/bidRules';
+import { SetBanner } from '@/components/auction/SetBanner';
+import { bidTimerSeconds, categoryFor, incrementFor } from '@/convex/bidRules';
 
 // Lazy-load heavy components that are only used conditionally
 const PlayerResultPopup = dynamic(() => import('@/components/auction/PlayerResultPopup').then(m => ({ default: m.PlayerResultPopup })), { ssr: false });
@@ -47,6 +48,9 @@ interface AuctionPageProps {
 // Minimum time the SOLD/UNSOLD result popup stays up before the next player is
 // allowed to override it — so viewers always see the outcome (esp. UNSOLD).
 const MIN_RESULT_DISPLAY_MS = 2500;
+
+// How long the "Now: <set>" banner stays up (matches the unsold-round banner).
+const SET_BANNER_MS = 3000;
 
 export default function AuctionPage({ params }: AuctionPageProps) {
   const { roomId } = use(params);
@@ -153,12 +157,18 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const [showPlayerIntro, setShowPlayerIntro] = useState(false);
   const [showPlayerManager, setShowPlayerManager] = useState(false);
   const [showUnsoldRoundBanner, setShowUnsoldRoundBanner] = useState(false);
+  // "Now: Marquee set" (presentationOrder by_category): the set id announced.
+  const [setBannerId, setSetBannerId] = useState<string | null>(null);
   const [resolvingStall, setResolvingStall] = useState(false);
   const lastPlayerIdRef = useRef<string | null>(null);
   const introTimerRef = useRef<NodeJS.Timeout | null>(null);
   const loadingNextRef = useRef(false);
   const prevPhaseRef = useRef<string | null>(null);
   const unsoldBannerTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Last room.currentSetId seen; `undefined` = not loaded yet, so a viewer who
+  // joins mid-set isn't shown a stale banner.
+  const prevSetIdRef = useRef<string | null | undefined>(undefined);
+  const setBannerTimerRef = useRef<NodeJS.Timeout | null>(null);
   // The "Unsold Round" banner must appear at most once per auction.
   const hasShownUnsoldBannerRef = useRef(false);
   // Enforces MIN_RESULT_DISPLAY_MS for the result popup.
@@ -268,7 +278,23 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     }
   }, [auctionData?.auctionRoom?.auctionPhase]);
 
+  // Announce each new category set, for everyone watching. The admin's
+  // auto-loader holds off while it is up, as for the unsold-round banner.
+  const currentSetId = liveData?.auctionRoom.currentSetId ?? null;
+  const liveLoaded = liveData !== undefined;
+  useEffect(() => {
+    if (!liveLoaded) return;
+    const prev = prevSetIdRef.current;
+    prevSetIdRef.current = currentSetId;
+    if (prev === undefined || !currentSetId || currentSetId === prev) return;
+    const raf = requestAnimationFrame(() => setSetBannerId(currentSetId));
+    if (setBannerTimerRef.current) clearTimeout(setBannerTimerRef.current);
+    setBannerTimerRef.current = setTimeout(() => setSetBannerId(null), SET_BANNER_MS);
+    return () => cancelAnimationFrame(raf);
+  }, [liveLoaded, currentSetId]);
+
   useEffect(() => () => {
+    if (setBannerTimerRef.current) clearTimeout(setBannerTimerRef.current);
     if (unsoldBannerTimerRef.current) clearTimeout(unsoldBannerTimerRef.current);
     if (resultCloseTimerRef.current) clearTimeout(resultCloseTimerRef.current);
   }, []);
@@ -609,11 +635,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     // While the "Unsold Round" banner is up, hold off loading the next player
     // so it isn't overridden — the first unsold player loads once it clears.
     if (showUnsoldRoundBanner) return;
+    // Same for the "Now: <set>" banner; currentSetId is a dependency so a new
+    // set always re-arms the loader even if the banner never shows.
+    if (setBannerId) return;
     // A stalled round is awaiting an admin decision — don't loop into it.
     if (auctionData?.auctionRoom?.roundStalled) return;
     const t = setTimeout(() => { handleNextPlayer(); }, 200);
     return () => clearTimeout(t);
-  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.auctionRoom?.currentPlayerId, showResult, showUnsoldRoundBanner, auctionData?.auctionRoom?.roundStalled, handleNextPlayer]);
+  }, [isAdmin, auctionData?.auctionRoom?.status, auctionData?.auctionRoom?.currentPlayerId, showResult, showUnsoldRoundBanner, setBannerId, currentSetId, auctionData?.auctionRoom?.roundStalled, handleNextPlayer]);
 
   // Wait for both the hot payload and the initial roster before first paint so
   // teams/current-player aren't momentarily empty. Subsequent bid/timer updates
@@ -1357,6 +1386,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           tournamentBasePrice={auctionData.tournament?.settings.basePrice ?? 100000}
         />
       )}
+
+      {/* "Now: <category> set" (presentationOrder by_category) */}
+      <SetBanner
+        category={categoryFor(setBannerId ?? undefined, auctionData.tournament?.settings.categories) ?? null}
+        onDismiss={() => setSetBannerId(null)}
+      />
 
       {/* Unsold Round Transition Flash — big, flashy announcement */}
       <AnimatePresence>
