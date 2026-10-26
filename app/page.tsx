@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Zap, Users, BarChart3, ArrowRight, Timer, Shield, Sparkles } from 'lucide-react';
+import { Zap, Users, BarChart3, ArrowRight, Shield, ShieldCheck, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 // Cricket Ball SVG Component
@@ -202,11 +202,11 @@ export default function HomePage() {
 
           <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-green-500/50 transition group">
             <div className="w-14 h-14 bg-linear-to-br from-green-600 to-green-700 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition">
-              <Timer className="w-7 h-7" />
+              <ShieldCheck className="w-7 h-7" />
             </div>
-            <h3 className="text-xl font-bold mb-2">Smart Bid Timer</h3>
+            <h3 className="text-xl font-bold mb-2">Server-verified totals</h3>
             <p className="text-slate-400">
-              Configurable countdown timers with auto-reset on new bids. Keep the auction moving at your pace.
+              Every purse and player count is checked on the server. The auctioneer can see at a glance that the totals add up.
             </p>
           </div>
 

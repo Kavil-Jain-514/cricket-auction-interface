@@ -3,7 +3,11 @@ import { mutation, query } from "./_generated/server";
 import { getCurrentUser, logAdminAction, requireAdmin } from "./auth";
 import type { Doc } from "./_generated/dataModel";
 import { DEFAULT_BASE_PRICE } from "./bidRules";
-import { validateSettings, validateTournamentName } from "./validation";
+import {
+  normalizeFooterText,
+  validateSettings,
+  validateTournamentName,
+} from "./validation";
 
 export const create = mutation({
   args: {
@@ -18,6 +22,7 @@ export const create = mutation({
       bidTimerSeconds: v.optional(v.number()),
       maxPlayersPerTeam: v.number(),
       basePrice: v.optional(v.number()),
+      footerText: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {
@@ -63,13 +68,16 @@ export const create = mutation({
       throw new Error("Failed to create user");
     }
 
+    const footer = normalizeFooterText(args.settings.footerText);
+    if (!footer.ok) throw new Error(footer.error);
+
     const tournamentId = await ctx.db.insert("tournaments", {
       name: args.name,
       description: args.description,
       logoUrl: args.logoUrl,
       createdBy: user._id,
       status: "draft",
-      settings: args.settings,
+      settings: { ...args.settings, footerText: footer.text },
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -188,6 +196,8 @@ export const update = mutation({
         bidTimerSeconds: v.optional(v.number()),
         maxPlayersPerTeam: v.number(),
         basePrice: v.optional(v.number()),
+        // Not a locked setting: editable during a live auction.
+        footerText: v.optional(v.string()),
       }),
     ),
   },
@@ -212,6 +222,18 @@ export const update = mutation({
     // Stays undefined when the caller sent settings identical to the stored
     // ones, so name/description/logo edits work during a live auction.
     let nextSettings: typeof args.settings = undefined;
+
+    // Footer text is presentation only — never locked. An omitted footerText
+    // keeps the stored one; an empty string clears it.
+    let footerText = tournament.settings.footerText;
+    if (args.settings?.footerText !== undefined) {
+      const footer = normalizeFooterText(args.settings.footerText);
+      if (!footer.ok) throw new Error(footer.error);
+      footerText = footer.text;
+      if (footerText !== tournament.settings.footerText) {
+        nextSettings = { ...tournament.settings, footerText };
+      }
+    }
 
     if (args.settings && settingsChanged(tournament.settings, args.settings)) {
       const settingsError = validateSettings(args.settings);
@@ -272,6 +294,7 @@ export const update = mutation({
           args.settings.bidTimerSeconds ??
           tournament.settings.bidTimerSeconds ??
           30,
+        footerText,
       };
 
       // Base purse is denormalized onto each team's purse. When it changes,

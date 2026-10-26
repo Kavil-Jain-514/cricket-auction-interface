@@ -44,6 +44,7 @@ export default defineSchema({
       bidTimerSeconds: v.optional(v.number()),
       maxPlayersPerTeam: v.number(),
       basePrice: v.optional(v.number()), // Default base price for players, if not provided it's 1,00,000 for legacy reasons
+      footerText: v.optional(v.string()), // Shown under the brand on the viewer page; absent = hidden
     }),
     logoUrl: v.optional(v.string()),
     // Visibility flag (independent of the auction lifecycle `status` above).

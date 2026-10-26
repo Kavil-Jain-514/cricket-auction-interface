@@ -933,9 +933,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <span className="text-lg sm:text-xl font-extrabold tracking-tight bg-linear-to-r from-yellow-400 via-orange-400 to-orange-500 bg-clip-text text-transparent leading-tight">
                     Bid11Pro
                   </span>
-                  <span className="text-[10px] sm:text-[11px] text-slate-400 leading-tight">
-                    Developed by Kavil Dani · +91-7406486484
-                  </span>
+                  {auctionData.tournament?.settings?.footerText && (
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 leading-tight">
+                      {auctionData.tournament.settings.footerText}
+                    </span>
+                  )}
                 </div>
 
                 {/* Viewer badge */}

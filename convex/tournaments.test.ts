@@ -147,3 +147,51 @@ describe("tournaments.create — validation", () => {
     ).rejects.toThrow(/players/i);
   });
 });
+
+describe("tournaments.update — footer text", () => {
+  test("setting only footerText succeeds while a room is live", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId } = await setup(t, { roomStatus: "live" });
+
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      settings: { ...SETTINGS, footerText: "  Hosted by the Club  " },
+    });
+
+    const tournament = await t.run((ctx) => ctx.db.get(tournamentId));
+    expect(tournament?.settings.footerText).toBe("Hosted by the Club");
+    expect(tournament?.settings.basePurse).toBe(SETTINGS.basePurse);
+  });
+
+  test("clearing footerText removes it", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId } = await setup(t, { roomStatus: "live" });
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      settings: { ...SETTINGS, footerText: "Hosted by the Club" },
+    });
+
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      settings: { ...SETTINGS, footerText: "" },
+    });
+
+    const tournament = await t.run((ctx) => ctx.db.get(tournamentId));
+    expect(tournament?.settings.footerText).toBeUndefined();
+  });
+
+  test("rejects footer text over 120 characters", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId } = await setup(t);
+
+    await expect(
+      asAdmin.mutation(api.tournaments.update, {
+        id: tournamentId,
+        settings: { ...SETTINGS, footerText: "x".repeat(121) },
+      }),
+    ).rejects.toThrow(/120/);
+  });
+});
