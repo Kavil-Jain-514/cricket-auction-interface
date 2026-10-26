@@ -12,6 +12,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { toast } from 'sonner';
 
+type BidMode = 'admin_only' | 'confirm' | 'open';
+
+const BID_MODE_OPTIONS: Array<{ value: BidMode; label: string; hint: string }> = [
+  { value: 'admin_only', label: 'Auctioneer only', hint: 'Only admins place bids (owners watch).' },
+  { value: 'confirm', label: 'Owners raise, auctioneer confirms', hint: "An owner's raise appears on the console; the auctioneer accepts it." },
+  { value: 'open', label: 'Open floor', hint: 'Valid owner raises are accepted instantly.' },
+];
+
 interface TournamentSettingsModalProps {
   tournamentId: Id<"tournaments">;
   currentSettings: {
@@ -25,6 +33,7 @@ interface TournamentSettingsModalProps {
       maxPlayersPerTeam: number;
       basePrice?: number;
       footerText?: string;
+      bidMode?: BidMode;
     };
     status?: string;
   };
@@ -50,6 +59,7 @@ export function TournamentSettingsModal({
     maxPlayersPerTeam: String(currentSettings.settings.maxPlayersPerTeam),
     basePrice: String(currentSettings.settings.basePrice || 100000),
     footerText: currentSettings.settings.footerText || '',
+    bidMode: currentSettings.settings.bidMode ?? 'admin_only',
   });
 
   const parsed = {
@@ -101,6 +111,8 @@ export function TournamentSettingsModal({
       parsed.basePrice !== (current.basePrice || 100000);
     // Footer text is not locked, so it can change during a live auction.
     const footerChanged = formData.footerText.trim() !== (current.footerText || '');
+    // Neither is bid mode — the auctioneer can switch modes mid-auction.
+    const bidModeChanged = formData.bidMode !== (current.bidMode ?? 'admin_only');
 
     try {
       await updateTournament({
@@ -108,11 +120,12 @@ export function TournamentSettingsModal({
         name: formData.name,
         description: formData.description || undefined,
         logoUrl: formData.logoUrl || undefined,
-        ...(settingsChanged || footerChanged
+        ...(settingsChanged || footerChanged || bidModeChanged
           ? {
               settings: {
                 ...parsed,
                 ...(footerChanged ? { footerText: formData.footerText.trim() } : {}),
+                ...(bidModeChanged ? { bidMode: formData.bidMode } : {}),
               },
             }
           : {}),
@@ -216,6 +229,23 @@ export function TournamentSettingsModal({
                 Optional. Shown under the Bid11Pro name on the live viewer page. Leave empty to hide.
               </p>
               {fieldError('footerText')}
+            </div>
+
+            <div>
+              <Label htmlFor="bidMode">Who can bid</Label>
+              <select
+                id="bidMode"
+                value={formData.bidMode}
+                onChange={(e) => setFormData({ ...formData, bidMode: e.target.value as BidMode })}
+                className="mt-2 w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+              >
+                {BID_MODE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400 mt-1">
+                {BID_MODE_OPTIONS.find((o) => o.value === formData.bidMode)?.hint} Invite owners from each team card. Can be changed during the auction.
+              </p>
             </div>
           </div>
 
