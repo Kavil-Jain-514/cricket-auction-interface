@@ -1,6 +1,10 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { categoryValidator, incrementSlabValidator } from "./ruleValidators";
+import {
+  categoryValidator,
+  incrementSlabValidator,
+  presentationOrderValidator,
+} from "./ruleValidators";
 
 export default defineSchema({
   // Users table with roles
@@ -62,6 +66,9 @@ export default defineSchema({
       // Price-band increments, ascending by fromAmount (e.g. 0:25k, 5L:50k).
       // Absent or empty = `minBidIncrement` for every bid (legacy behaviour).
       incrementSlabs: v.optional(v.array(incrementSlabValidator)),
+      // Main-round order. Absent = "random" (legacy). "by_category": lowest
+      // category order first, random within a category, uncategorised last.
+      presentationOrder: presentationOrderValidator,
     }),
     logoUrl: v.optional(v.string()),
     // Visibility flag (independent of the auction lifecycle `status` above).
@@ -285,6 +292,9 @@ export default defineSchema({
     // Set when an unsold round completed without selling or final-unselling
     // anyone — the admin must choose how to proceed (infinite-loop guard).
     roundStalled: v.optional(v.boolean()),
+    // presentationOrder "by_category": the set (category id) being presented.
+    // Changing it is what announces "Now: <category> set" on every client.
+    currentSetId: v.optional(v.string()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),

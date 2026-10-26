@@ -7,7 +7,11 @@ import {
   DEFAULT_BID_TIMER_SECONDS,
   validateBidTimerSeconds,
 } from "./bidRules";
-import { categoryValidator, incrementSlabValidator } from "./ruleValidators";
+import {
+  categoryValidator,
+  incrementSlabValidator,
+  presentationOrderValidator,
+} from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import {
   normalizeFooterText,
@@ -39,6 +43,7 @@ export const create = mutation({
       bidMode: bidModeValidator,
       categories: v.optional(v.array(categoryValidator)),
       incrementSlabs: v.optional(v.array(incrementSlabValidator)),
+      presentationOrder: presentationOrderValidator,
     }),
   },
   handler: async (ctx, args) => {
@@ -188,7 +193,9 @@ function settingsChanged(
     (next.categories !== undefined &&
       !sameJson(next.categories, current.categories ?? [])) ||
     (next.incrementSlabs !== undefined &&
-      !sameJson(next.incrementSlabs, current.incrementSlabs ?? []))
+      !sameJson(next.incrementSlabs, current.incrementSlabs ?? [])) ||
+    (next.presentationOrder !== undefined &&
+      next.presentationOrder !== (current.presentationOrder ?? "random"))
   );
 }
 
@@ -242,6 +249,7 @@ export const update = mutation({
         // Locked while live. Omitted keeps the stored value; [] clears it.
         categories: v.optional(v.array(categoryValidator)),
         incrementSlabs: v.optional(v.array(incrementSlabValidator)),
+        presentationOrder: presentationOrderValidator,
       }),
     ),
   },
@@ -378,6 +386,9 @@ export const update = mutation({
         bidMode,
         categories,
         incrementSlabs,
+        presentationOrder:
+          args.settings.presentationOrder ??
+          tournament.settings.presentationOrder,
       };
 
       // Base purse is denormalized onto each team's purse. When it changes,

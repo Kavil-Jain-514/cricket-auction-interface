@@ -19,6 +19,7 @@ import {
   syncTournamentAuctionCounts,
 } from "./auctionCounts";
 import { toPublicPlayer } from "./projections";
+import { nextPresentationSet } from "./presentation";
 import {
   bidTimerEndsAt,
   bidTimerSeconds,
@@ -45,6 +46,7 @@ type RoomRoundPatch = {
   unsoldQueue?: Id<"players">[];
   unsoldCursor?: number;
   unsoldRoundTotal?: number;
+  currentSetId?: string;
 };
 
 /**
@@ -968,12 +970,37 @@ export const startNextPlayer = mutation({
     };
 
     // ── Main round: dynamic random pick from the pending pool ────────────────
+    // With presentationOrder "by_category" the pool is narrowed to the current
+    // set first (see presentation.ts). Entering a new named set announces it
+    // WITHOUT loading a player, exactly like the unsold-round banner below:
+    // clients show "Now: <set>", then the auto-loader calls back in.
     if (pendingPlayers.length > 0) {
-      const nextPlayer =
-        pendingPlayers[Math.floor(Math.random() * pendingPlayers.length)];
+      let pool = pendingPlayers;
+      let setPatch: RoomRoundPatch = {};
+      if (tournament.settings.presentationOrder === "by_category") {
+        const set = nextPresentationSet(
+          pendingPlayers,
+          tournament.settings.categories,
+        )!;
+        if (set.category && set.setId !== auctionRoom.currentSetId) {
+          await ctx.db.patch(args.auctionRoomId, {
+            auctionPhase: "main",
+            roundNumber: 1,
+            currentSetId: set.setId,
+            currentPlayerId: undefined,
+            bidTimerEndsAt: undefined,
+            updatedAt: Date.now(),
+          });
+          return { success: true, completed: false, enteredSet: set.setId };
+        }
+        pool = set.players;
+        setPatch = { currentSetId: set.setId };
+      }
+      const nextPlayer = pool[Math.floor(Math.random() * pool.length)];
       return await presentPlayer(nextPlayer, {
         auctionPhase: "main",
         roundNumber: 1,
+        ...setPatch,
       });
     }
 
@@ -2060,6 +2087,7 @@ export const restartAuction = mutation({
         unsoldQueue: undefined,
         unsoldCursor: undefined,
         roundStalled: undefined,
+        currentSetId: undefined,
         updatedAt: now,
       }),
       ctx.db.patch(auctionRoom.tournamentId, {

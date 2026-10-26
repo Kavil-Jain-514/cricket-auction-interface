@@ -21,9 +21,12 @@ export interface SlabRow {
   increment: string;
 }
 
+export type PresentationOrder = 'random' | 'by_category';
+
 export interface RulesFormValues {
   categories: CategoryRow[];
   slabs: SlabRow[];
+  presentationOrder: PresentationOrder;
 }
 
 const DEFAULT_COLOURS = ['#f59e0b', '#2563eb', '#16a34a', '#db2777', '#7c3aed', '#0891b2'];
@@ -31,8 +34,10 @@ const DEFAULT_COLOURS = ['#f59e0b', '#2563eb', '#16a34a', '#db2777', '#7c3aed', 
 export function rulesFormFromSettings(settings: {
   categories?: PlayerCategory[];
   incrementSlabs?: IncrementSlab[];
+  presentationOrder?: PresentationOrder;
 }): RulesFormValues {
   return {
+    presentationOrder: settings.presentationOrder ?? 'random',
     categories: [...(settings.categories ?? [])]
       .sort((a, b) => a.order - b.order)
       .map((c) => ({ id: c.id, name: c.name, basePrice: String(c.basePrice), colour: c.colour })),
@@ -154,6 +159,24 @@ export function AuctionRulesEditor({ value, onChange, minBidIncrement, error }: 
         >
           <Plus className="w-4 h-4" /> Add category
         </Button>
+      </section>
+
+      <section className="space-y-2">
+        <Label htmlFor="presentationOrder" className="text-lg font-semibold text-slate-300">Player order</Label>
+        <select
+          id="presentationOrder"
+          value={value.presentationOrder}
+          onChange={(e) => onChange({ ...value, presentationOrder: e.target.value as PresentationOrder })}
+          className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+        >
+          <option value="random">Random</option>
+          <option value="by_category" disabled={value.categories.length === 0}>By category (sets, in the order above)</option>
+        </select>
+        <p className="text-xs text-slate-400">
+          {value.presentationOrder === 'by_category'
+            ? 'Each category is auctioned as a set, top to bottom, in random order within the set. Players with no category go last. Unsold rounds stay random.'
+            : 'Players come up in random order.'}
+        </p>
       </section>
 
       <section className="space-y-3">

@@ -46,6 +46,7 @@ interface TournamentSettingsModalProps {
       bidMode?: BidMode;
       categories?: PlayerCategory[];
       incrementSlabs?: IncrementSlab[];
+      presentationOrder?: 'random' | 'by_category';
     };
     status?: string;
   };
@@ -136,7 +137,8 @@ export function TournamentSettingsModal({
     const categoriesChanged =
       JSON.stringify(nextCategories) !== JSON.stringify(categoriesFromForm(rulesFormFromSettings(current).categories));
     const slabsChanged = JSON.stringify(nextSlabs) !== JSON.stringify(current.incrementSlabs ?? []);
-    const rulesChanged = categoriesChanged || slabsChanged;
+    const orderChanged = rules.presentationOrder !== (current.presentationOrder ?? 'random');
+    const rulesChanged = categoriesChanged || slabsChanged || orderChanged;
     // Footer text is not locked, so it can change during a live auction.
     const footerChanged = formData.footerText.trim() !== (current.footerText || '');
     // Neither is bid mode — the auctioneer can switch modes mid-auction.
@@ -157,6 +159,7 @@ export function TournamentSettingsModal({
                 ...(bidModeChanged ? { bidMode: formData.bidMode } : {}),
                 ...(categoriesChanged ? { categories: nextCategories } : {}),
                 ...(slabsChanged ? { incrementSlabs: nextSlabs } : {}),
+                ...(orderChanged ? { presentationOrder: rules.presentationOrder } : {}),
               },
             }
           : {}),
