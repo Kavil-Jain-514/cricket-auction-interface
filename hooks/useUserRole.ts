@@ -1,12 +1,16 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 export type UserRole = "admin" | "user" | null;
 
 export function useUserRole() {
-  const user = useQuery(api.auth.me);
+  // Signed out is a normal state (public auction viewers), not an error:
+  // skip the `me` query and report a non-admin with no role.
+  const { isLoading: isAuthLoading, isAuthenticated } = useConvexAuth();
+  const me = useQuery(api.auth.me, isAuthenticated ? {} : "skip");
+  const user = isAuthLoading ? undefined : isAuthenticated ? me : null;
 
   const isLoading = user === undefined;
   const isAdmin = user?.role === "admin";
@@ -17,6 +21,7 @@ export function useUserRole() {
     user,
     role,
     isLoading,
+    isSignedIn: isAuthenticated,
     isAdmin,
     isUser,
     // Helper for conditional rendering

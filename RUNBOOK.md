@@ -14,7 +14,8 @@ page that reopens the room resyncs the full current state automatically.
 | | URL / action |
 |---|---|
 | Operator (admin) | `/auction/<ROOM_ID>` — signed in as an **admin** user |
-| Projector / spectators | same `/auction/<ROOM_ID>` — **no login needed** (viewer mode) |
+| Projector / spectators | same `/auction/<ROOM_ID>` — **no login needed** (viewer mode). Open it signed out or in a private window; the header shows **Viewer** and no operator buttons. |
+| Operator on a viewer screen | click **Sign in** in the viewer header — you return to the same room with controls once signed in as admin |
 | Convex dashboard | https://dashboard.convex.dev → this project |
 | Vercel dashboard | https://vercel.com → this project → Deployments |
 
@@ -67,7 +68,7 @@ The **frontend (Vercel)** and **backend (Convex)** deploy separately — check w
 - [ ] **Convex plan / quota (AUDIT P0-2, OPEN).** Confirm the production Convex plan tier and its monthly function-call + bandwidth limits have headroom for ~250 viewers × the full bid volume. A free-tier quota exhaustion mid-event stalls the auction. Upgrade if unsure.
 - [ ] Run the load harness against the **production** deployment (see `harness/README.md`) and confirm p95 < 500ms, p99 < 1200ms at 250 viewers.
 - [ ] Run the chaos harness; confirm 0 divergence, 0 duplicate acceptances.
-- [ ] One admin account confirmed working; one **backup device** loads the viewer page.
+- [ ] One admin account confirmed working; one **backup device** loads the viewer page **signed out** (private window) and shows live bids.
 - [ ] Venue wifi tested with ~10 phones on the room URL simultaneously.
 - [ ] Confirm `bidTimerSeconds` / `minBidIncrement` / `basePurse` in tournament settings.
 

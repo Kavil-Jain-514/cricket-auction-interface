@@ -635,3 +635,113 @@ describe("startNextPlayer — guards", () => {
     });
   });
 });
+
+describe("public viewer — no sign-in", () => {
+  test("every viewer query works with no identity and never returns a phone number", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t);
+    const soldId = await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "sold",
+      teamId: teamA,
+      soldPrice: 100_000,
+    });
+    const playerId = await putPlayerInAuction(t, { tournamentId, roomId });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(soldId, { phoneNumber: "+91-9000000001" });
+      await ctx.db.patch(playerId, { phoneNumber: "+91-9000000002" });
+    });
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    await asAdmin.mutation(api.auctions.finalizePlayerSale, { auctionRoomId: roomId });
+    const nextId = await putPlayerInAuction(t, { tournamentId, roomId });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(nextId, { phoneNumber: "+91-9000000003" });
+    });
+
+    // `t` without withIdentity is exactly a signed-out browser.
+    const live = await t.query(api.auctions.getLiveAuction, { auctionRoomId: roomId });
+    const roster = await t.query(api.auctions.getAuctionRoster, {
+      tournamentId,
+      currentPlayerId: live?.auctionRoom.currentPlayerId,
+    });
+    const sale = await t.query(api.auctions.getLatestSaleEvent, { auctionRoomId: roomId });
+    const history = await t.query(api.auctions.getAuctionHistory, { tournamentId });
+
+    expect(live?.auctionRoom.currentPlayerId).toBe(nextId);
+    expect(roster?.currentPlayer?._id).toBe(nextId);
+    expect(sale).toMatchObject({ sold: true, amount: 100_000 });
+    expect(history.sold).toHaveLength(2);
+
+    const payload = JSON.stringify({ live, roster, sale, history });
+    expect(payload).not.toContain("phoneNumber");
+    expect(payload).not.toContain("+91-900000000");
+  });
+
+  const SIGNED_IN_USER = { email: "viewer@test.com", subject: "user|viewer" };
+  const callers = [
+    { label: "an anonymous caller", identity: null },
+    { label: "a signed-in non-admin", identity: SIGNED_IN_USER },
+  ] as const;
+  const adminMutations = [
+    "placeBid",
+    "finalizePlayerSale",
+    "startNextPlayer",
+    "restartAuction",
+  ] as const;
+
+  for (const { label, identity } of callers) {
+    for (const name of adminMutations) {
+      test(`${name} rejects ${label} and changes nothing`, async () => {
+        const t = convexTest(schema, modules);
+        const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+        const { tournamentId, roomId, teamA } = await setup(t);
+        const playerId = await putPlayerInAuction(t, { tournamentId, roomId });
+        await insertPlayer(t, { tournamentId, auctionStatus: "pending" });
+        await asAdmin.mutation(api.auctions.placeBid, {
+          auctionRoomId: roomId,
+          teamId: teamA,
+          amount: 100_000,
+        });
+        if (identity) {
+          await t.run(async (ctx) => {
+            await ctx.db.insert("users", {
+              email: identity.email,
+              role: "user",
+              createdAt: Date.now(),
+            });
+          });
+        }
+        const caller = identity ? t.withIdentity(identity) : t;
+        const snapshot = () =>
+          t.run(async (ctx) => ({
+            room: await ctx.db.get(roomId),
+            teams: await ctx.db.query("teams").collect(),
+            players: await ctx.db.query("players").collect(),
+            bids: await ctx.db.query("liveBids").collect(),
+            events: await ctx.db.query("auctionEvents").collect(),
+          }));
+        const before = await snapshot();
+
+        const call =
+          name === "placeBid"
+            ? caller.mutation(api.auctions.placeBid, {
+                auctionRoomId: roomId,
+                teamId: teamA,
+                amount: 125_000,
+              })
+            : caller.mutation(api.auctions[name], { auctionRoomId: roomId });
+
+        await expect(call).rejects.toThrow(
+          identity ? "Admin access required" : "Not authenticated",
+        );
+        expect(await snapshot()).toEqual(before);
+        expect(before.room?.currentPlayerId).toBe(playerId);
+      });
+    }
+  }
+});
