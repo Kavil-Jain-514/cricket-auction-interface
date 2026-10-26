@@ -17,6 +17,7 @@ export interface AdminTeamsPanelProps {
     playerCount?: number;
     maxAllowedBid?: number;
     playersNeeded?: number;
+    isSquadFull?: boolean;
   }>;
   soldPlayers: Array<{ _id: string; teamId?: string }> | undefined;
   currentBidTeamId?: string;
@@ -61,7 +62,9 @@ export function AdminTeamsPanel({
           const teamPlayerCount =
             team.playerCount ??
             (soldPlayers?.filter((p) => p.teamId === team._id).length || 0);
-          const hasReachedMaxPlayers = teamPlayerCount >= maxPlayersPerTeam;
+          // Squad-full and max bid come from the roster (same rule placeBid enforces).
+          const hasReachedMaxPlayers =
+            team.isSquadFull ?? teamPlayerCount >= maxPlayersPerTeam;
           const minBidForTeam = isFirstBid
             ? (currentPlayer?.basePrice ?? tournamentBasePrice)
             : minNextBid;

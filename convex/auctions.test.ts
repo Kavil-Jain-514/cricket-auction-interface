@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
+import { syncTournamentAuctionCounts } from "./auctionCounts";
 
 // Discover the Convex function modules for the test runtime (this file lives in
 // the convex/ root, so the glob resolves against the functions directory).
@@ -272,6 +273,220 @@ describe("placeBid — bid validation", () => {
         amount: 100_000,
       }),
     ).rejects.toThrow();
+  });
+});
+
+/** Insert a non-current player (e.g. a pending pool player or a sold squad member). */
+async function insertPlayer(
+  t: ReturnType<typeof convexTest>,
+  args: {
+    tournamentId: Id<"tournaments">;
+    auctionStatus: "pending" | "sold" | "unsold";
+    basePrice?: number;
+    teamId?: Id<"teams">;
+    soldPrice?: number;
+  },
+) {
+  return await t.run(async (ctx) => {
+    const now = Date.now();
+    return await ctx.db.insert("players", {
+      tournamentId: args.tournamentId,
+      name: "Pool Player",
+      age: 25,
+      role: "Bowler",
+      battingBowlingHand: "Right-handed",
+      basePrice: args.basePrice,
+      auctionStatus: args.auctionStatus,
+      teamId: args.teamId,
+      soldPrice: args.soldPrice,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+}
+
+describe("placeBid — squad and max-bid rules", () => {
+  test("rejects a bid from a team whose squad is already full", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t, {
+      maxPlayersPerTeam: 1,
+    });
+    await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "sold",
+      teamId: teamA,
+      soldPrice: 100_000,
+    });
+    await putPlayerInAuction(t, { tournamentId, roomId });
+
+    const res = await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    expect(res).toMatchObject({ success: false, reason: "Squad is full" });
+  });
+
+  test("a bid at the displayed maxAllowedBid is accepted; one increment above is rejected", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    // Purse 10L, 3-player squads, ₹5L player on the block, ₹1L player still pending.
+    // Future slots are reserved at the cheapest pending base price (₹1L), so
+    // max = 10L - 2 × 1L = 8L. (Reserving at the ₹5L current price would give 0.)
+    const { tournamentId, roomId, teamA } = await setup(t, {
+      basePurse: 1_000_000,
+      maxPlayersPerTeam: 3,
+      basePrice: 100_000,
+      minBidIncrement: 25_000,
+    });
+    await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "pending",
+      basePrice: 100_000,
+    });
+    const playerId = await putPlayerInAuction(t, {
+      tournamentId,
+      roomId,
+      basePrice: 500_000,
+    });
+    await t.run((ctx) => syncTournamentAuctionCounts(ctx, tournamentId));
+
+    const roster = await t.query(api.auctions.getAuctionRoster, {
+      tournamentId,
+      currentPlayerId: playerId,
+    });
+    const displayedMax = roster.teams.find((tm) => tm._id === teamA)!
+      .maxAllowedBid;
+    expect(displayedMax).toBe(800_000);
+
+    const over = await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: displayedMax + 25_000,
+    });
+    expect(over).toMatchObject({ success: false, maxAllowedBid: displayedMax });
+    expect(over.reason).toContain("Max allowed: ₹8.00L");
+
+    const atMax = await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: displayedMax,
+    });
+    expect(atMax).toMatchObject({ success: true });
+  });
+
+  test("rejects a team from another tournament", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, adminId } = await setup(t);
+    const playerId = await putPlayerInAuction(t, { tournamentId, roomId });
+    const foreignTeam = await t.run(async (ctx) => {
+      const now = Date.now();
+      const otherTournamentId = await ctx.db.insert("tournaments", {
+        name: "Other Cup",
+        createdBy: adminId,
+        status: "active",
+        settings: {
+          basePurse: 1_000_000,
+          minBidIncrement: 25_000,
+          bidTimerSeconds: 30,
+          maxPlayersPerTeam: 3,
+          basePrice: 100_000,
+        },
+        createdAt: now,
+        updatedAt: now,
+      });
+      return await ctx.db.insert("teams", {
+        tournamentId: otherTournamentId,
+        name: "Outsiders",
+        ownerName: "owner",
+        purseRemaining: 1_000_000,
+        purseSpent: 0,
+        colorPrimary: "#333333",
+        colorSecondary: "#444444",
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const res = await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: foreignTeam,
+      amount: 100_000,
+    });
+    expect(res).toMatchObject({ success: false });
+
+    await t.run(async (ctx) => {
+      const bids = await ctx.db
+        .query("liveBids")
+        .withIndex("by_player", (q) => q.eq("playerId", playerId))
+        .collect();
+      expect(bids).toHaveLength(0);
+    });
+  });
+});
+
+describe("admin corrections — squad reserve", () => {
+  test("updatePlayerStatus → sold reserves at the cheapest pending base price", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    // Tournament base ₹5L, but a ₹1L player is still pending. Selling to a
+    // 3-player squad at ₹8L leaves ₹2L for 2 slots: fine at ₹1L each, while the
+    // old tournament-base reserve (2 × ₹5L) would have refused it.
+    const { tournamentId, teamA } = await setup(t, {
+      basePurse: 1_000_000,
+      maxPlayersPerTeam: 3,
+      basePrice: 500_000,
+    });
+    await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "pending",
+      basePrice: 100_000,
+    });
+    const unsoldId = await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "unsold",
+    });
+    await t.run((ctx) => syncTournamentAuctionCounts(ctx, tournamentId));
+
+    await asAdmin.mutation(api.admin.updatePlayerStatus, {
+      playerId: unsoldId,
+      newStatus: "sold",
+      teamId: teamA,
+      soldPrice: 800_000,
+    });
+
+    await t.run(async (ctx) => {
+      const team = await ctx.db.get(teamA);
+      expect(team?.purseRemaining).toBe(200_000);
+      expect(team?.purseSpent).toBe(800_000);
+    });
+  });
+
+  test("updatePlayerStatus → sold refuses a team whose squad is full", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, teamA } = await setup(t, { maxPlayersPerTeam: 1 });
+    await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "sold",
+      teamId: teamA,
+      soldPrice: 100_000,
+    });
+    const unsoldId = await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "unsold",
+    });
+
+    await expect(
+      asAdmin.mutation(api.admin.updatePlayerStatus, {
+        playerId: unsoldId,
+        newStatus: "sold",
+        teamId: teamA,
+        soldPrice: 100_000,
+      }),
+    ).rejects.toThrow(/squad is full/i);
   });
 });
 

@@ -3,10 +3,52 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, logAdminAction } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import {
+  DEFAULT_BASE_PRICE,
+  isSquadFull,
+  maxAllowedBid,
+  reserveBasePrice,
+} from "./bidRules";
+import type { Doc } from "./_generated/dataModel";
 
 // Helper: format purse amount for error messages
 function formatPurse(amount: number): string {
   return `₹${(amount / 100000).toFixed(2)}L`;
+}
+
+/**
+ * Squad-completion check shared by the admin corrections — the same rule
+ * placeBid enforces (bidRules.ts). `playersOnTeam` and `purseRemaining` are the
+ * team's state WITHOUT the player being priced. Throws a readable error if
+ * `price` would leave the team unable to fill its squad.
+ */
+function assertCanAffordPlayer(
+  tournament: Doc<"tournaments"> | null,
+  args: { purseRemaining: number; playersOnTeam: number; price: number },
+) {
+  const maxPlayersPerTeam = tournament?.settings?.maxPlayersPerTeam || 15;
+  if (isSquadFull(args.playersOnTeam, maxPlayersPerTeam)) {
+    throw new Error(
+      `This team's squad is full (${maxPlayersPerTeam} players).`,
+    );
+  }
+  const reservePrice = reserveBasePrice({
+    minPendingBasePrice: tournament?.auctionCounts?.minPendingBasePrice,
+    currentPlayerBasePrice: undefined,
+    tournamentBasePrice: tournament?.settings?.basePrice ?? DEFAULT_BASE_PRICE,
+  });
+  const allowedMax = maxAllowedBid({
+    purseRemaining: args.purseRemaining,
+    playersOnTeam: args.playersOnTeam,
+    maxPlayersPerTeam,
+    reservePrice,
+  });
+  if (args.price > allowedMax) {
+    const slotsAfter = maxPlayersPerTeam - args.playersOnTeam - 1;
+    throw new Error(
+      `This would leave the team unable to fill their squad. They'd have ${formatPurse(args.purseRemaining - args.price)} remaining but need ${formatPurse(slotsAfter * reservePrice)} to fill ${slotsAfter} more slot(s) at base price. Max allowed: ${formatPurse(allowedMax)}.`,
+    );
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -60,27 +102,17 @@ export const reassignPlayer = mutation({
 
     // Squad completion check: after this reassignment, can the new team still fill remaining slots?
     const tournament = await ctx.db.get(player.tournamentId);
-    const maxPlayersPerTeam = tournament?.settings?.maxPlayersPerTeam || 15;
-    const tournamentBasePrice = tournament?.settings?.basePrice ?? 100000;
-
     const newTeamCurrentPlayers = await ctx.db
       .query("players")
       .withIndex("by_team", (q) => q.eq("teamId", args.newTeamId))
       .collect();
-    // +1 because this player is being added to the team
-    const newTeamPlayerCountAfter =
-      newTeamCurrentPlayers.filter((p) => p._id !== args.playerId).length + 1;
-    const slotsNeededAfter = maxPlayersPerTeam - newTeamPlayerCountAfter;
-    const purseAfter = newTeam.purseRemaining - newSoldPrice;
-
-    if (
-      slotsNeededAfter > 0 &&
-      purseAfter < slotsNeededAfter * tournamentBasePrice
-    ) {
-      throw new Error(
-        `This would leave the team unable to fill their squad. After this transfer, they'd have ${formatPurse(purseAfter)} remaining but need ${formatPurse(slotsNeededAfter * tournamentBasePrice)} to fill ${slotsNeededAfter} more slot(s) at base price.`,
-      );
-    }
+    assertCanAffordPlayer(tournament, {
+      purseRemaining: newTeam.purseRemaining,
+      playersOnTeam: newTeamCurrentPlayers.filter(
+        (p) => p._id !== args.playerId,
+      ).length,
+      price: newSoldPrice,
+    });
 
     await ctx.db.patch(args.newTeamId, {
       purseRemaining: newTeam.purseRemaining - newSoldPrice,
@@ -156,21 +188,17 @@ export const updateSoldPrice = mutation({
 
     // Squad completion check: after price change, can team still fill remaining slots?
     const tournament = await ctx.db.get(player.tournamentId);
-    const maxPlayersPerTeam = tournament?.settings?.maxPlayersPerTeam || 15;
-    const tournamentBasePrice = tournament?.settings?.basePrice ?? 100000;
-
     const teamCurrentPlayers = await ctx.db
       .query("players")
       .withIndex("by_team", (q) => q.eq("teamId", team._id))
       .collect();
-    const slotsNeeded = maxPlayersPerTeam - teamCurrentPlayers.length;
-    const purseAfter = team.purseRemaining - priceDifference;
-
-    if (slotsNeeded > 0 && purseAfter < slotsNeeded * tournamentBasePrice) {
-      throw new Error(
-        `This price change would leave the team unable to fill their squad. They'd have ${formatPurse(purseAfter)} remaining but need ${formatPurse(slotsNeeded * tournamentBasePrice)} to fill ${slotsNeeded} more slot(s) at base price.`,
-      );
-    }
+    // Price the player as if re-bought: refund their old price, exclude them from the count.
+    assertCanAffordPlayer(tournament, {
+      purseRemaining: team.purseRemaining + oldSoldPrice,
+      playersOnTeam: teamCurrentPlayers.filter((p) => p._id !== args.playerId)
+        .length,
+      price: args.newSoldPrice,
+    });
 
     // Adjust team purse
     await ctx.db.patch(team._id, {
@@ -244,26 +272,15 @@ export const updatePlayerStatus = mutation({
 
       // Squad completion check: after marking as sold, can team still fill remaining slots?
       const tournament = await ctx.db.get(player.tournamentId);
-      const maxPlayersPerTeam = tournament?.settings?.maxPlayersPerTeam || 15;
-      const tournamentBasePrice = tournament?.settings?.basePrice ?? 100000;
-
       const teamCurrentPlayers = await ctx.db
         .query("players")
         .withIndex("by_team", (q) => q.eq("teamId", args.teamId!))
         .collect();
-      // +1 because this player is being added
-      const playerCountAfter = teamCurrentPlayers.length + 1;
-      const slotsNeededAfter = maxPlayersPerTeam - playerCountAfter;
-      const purseAfter = newTeam.purseRemaining - args.soldPrice;
-
-      if (
-        slotsNeededAfter > 0 &&
-        purseAfter < slotsNeededAfter * tournamentBasePrice
-      ) {
-        throw new Error(
-          `This would leave the team unable to fill their squad. They'd have ${formatPurse(purseAfter)} remaining but need ${formatPurse(slotsNeededAfter * tournamentBasePrice)} to fill ${slotsNeededAfter} more slot(s) at base price.`,
-        );
-      }
+      assertCanAffordPlayer(tournament, {
+        purseRemaining: newTeam.purseRemaining,
+        playersOnTeam: teamCurrentPlayers.length,
+        price: args.soldPrice,
+      });
 
       // Deduct from new team
       await ctx.db.patch(args.teamId, {
