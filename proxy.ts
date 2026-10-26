@@ -1,10 +1,12 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-// Routes that require authentication
+// Routes that require authentication.
+// /auction/<roomId> is deliberately public so projectors and phones can watch
+// without signing in (viewer mode). Admin controls are enforced by Convex.
 const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
   "/tournament(.*)",
-  "/auction(.*)",
+  "/auction/create(.*)",
 ]);
 
 // Routes that are always public (auth pages, landing, API routes handled separately)

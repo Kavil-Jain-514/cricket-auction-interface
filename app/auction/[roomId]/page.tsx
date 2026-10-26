@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Trophy,
   Users, Gavel, RotateCcw, RotateCw, Play, Pause, RefreshCcw,
-  Eye, Settings2, UserX, AlertTriangle
+  Eye, Settings2, UserX, AlertTriangle, LogIn
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -19,6 +19,7 @@ import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { PlayerIntroFlash } from '@/components/auction/PlayerIntroFlash';
 import { ViewerActionBar, ViewerSheets, type ViewerSheetType } from '@/components/auction/ViewerPanels';
 import { AuctionLiveBids } from '@/components/auction/AuctionLiveBids';
@@ -42,8 +43,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const { roomId } = use(params);
   const auctionRoomId = roomId as Id<"auctionRooms">;
 
-  // RBAC - Role Based Access Control
-  const { isAdmin } = useUserRole();
+  // RBAC - Role Based Access Control. Signed-out visitors are plain viewers.
+  const { isAdmin, isSignedIn, isLoading: isRoleLoading } = useUserRole();
   const confirm = useConfirm();
 
   // Which viewer sheet (sold / unsold / teams history) is open, if any.
@@ -932,6 +933,17 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <Eye className="w-3.5 h-3.5 text-blue-400" />
                   <span className="text-xs font-medium text-blue-300">Viewer</span>
                 </div>
+
+                {/* Organisers on a public link can sign in to get admin controls */}
+                {!isRoleLoading && !isSignedIn && (
+                  <Link
+                    href={`/sign-in?redirect_url=${encodeURIComponent(`/auction/${roomId}`)}`}
+                    className="flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-white transition-colors"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    Sign in
+                  </Link>
+                )}
               </div>
             )}
           </div>
