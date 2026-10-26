@@ -1,6 +1,7 @@
 // convex/admin.ts - Admin-only mutations for managing auction data
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { requireAdmin, logAdminAction } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import {
@@ -9,7 +10,7 @@ import {
   maxAllowedBid,
   reserveBasePrice,
 } from "./bidRules";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 // Helper: format purse amount for error messages
 function formatPurse(amount: number): string {
@@ -51,6 +52,132 @@ function assertCanAffordPlayer(
   }
 }
 
+/**
+ * Corrections are only allowed on players outside the live block and outside
+ * the captain slots. A player on the block would be double-settled by
+ * finalizePlayerSale; captains are pre-assigned and never auctioned.
+ */
+async function assertCorrectable(ctx: MutationCtx, player: Doc<"players">) {
+  if (player.auctionStatus === "in_auction") {
+    throw new Error("Player is on the block; finalise first");
+  }
+  const teams = await ctx.db
+    .query("teams")
+    .withIndex("by_tournament", (q) =>
+      q.eq("tournamentId", player.tournamentId),
+    )
+    .collect();
+  const captainOf = teams.find((t) => t.captainPlayerId === player._id);
+  if (captainOf) {
+    throw new Error(
+      `${player.name} is the captain of ${captainOf.name} and is not part of the auction`,
+    );
+  }
+}
+
+/**
+ * Re-price a player already sold to `team`: checks the price difference fits
+ * the purse and the squad reserve, then moves only the difference.
+ */
+async function applySoldPriceChange(
+  ctx: MutationCtx,
+  args: {
+    player: Doc<"players">;
+    team: Doc<"teams">;
+    newPrice: number;
+    tournament: Doc<"tournaments"> | null;
+  },
+) {
+  const { player, team, newPrice, tournament } = args;
+  const oldSoldPrice = player.soldPrice || 0;
+  const priceDifference = newPrice - oldSoldPrice;
+
+  // Check if team has enough purse for price increase
+  if (priceDifference > 0 && priceDifference > team.purseRemaining) {
+    throw new Error(
+      `Team has insufficient purse for price increase. Available: ₹${team.purseRemaining}`,
+    );
+  }
+
+  // Squad completion check: after price change, can team still fill remaining slots?
+  const teamCurrentPlayers = await ctx.db
+    .query("players")
+    .withIndex("by_team", (q) => q.eq("teamId", team._id))
+    .collect();
+  // Price the player as if re-bought: refund their old price, exclude them from the count.
+  assertCanAffordPlayer(tournament, {
+    purseRemaining: team.purseRemaining + oldSoldPrice,
+    playersOnTeam: teamCurrentPlayers.filter((p) => p._id !== player._id)
+      .length,
+    price: newPrice,
+  });
+
+  await ctx.db.patch(team._id, {
+    purseRemaining: team.purseRemaining - priceDifference,
+    purseSpent: team.purseSpent + priceDifference,
+    updatedAt: Date.now(),
+  });
+}
+
+/** Return a sold player's price to their team (no-op if not sold). */
+async function refundSoldPlayer(ctx: MutationCtx, player: Doc<"players">) {
+  const soldPrice = player.soldPrice || 0;
+  if (player.auctionStatus !== "sold" || !player.teamId || soldPrice <= 0) {
+    return null;
+  }
+  const team = await ctx.db.get(player.teamId);
+  if (!team) return null;
+  await ctx.db.patch(team._id, {
+    purseRemaining: team.purseRemaining + soldPrice,
+    purseSpent: team.purseSpent - soldPrice,
+    updatedAt: Date.now(),
+  });
+  return team;
+}
+
+/**
+ * Debit `price` from a team for a player who is not (or no longer) counted
+ * against it. Reads the team fresh so a refund earlier in the same mutation is
+ * seen.
+ */
+async function debitTeamForPlayer(
+  ctx: MutationCtx,
+  args: {
+    teamId: Id<"teams">;
+    playerId: Id<"players">;
+    price: number;
+    tournament: Doc<"tournaments"> | null;
+  },
+) {
+  const team = await ctx.db.get(args.teamId);
+  if (!team) throw new Error("Team not found");
+
+  if (args.price > team.purseRemaining) {
+    throw new Error(
+      `Team has insufficient purse. Available: ₹${team.purseRemaining}, Required: ₹${args.price}`,
+    );
+  }
+
+  // Squad completion check: after this sale, can the team still fill remaining slots?
+  const teamCurrentPlayers = await ctx.db
+    .query("players")
+    .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
+    .collect();
+  assertCanAffordPlayer(args.tournament, {
+    purseRemaining: team.purseRemaining,
+    playersOnTeam: teamCurrentPlayers.filter((p) => p._id !== args.playerId)
+      .length,
+    price: args.price,
+  });
+
+  await ctx.db.patch(args.teamId, {
+    purseRemaining: team.purseRemaining - args.price,
+    purseSpent: team.purseSpent + args.price,
+    updatedAt: Date.now(),
+  });
+  return team;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // PLAYER MANAGEMENT - Admin can modify ANY player data during live auction
 // ═══════════════════════════════════════════════════════════════════════════
@@ -60,6 +187,7 @@ function assertCanAffordPlayer(
  * - Updates player's teamId
  * - Adjusts purse balances for both teams
  * - Optionally adjust sold price
+ * - Reassigning to the player's current team only re-prices them
  */
 export const reassignPlayer = mutation({
   args: {
@@ -77,48 +205,42 @@ export const reassignPlayer = mutation({
     const newTeam = await ctx.db.get(args.newTeamId);
     if (!newTeam) throw new Error("New team not found");
 
+    if (newTeam.tournamentId !== player.tournamentId) {
+      throw new Error("New team is not part of this player's tournament");
+    }
+
+    await assertCorrectable(ctx, player);
+
     const oldTeamId = player.teamId;
     const oldSoldPrice = player.soldPrice || 0;
     const newSoldPrice = args.newSoldPrice ?? oldSoldPrice;
+    const tournament = await ctx.db.get(player.tournamentId);
 
     // Get old team if exists
     const oldTeam = oldTeamId ? await ctx.db.get(oldTeamId) : null;
 
-    // Refund old team's purse if player was previously sold
-    if (oldTeam && oldSoldPrice > 0) {
-      await ctx.db.patch(oldTeam._id, {
-        purseRemaining: oldTeam.purseRemaining + oldSoldPrice,
-        purseSpent: oldTeam.purseSpent - oldSoldPrice,
-        updatedAt: Date.now(),
+    if (player.auctionStatus === "sold" && oldTeamId === args.newTeamId) {
+      // Same team: refunding then debiting would read a stale purse, so move
+      // only the price difference.
+      if (newSoldPrice !== oldSoldPrice) {
+        await applySoldPriceChange(ctx, {
+          player,
+          team: newTeam,
+          newPrice: newSoldPrice,
+          tournament,
+        });
+      }
+    } else {
+      // Refund old team's purse if player was previously sold, then debit the
+      // new team (read fresh inside debitTeamForPlayer).
+      await refundSoldPlayer(ctx, player);
+      await debitTeamForPlayer(ctx, {
+        teamId: args.newTeamId,
+        playerId: args.playerId,
+        price: newSoldPrice,
+        tournament,
       });
     }
-
-    // Deduct from new team's purse
-    if (newSoldPrice > newTeam.purseRemaining) {
-      throw new Error(
-        `New team has insufficient purse. Available: ₹${newTeam.purseRemaining}, Required: ₹${newSoldPrice}`,
-      );
-    }
-
-    // Squad completion check: after this reassignment, can the new team still fill remaining slots?
-    const tournament = await ctx.db.get(player.tournamentId);
-    const newTeamCurrentPlayers = await ctx.db
-      .query("players")
-      .withIndex("by_team", (q) => q.eq("teamId", args.newTeamId))
-      .collect();
-    assertCanAffordPlayer(tournament, {
-      purseRemaining: newTeam.purseRemaining,
-      playersOnTeam: newTeamCurrentPlayers.filter(
-        (p) => p._id !== args.playerId,
-      ).length,
-      price: newSoldPrice,
-    });
-
-    await ctx.db.patch(args.newTeamId, {
-      purseRemaining: newTeam.purseRemaining - newSoldPrice,
-      purseSpent: newTeam.purseSpent + newSoldPrice,
-      updatedAt: Date.now(),
-    });
 
     // Update player
     await ctx.db.patch(args.playerId, {
@@ -149,6 +271,9 @@ export const reassignPlayer = mutation({
       tournamentId: player.tournamentId,
     });
 
+    // Status may have changed (pending/unsold -> sold) — refresh denormalized counts.
+    await syncTournamentAuctionCounts(ctx, player.tournamentId);
+
     return { success: true, message: "Player reassigned successfully" };
   },
 });
@@ -169,6 +294,8 @@ export const updateSoldPrice = mutation({
     const player = await ctx.db.get(args.playerId);
     if (!player) throw new Error("Player not found");
 
+    await assertCorrectable(ctx, player);
+
     if (player.auctionStatus !== "sold" || !player.teamId) {
       throw new Error("Player is not sold to any team");
     }
@@ -177,34 +304,13 @@ export const updateSoldPrice = mutation({
     if (!team) throw new Error("Team not found");
 
     const oldSoldPrice = player.soldPrice || 0;
-    const priceDifference = args.newSoldPrice - oldSoldPrice;
-
-    // Check if team has enough purse for price increase
-    if (priceDifference > 0 && priceDifference > team.purseRemaining) {
-      throw new Error(
-        `Team has insufficient purse for price increase. Available: ₹${team.purseRemaining}`,
-      );
-    }
-
-    // Squad completion check: after price change, can team still fill remaining slots?
     const tournament = await ctx.db.get(player.tournamentId);
-    const teamCurrentPlayers = await ctx.db
-      .query("players")
-      .withIndex("by_team", (q) => q.eq("teamId", team._id))
-      .collect();
-    // Price the player as if re-bought: refund their old price, exclude them from the count.
-    assertCanAffordPlayer(tournament, {
-      purseRemaining: team.purseRemaining + oldSoldPrice,
-      playersOnTeam: teamCurrentPlayers.filter((p) => p._id !== args.playerId)
-        .length,
-      price: args.newSoldPrice,
-    });
 
-    // Adjust team purse
-    await ctx.db.patch(team._id, {
-      purseRemaining: team.purseRemaining - priceDifference,
-      purseSpent: team.purseSpent + priceDifference,
-      updatedAt: Date.now(),
+    await applySoldPriceChange(ctx, {
+      player,
+      team,
+      newPrice: args.newSoldPrice,
+      tournament,
     });
 
     // Update player
@@ -233,6 +339,7 @@ export const updateSoldPrice = mutation({
  * Change player auction status
  * - Can mark sold player as unsold (returns to pool)
  * - Can mark unsold player as sold (assigns to team)
+ * - sold -> sold refunds the old team before debiting the new one
  */
 export const updatePlayerStatus = mutation({
   args: {
@@ -252,6 +359,8 @@ export const updatePlayerStatus = mutation({
     const player = await ctx.db.get(args.playerId);
     if (!player) throw new Error("Player not found");
 
+    await assertCorrectable(ctx, player);
+
     const oldStatus = player.auctionStatus;
     const oldTeamId = player.teamId;
     const oldSoldPrice = player.soldPrice || 0;
@@ -265,41 +374,23 @@ export const updatePlayerStatus = mutation({
 
       const newTeam = await ctx.db.get(args.teamId);
       if (!newTeam) throw new Error("Team not found");
-
-      if (args.soldPrice > newTeam.purseRemaining) {
-        throw new Error("Team has insufficient purse");
+      if (newTeam.tournamentId !== player.tournamentId) {
+        throw new Error("Team is not part of this player's tournament");
       }
-
-      // Squad completion check: after marking as sold, can team still fill remaining slots?
-      const tournament = await ctx.db.get(player.tournamentId);
-      const teamCurrentPlayers = await ctx.db
-        .query("players")
-        .withIndex("by_team", (q) => q.eq("teamId", args.teamId!))
-        .collect();
-      assertCanAffordPlayer(tournament, {
-        purseRemaining: newTeam.purseRemaining,
-        playersOnTeam: teamCurrentPlayers.length,
-        price: args.soldPrice,
-      });
-
-      // Deduct from new team
-      await ctx.db.patch(args.teamId, {
-        purseRemaining: newTeam.purseRemaining - args.soldPrice,
-        purseSpent: newTeam.purseSpent + args.soldPrice,
-        updatedAt: Date.now(),
-      });
     }
 
-    // If changing FROM sold, refund old team
-    if (oldStatus === "sold" && oldTeamId && args.newStatus !== "sold") {
-      const oldTeam = await ctx.db.get(oldTeamId);
-      if (oldTeam) {
-        await ctx.db.patch(oldTeamId, {
-          purseRemaining: oldTeam.purseRemaining + oldSoldPrice,
-          purseSpent: oldTeam.purseSpent - oldSoldPrice,
-          updatedAt: Date.now(),
-        });
-      }
+    // If the player was sold, refund the old team FIRST — whatever the new
+    // status — so a sold -> sold change never double-counts.
+    await refundSoldPlayer(ctx, player);
+
+    if (args.newStatus === "sold") {
+      const tournament = await ctx.db.get(player.tournamentId);
+      await debitTeamForPlayer(ctx, {
+        teamId: args.teamId!,
+        playerId: args.playerId,
+        price: args.soldPrice!,
+        tournament,
+      });
     }
 
     // Update player
@@ -342,191 +433,8 @@ export const updatePlayerStatus = mutation({
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TEAM MANAGEMENT - Admin can adjust team data during live auction
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Adjust team's purse balance directly
- */
-export const adjustTeamPurse = mutation({
-  args: {
-    teamId: v.id("teams"),
-    adjustment: v.number(), // Positive to add, negative to deduct
-    reason: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-
-    const team = await ctx.db.get(args.teamId);
-    if (!team) throw new Error("Team not found");
-
-    const newPurseRemaining = team.purseRemaining + args.adjustment;
-    const newPurseSpent = team.purseSpent - args.adjustment;
-
-    if (newPurseRemaining < 0) {
-      throw new Error("Adjustment would result in negative purse");
-    }
-
-    await ctx.db.patch(args.teamId, {
-      purseRemaining: newPurseRemaining,
-      purseSpent: Math.max(0, newPurseSpent),
-      updatedAt: Date.now(),
-    });
-
-    // Log the action
-    await logAdminAction(ctx, {
-      userId: admin._id,
-      userEmail: admin.email,
-      action: "adjust_team_purse",
-      targetType: "team",
-      targetId: args.teamId,
-      previousData: {
-        purseRemaining: team.purseRemaining,
-        purseSpent: team.purseSpent,
-      },
-      newData: {
-        purseRemaining: newPurseRemaining,
-        purseSpent: newPurseSpent,
-        adjustment: args.adjustment,
-        reason: args.reason,
-      },
-      tournamentId: team.tournamentId,
-    });
-
-    return { success: true, message: "Team purse adjusted successfully" };
-  },
-});
-
-/**
- * Reset team's purse to base purse (removes all players)
- */
-export const resetTeamPurse = mutation({
-  args: {
-    teamId: v.id("teams"),
-    releaseAllPlayers: v.boolean(),
-    reason: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-
-    const team = await ctx.db.get(args.teamId);
-    if (!team) throw new Error("Team not found");
-
-    const tournament = await ctx.db.get(team.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
-
-    const basePurse = tournament.settings.basePurse;
-
-    // Optionally release all players from this team
-    if (args.releaseAllPlayers) {
-      const teamPlayers = await ctx.db
-        .query("players")
-        .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
-        .collect();
-
-      await Promise.all(
-        teamPlayers.map((player) =>
-          ctx.db.patch(player._id, {
-            teamId: undefined,
-            soldPrice: undefined,
-            auctionStatus: "unsold",
-            updatedAt: Date.now(),
-          }),
-        ),
-      );
-    }
-
-    await ctx.db.patch(args.teamId, {
-      purseRemaining: basePurse,
-      purseSpent: 0,
-      updatedAt: Date.now(),
-    });
-
-    // Log the action
-    await logAdminAction(ctx, {
-      userId: admin._id,
-      userEmail: admin.email,
-      action: "reset_team_purse",
-      targetType: "team",
-      targetId: args.teamId,
-      previousData: {
-        purseRemaining: team.purseRemaining,
-        purseSpent: team.purseSpent,
-      },
-      newData: {
-        purseRemaining: basePurse,
-        purseSpent: 0,
-        releaseAllPlayers: args.releaseAllPlayers,
-        reason: args.reason,
-      },
-      tournamentId: team.tournamentId,
-    });
-
-    return { success: true, message: "Team purse reset successfully" };
-  },
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
 // LIVE BID MANAGEMENT - Admin can modify current auction state
 // ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Override current bid in live auction
- */
-export const overrideCurrentBid = mutation({
-  args: {
-    auctionRoomId: v.id("auctionRooms"),
-    teamId: v.id("teams"),
-    amount: v.number(),
-    reason: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-
-    if (args.amount <= 0) {
-      throw new Error("Override bid amount must be positive");
-    }
-
-    const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
-
-    if (!auctionRoom.currentPlayerId) {
-      throw new Error("No player currently in auction");
-    }
-
-    const team = await ctx.db.get(args.teamId);
-    if (!team) throw new Error("Team not found");
-
-    // Insert a new bid (this will become the current highest bid)
-    await ctx.db.insert("liveBids", {
-      auctionRoomId: args.auctionRoomId,
-      playerId: auctionRoom.currentPlayerId,
-      teamId: args.teamId,
-      amount: args.amount,
-      timestamp: Date.now(),
-    });
-
-    // Log the action
-    await logAdminAction(ctx, {
-      userId: admin._id,
-      userEmail: admin.email,
-      action: "override_current_bid",
-      targetType: "auction",
-      targetId: args.auctionRoomId,
-      newData: {
-        playerId: auctionRoom.currentPlayerId,
-        teamId: args.teamId,
-        teamName: team.name,
-        amount: args.amount,
-        reason: args.reason,
-      },
-      tournamentId: auctionRoom.tournamentId,
-      auctionRoomId: args.auctionRoomId,
-    });
-
-    return { success: true, message: "Bid overridden successfully" };
-  },
-});
 
 /**
  * Clear all bids for current player and restart bidding

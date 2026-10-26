@@ -335,7 +335,7 @@ export const deleteTournament = mutation({
     if (!tournament) throw new Error("Tournament not found");
 
     // Fetch all related data in parallel
-    const [teams, players, auctionRooms] = await Promise.all([
+    const [teams, players, auctionRooms, groupDraws] = await Promise.all([
       ctx.db
         .query("teams")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
@@ -346,6 +346,10 @@ export const deleteTournament = mutation({
         .collect(),
       ctx.db
         .query("auctionRooms")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("groupDraws")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
         .collect(),
     ]);
@@ -399,7 +403,8 @@ export const deleteTournament = mutation({
     await deleteInChunks(allEvents);
     await deleteInChunks(allLiveBids);
 
-    // 2. Mid-level: players, teams, auction rooms
+    // 2. Mid-level: group draws, players, teams, auction rooms
+    await deleteInChunks(groupDraws);
     await deleteInChunks(players);
     await deleteInChunks(teams);
     await deleteInChunks(auctionRooms);

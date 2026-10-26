@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getCurrentUser, isAdmin, requireAdmin } from "./auth";
+import { getCurrentUser, isAdmin, logAdminAction, requireAdmin } from "./auth";
+import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { Doc } from "./_generated/dataModel";
 import { toPublicPlayer } from "./projections";
 
@@ -260,7 +261,7 @@ export const deleteTeam = mutation({
   args: { id: v.id("teams") },
   handler: async (ctx, args) => {
     // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const team = await ctx.db.get(args.id);
     if (!team) throw new Error("Team not found");
@@ -278,14 +279,43 @@ export const deleteTeam = mutation({
     // holds the current leading bid, finalizePlayerSale would later fail
     // trying to resolve a winning team that no longer exists, and releasing
     // this team's sold players back to "pending" would desync live viewers'
-    // stats/team lists in real time. Require the auction be paused first.
-    const liveRooms = await ctx.db
+    // stats/team lists in real time. A paused auction still has a player on
+    // the block, so require the auction be stopped (waiting/completed) first.
+    const rooms = await ctx.db
       .query("auctionRooms")
       .withIndex("by_tournament", (q) => q.eq("tournamentId", team.tournamentId))
       .collect();
-    if (liveRooms.some((room) => room.status === "live")) {
+    if (rooms.some((room) => room.status === "live" || room.status === "paused")) {
       throw new Error(
-        "Cannot delete a team while the auction is live — pause or complete the auction first",
+        "Cannot delete a team while the auction is live or paused — complete or restart the auction first",
+      );
+    }
+
+    // A locked group draw is final; an unlocked one is reset so it can be
+    // re-drawn without a hole where this team was.
+    const draw = await ctx.db
+      .query("groupDraws")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", team.tournamentId))
+      .first();
+    if (draw && draw.assignments.some((a) => a.teamId === args.id)) {
+      if (draw.status === "locked") {
+        throw new Error(
+          "Group draw is locked — reset it before deleting a team",
+        );
+      }
+      await ctx.db.delete(draw._id);
+    }
+
+    // liveBids has no by_team index; scan each room's bids and drop this team's.
+    for (const room of rooms) {
+      const roomBids = await ctx.db
+        .query("liveBids")
+        .withIndex("by_room", (q) => q.eq("auctionRoomId", room._id))
+        .collect();
+      await Promise.all(
+        roomBids
+          .filter((bid) => bid.teamId === args.id)
+          .map((bid) => ctx.db.delete(bid._id)),
       );
     }
 
@@ -308,6 +338,25 @@ export const deleteTeam = mutation({
     );
 
     await ctx.db.delete(args.id);
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "delete_team",
+      targetType: "team",
+      targetId: args.id,
+      previousData: {
+        name: team.name,
+        purseRemaining: team.purseRemaining,
+        purseSpent: team.purseSpent,
+        releasedPlayerIds: players.map((p) => p._id),
+      },
+      tournamentId: team.tournamentId,
+    });
+
+    // Released players went back to "pending" — refresh denormalized counts.
+    await syncTournamentAuctionCounts(ctx, team.tournamentId);
+
     return { success: true, releasedPlayers: players.length };
   },
 });
