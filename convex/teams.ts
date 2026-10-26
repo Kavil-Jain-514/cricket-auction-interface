@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getCurrentUser, requireAdmin } from "./auth";
+import { getCurrentUser, isAdmin, requireAdmin } from "./auth";
 import { Doc } from "./_generated/dataModel";
+import { toPublicPlayer } from "./projections";
 
 /**
  * Denormalize captain display fields from a player doc so existing UI and
@@ -165,9 +166,12 @@ export const getWithPlayers = query({
       .withIndex("by_team", (q) => q.eq("teamId", args.id))
       .collect();
 
+    // Phone numbers are admin-only; strip them for everyone else.
+    const admin = await isAdmin(ctx);
+
     return {
       ...team,
-      players,
+      players: admin ? players : players.map(toPublicPlayer),
     };
   },
 });

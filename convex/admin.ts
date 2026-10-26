@@ -582,6 +582,8 @@ export const getPlayerWithTeam = query({
     playerId: v.id("players"),
   },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
     const player = await ctx.db.get(args.playerId);
     if (!player) return null;
 
