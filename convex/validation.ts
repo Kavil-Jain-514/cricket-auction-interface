@@ -247,3 +247,58 @@ export function validateIncrementSlabs(
   }
   return null;
 }
+
+export const MAX_SQUAD_RULES = 20;
+const SQUAD_RULE_ROLE_NAMES = ["Batter", "Bowler", "All-Rounder", "Wicket Keeper"];
+
+/**
+ * Squad rules: each targets exactly one known category or role, has a min
+ * and/or max (whole numbers within the squad size, min <= max), and all the
+ * minimums together fit in one squad.
+ */
+export function validateSquadRules(
+  rules: {
+    id: string;
+    categoryId?: string;
+    role?: string;
+    min?: number;
+    max?: number;
+  }[],
+  categoryIds: string[],
+  maxPlayersPerTeam: number,
+): string | null {
+  if (rules.length > MAX_SQUAD_RULES) return `At most ${MAX_SQUAD_RULES} squad rules`;
+  const ids = new Set<string>();
+  let totalMin = 0;
+  for (const rule of rules) {
+    if (rule.id.trim() === "" || ids.has(rule.id)) {
+      return "Every squad rule needs a unique id";
+    }
+    ids.add(rule.id);
+    if ((rule.categoryId === undefined) === (rule.role === undefined)) {
+      return "Each squad rule applies to exactly one category or role";
+    }
+    if (rule.categoryId !== undefined && !categoryIds.includes(rule.categoryId)) {
+      return "A squad rule refers to a category that doesn't exist";
+    }
+    if (rule.role !== undefined && !SQUAD_RULE_ROLE_NAMES.includes(rule.role)) {
+      return `Unknown role "${rule.role}" in a squad rule`;
+    }
+    if (rule.min === undefined && rule.max === undefined) {
+      return "Each squad rule needs a minimum, a maximum, or both";
+    }
+    for (const n of [rule.min, rule.max]) {
+      if (n !== undefined && (!Number.isInteger(n) || n < 0 || n > maxPlayersPerTeam)) {
+        return `Squad rule limits must be whole numbers from 0 to ${maxPlayersPerTeam}`;
+      }
+    }
+    if (rule.min !== undefined && rule.max !== undefined && rule.min > rule.max) {
+      return "A squad rule's minimum can't be more than its maximum";
+    }
+    totalMin += rule.min ?? 0;
+  }
+  if (totalMin > maxPlayersPerTeam) {
+    return `The squad minimums add up to ${totalMin}, more than the squad size of ${maxPlayersPerTeam}`;
+  }
+  return null;
+}

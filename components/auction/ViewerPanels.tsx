@@ -8,6 +8,7 @@ import {
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { formatCurrency, getRoleDisplay } from '@/lib/utils';
+import { RuleStatusLine, type RuleStatus } from './RuleStatusLine';
 
 export type ViewerSheetType = 'sold' | 'unsold' | 'teams';
 
@@ -207,6 +208,7 @@ export interface ViewerTeam {
   purseRemaining: number;
   purseSpent: number;
   playerCount?: number;
+  ruleStatus?: RuleStatus[];
 }
 
 export interface ViewerSquadPlayer {
@@ -421,6 +423,7 @@ function TeamsSheetContent({
                 <div className="text-xs text-slate-400">
                   {count}/{maxPlayersPerTeam} players
                 </div>
+                <RuleStatusLine status={team.ruleStatus} className="mt-1" />
               </div>
               <div className="text-right shrink-0">
                 <div className="flex items-center justify-end gap-1 text-green-400 font-bold text-sm sm:text-base">

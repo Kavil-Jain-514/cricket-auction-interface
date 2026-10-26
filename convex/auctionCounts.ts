@@ -26,6 +26,7 @@ import { internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { effectiveBasePrice, type PlayerCategory } from "./bidRules";
+import { rulePricesFor, type SquadRule } from "./squadRules";
 
 export type AuctionCounts = NonNullable<Doc<"tournaments">["auctionCounts"]>;
 
@@ -37,7 +38,11 @@ export type AuctionCounts = NonNullable<Doc<"tournaments">["auctionCounts"]>;
 export function computeAuctionCounts(
   players: Doc<"players">[],
   teams: Doc<"teams">[],
-  settings: { basePrice?: number; categories?: PlayerCategory[] },
+  settings: {
+    basePrice?: number;
+    categories?: PlayerCategory[];
+    squadRules?: SquadRule[];
+  },
 ): AuctionCounts {
   // Team captains are pre-assigned and never auctioned, so they must not appear
   // in ANY count (pending/sold/unsold/inAuction) or affect minPendingBasePrice.
@@ -50,6 +55,7 @@ export function computeAuctionCounts(
   let unsold = 0;
   let inAuction = 0;
   let minPendingBasePrice: number | undefined = undefined;
+  const pendingPriced: Array<Doc<"players"> & { basePrice: number }> = [];
 
   for (const p of players) {
     if (captainPlayerIds.has(p._id)) continue; // captains are outside the auction
@@ -57,6 +63,7 @@ export function computeAuctionCounts(
       case "pending": {
         pending++;
         const bp = effectiveBasePrice(p, settings);
+        pendingPriced.push({ ...p, basePrice: bp });
         if (minPendingBasePrice === undefined || bp < minPendingBasePrice) {
           minPendingBasePrice = bp;
         }
@@ -74,7 +81,13 @@ export function computeAuctionCounts(
     }
   }
 
-  return { pending, sold, unsold, inAuction, minPendingBasePrice };
+  const counts: AuctionCounts = { pending, sold, unsold, inAuction, minPendingBasePrice };
+  // Only present when the tournament has min rules, so legacy counts (and
+  // their equality check) are byte-for-byte what they were.
+  if (settings.squadRules?.some((r) => r.min)) {
+    counts.minPendingBasePriceByRule = rulePricesFor(settings.squadRules, pendingPriced);
+  }
+  return counts;
 }
 
 export function auctionCountsEqual(
@@ -87,7 +100,9 @@ export function auctionCountsEqual(
     a.sold === b.sold &&
     a.unsold === b.unsold &&
     a.inAuction === b.inAuction &&
-    a.minPendingBasePrice === b.minPendingBasePrice
+    a.minPendingBasePrice === b.minPendingBasePrice &&
+    JSON.stringify(a.minPendingBasePriceByRule) ===
+      JSON.stringify(b.minPendingBasePriceByRule)
   );
 }
 

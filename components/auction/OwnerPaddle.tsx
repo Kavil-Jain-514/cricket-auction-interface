@@ -17,6 +17,7 @@ export interface PaddleState {
   purseRemaining: number;
   playersNeeded: number;
   maxAllowedBid: number;
+  ruleBlock: string | null;
   minNextBid: number | null;
   minBidIncrement: number;
   incrementSlabs: IncrementSlab[];
@@ -106,6 +107,7 @@ export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen }: OwnerPaddleP
   else if (squadFull) blockedLabel = 'Your squad is complete';
   else if (!biddingOpen || amount === null) blockedLabel = 'Waiting for the next player';
   else if (paddle.isLeading) blockedLabel = "You're leading";
+  else if (paddle.ruleBlock) blockedLabel = paddle.ruleBlock;
   else if (overMax) blockedLabel = `Over your max bid (${formatCurrency(paddle.maxAllowedBid)})`;
 
   const handleRaise = async () => {
