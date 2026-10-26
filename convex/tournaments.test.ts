@@ -251,3 +251,61 @@ describe("tournaments.update — bid mode", () => {
     expect(tournament?.settings.bidMode).toBe("open");
   });
 });
+
+describe("tournaments.update — bid timer setting (X5)", () => {
+  test("accepts 0 (off) and 10–120 while not live; keeps it when omitted", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId } = await setup(t);
+    const stored = async () =>
+      (await t.run((ctx) => ctx.db.get(tournamentId)))?.settings.bidTimerSeconds;
+
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      settings: { ...SETTINGS, bidTimerSeconds: 0 },
+    });
+    expect(await stored()).toBe(0);
+
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      settings: { ...SETTINGS, bidTimerSeconds: 45 },
+    });
+    expect(await stored()).toBe(45);
+
+    await asAdmin.mutation(api.tournaments.update, {
+      id: tournamentId,
+      settings: { ...SETTINGS, basePurse: 2_000_000, bidTimerSeconds: undefined },
+    });
+    expect(await stored()).toBe(45);
+  });
+
+  test("rejects out-of-range timer values", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId } = await setup(t);
+
+    for (const bad of [5, 121, NaN, 12.5, -1]) {
+      await expect(
+        asAdmin.mutation(api.tournaments.update, {
+          id: tournamentId,
+          settings: { ...SETTINGS, bidTimerSeconds: bad },
+        }),
+      ).rejects.toThrow();
+    }
+    const tournament = await t.run((ctx) => ctx.db.get(tournamentId));
+    expect(tournament?.settings.bidTimerSeconds).toBe(30);
+  });
+
+  test("changing the timer while the auction is live is rejected", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId } = await setup(t, { roomStatus: "live" });
+
+    await expect(
+      asAdmin.mutation(api.tournaments.update, {
+        id: tournamentId,
+        settings: { ...SETTINGS, bidTimerSeconds: 0 },
+      }),
+    ).rejects.toThrow(/locked/);
+  });
+});

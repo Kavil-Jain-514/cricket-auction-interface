@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { toast } from 'sonner';
+import { DEFAULT_BID_TIMER_SECONDS } from '@/convex/bidRules';
+import { BID_TIMER_OPTIONS, bidTimerLabel } from '@/lib/bidTimer';
 
 export default function CreateTournamentPage() {
   const router = useRouter();
@@ -25,6 +27,7 @@ export default function CreateTournamentPage() {
     minBidIncrement: 25000,
     maxPlayersPerTeam: 15,
     basePrice: 100000,
+    bidTimerSeconds: DEFAULT_BID_TIMER_SECONDS,
   });
 
   const [loading, setLoading] = useState(false);
@@ -91,6 +94,7 @@ export default function CreateTournamentPage() {
           minBidIncrement: formData.minBidIncrement,
           maxPlayersPerTeam: formData.maxPlayersPerTeam,
           basePrice: formData.basePrice,
+          bidTimerSeconds: formData.bidTimerSeconds,
         },
       });
 
@@ -253,6 +257,23 @@ export default function CreateTournamentPage() {
                   }}
                   className="mt-2 min-h-11"
                 />
+              </div>
+
+              <div>
+                <Label htmlFor="bidTimerSeconds">Bid Timer</Label>
+                <select
+                  id="bidTimerSeconds"
+                  value={formData.bidTimerSeconds}
+                  onChange={(e) => setFormData({ ...formData, bidTimerSeconds: Number(e.target.value) })}
+                  className="mt-2 min-h-11 w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+                >
+                  {BID_TIMER_OPTIONS.map((s) => (
+                    <option key={s} value={s}>{bidTimerLabel(s)}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400 mt-1">
+                  Countdown that resets on every bid. It never sells on its own.
+                </p>
               </div>
             </div>
           </div>

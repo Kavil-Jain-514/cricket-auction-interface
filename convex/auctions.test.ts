@@ -827,3 +827,136 @@ describe("finalizePlayerSale — defensive purse guard", () => {
     });
   });
 });
+
+describe("bid timer — advisory countdown (X5)", () => {
+  test("a bid resets bidTimerEndsAt to now + bidTimerSeconds", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA, teamB } = await setup(t, {
+      bidTimerSeconds: 45,
+    });
+    await putPlayerInAuction(t, {
+      tournamentId,
+      roomId,
+      bidTimerEndsAt: Date.now() - 1_000, // already expired
+    });
+
+    const before = Date.now();
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    const after = Date.now();
+    const first = (await t.run((ctx) => ctx.db.get(roomId)))!.bidTimerEndsAt!;
+    expect(first).toBeGreaterThanOrEqual(before + 45_000);
+    expect(first).toBeLessThanOrEqual(after + 45_000);
+
+    await new Promise((r) => setTimeout(r, 5));
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamB,
+      amount: 125_000,
+    });
+    const second = (await t.run((ctx) => ctx.db.get(roomId)))!.bidTimerEndsAt!;
+    expect(second).toBeGreaterThan(first);
+  });
+
+  test("an absent bidTimerSeconds still runs the 30 s default", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t);
+    await t.run(async (ctx) => {
+      const tournament = (await ctx.db.get(tournamentId))!;
+      await ctx.db.patch(tournamentId, {
+        settings: { ...tournament.settings, bidTimerSeconds: undefined },
+      });
+    });
+    await putPlayerInAuction(t, { tournamentId, roomId });
+
+    const before = Date.now();
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    const endsAt = (await t.run((ctx) => ctx.db.get(roomId)))!.bidTimerEndsAt!;
+    expect(endsAt).toBeGreaterThanOrEqual(before + 30_000);
+    expect(endsAt).toBeLessThanOrEqual(Date.now() + 30_000);
+  });
+
+  test("timer 0 (off): a bid writes nothing to the room", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t, {
+      bidTimerSeconds: 0,
+    });
+    await putPlayerInAuction(t, { tournamentId, roomId });
+    const roomBefore = await t.run(async (ctx) => {
+      await ctx.db.patch(roomId, { bidTimerEndsAt: undefined });
+      return (await ctx.db.get(roomId))!;
+    });
+
+    await new Promise((r) => setTimeout(r, 5));
+    const res = await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    expect(res).toMatchObject({ success: true });
+
+    const roomAfter = (await t.run((ctx) => ctx.db.get(roomId)))!;
+    expect(roomAfter.bidTimerEndsAt).toBeUndefined();
+    expect(roomAfter.updatedAt).toBe(roomBefore.updatedAt);
+  });
+
+  test("timer 0 (off): start, pause/resume, restart and clear never set bidTimerEndsAt", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t, {
+      bidTimerSeconds: 0,
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("players", {
+        tournamentId,
+        name: "Rohit",
+        age: 33,
+        role: "Batter",
+        battingBowlingHand: "Right-handed",
+        auctionStatus: "pending",
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    const endsAt = async () =>
+      (await t.run((ctx) => ctx.db.get(roomId)))!.bidTimerEndsAt;
+
+    await asAdmin.mutation(api.auctions.startNextPlayer, {
+      auctionRoomId: roomId,
+    });
+    expect(await endsAt()).toBeUndefined();
+
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    expect(await endsAt()).toBeUndefined();
+
+    await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: roomId });
+    await asAdmin.mutation(api.auctions.resumeAuction, { auctionRoomId: roomId });
+    expect(await endsAt()).toBeUndefined();
+
+    await asAdmin.mutation(api.auctions.restartCurrentPlayer, {
+      auctionRoomId: roomId,
+    });
+    expect(await endsAt()).toBeUndefined();
+
+    await asAdmin.mutation(api.admin.clearCurrentPlayerBids, {
+      auctionRoomId: roomId,
+      reason: "test",
+    });
+    expect(await endsAt()).toBeUndefined();
+  });
+});

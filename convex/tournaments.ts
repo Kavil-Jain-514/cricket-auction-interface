@@ -2,7 +2,11 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUser, logAdminAction, requireAdmin } from "./auth";
 import type { Doc } from "./_generated/dataModel";
-import { DEFAULT_BASE_PRICE } from "./bidRules";
+import {
+  DEFAULT_BASE_PRICE,
+  DEFAULT_BID_TIMER_SECONDS,
+  validateBidTimerSeconds,
+} from "./bidRules";
 import {
   normalizeFooterText,
   validateSettings,
@@ -23,8 +27,7 @@ export const create = mutation({
     settings: v.object({
       basePurse: v.number(),
       minBidIncrement: v.number(),
-      // Bid timer is no longer configurable in the UI; kept optional for
-      // backward compatibility. Defaults to 30s server-side where needed.
+      // Advisory countdown: 0 = off, 10–120s. Absent = 30s (older clients).
       bidTimerSeconds: v.optional(v.number()),
       maxPlayersPerTeam: v.number(),
       basePrice: v.optional(v.number()),
@@ -41,15 +44,10 @@ export const create = mutation({
       validateTournamentName(args.name) ?? validateSettings(args.settings);
     if (error) throw new Error(error);
 
-    // Bid timer is no longer set from the UI, but validate any value a client
-    // does send so a bad number can't corrupt bidTimerEndsAt math later.
-    if (
-      args.settings.bidTimerSeconds !== undefined &&
-      (!Number.isFinite(args.settings.bidTimerSeconds) ||
-        args.settings.bidTimerSeconds < 10 ||
-        args.settings.bidTimerSeconds > 120)
-    ) {
-      throw new Error("Bid timer must be between 10 and 120 seconds");
+    // Bid timer: 0 = off, else 10–120s. Omitted means the 30s default.
+    if (args.settings.bidTimerSeconds !== undefined) {
+      const timerError = validateBidTimerSeconds(args.settings.bidTimerSeconds);
+      if (timerError) throw new Error(timerError);
     }
     // Get current user (implement auth first)
     const identity = await ctx.auth.getUserIdentity();
@@ -177,7 +175,8 @@ function settingsChanged(
     (next.basePrice ?? DEFAULT_BASE_PRICE) !==
       (current.basePrice ?? DEFAULT_BASE_PRICE) ||
     (next.bidTimerSeconds !== undefined &&
-      next.bidTimerSeconds !== (current.bidTimerSeconds ?? 30))
+      next.bidTimerSeconds !==
+        (current.bidTimerSeconds ?? DEFAULT_BID_TIMER_SECONDS))
   );
 }
 
@@ -199,7 +198,7 @@ export const update = mutation({
       v.object({
         basePurse: v.number(),
         minBidIncrement: v.number(),
-        // Optional: no longer set from the UI (see create).
+        // Optional: omitted keeps the stored value (see create).
         bidTimerSeconds: v.optional(v.number()),
         maxPlayersPerTeam: v.number(),
         basePrice: v.optional(v.number()),
@@ -227,7 +226,7 @@ export const update = mutation({
       if (nameError) throw new Error(nameError);
     }
 
-    // Merged settings we'll actually write (preserving the legacy bid timer).
+    // Merged settings we'll actually write (preserving the stored bid timer).
     // Stays undefined when the caller sent settings identical to the stored
     // ones, so name/description/logo edits work during a live auction.
     let nextSettings: typeof args.settings = undefined;
@@ -291,24 +290,21 @@ export const update = mutation({
         );
       }
 
-      // Bid timer is no longer set from the UI, but validate any value a client
-      // does send so a bad number can't corrupt bidTimerEndsAt math later.
-      if (
-        args.settings.bidTimerSeconds !== undefined &&
-        (!Number.isFinite(args.settings.bidTimerSeconds) ||
-          args.settings.bidTimerSeconds < 10 ||
-          args.settings.bidTimerSeconds > 120)
-      ) {
-        throw new Error("Bid timer must be between 10 and 120 seconds");
+      // Bid timer: 0 = off, else 10–120s (see create).
+      if (args.settings.bidTimerSeconds !== undefined) {
+        const timerError = validateBidTimerSeconds(
+          args.settings.bidTimerSeconds,
+        );
+        if (timerError) throw new Error(timerError);
       }
 
-      // Preserve the (hidden) bid timer if the caller didn't send one.
+      // Keep the stored bid timer if the caller didn't send one.
       nextSettings = {
         ...args.settings,
         bidTimerSeconds:
           args.settings.bidTimerSeconds ??
           tournament.settings.bidTimerSeconds ??
-          30,
+          DEFAULT_BID_TIMER_SECONDS,
         footerText,
         bidMode,
       };

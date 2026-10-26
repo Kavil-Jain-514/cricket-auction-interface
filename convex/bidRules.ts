@@ -55,3 +55,37 @@ export function maxAllowedBid({
   const reserve = Math.max(0, playersNeeded - 1) * reservePrice;
   return Math.max(0, purseRemaining - reserve);
 }
+
+// ── Bid timer ────────────────────────────────────────────────────────────────
+// The timer is advisory: a UI countdown that never auto-finalises and never
+// rejects a late bid. 0 turns it off (no bidTimerEndsAt writes at all); an
+// absent value is the legacy 30s default.
+
+export const DEFAULT_BID_TIMER_SECONDS = 30;
+export const MIN_BID_TIMER_SECONDS = 10;
+export const MAX_BID_TIMER_SECONDS = 120;
+
+export function bidTimerSeconds(settings: { bidTimerSeconds?: number }): number {
+  return settings.bidTimerSeconds ?? DEFAULT_BID_TIMER_SECONDS;
+}
+
+/** When the countdown ends if it starts at `now`, or undefined when the timer is off. */
+export function bidTimerEndsAt(
+  settings: { bidTimerSeconds?: number },
+  now: number,
+): number | undefined {
+  const seconds = bidTimerSeconds(settings);
+  return seconds > 0 ? now + seconds * 1000 : undefined;
+}
+
+/** null when valid: 0 (off) or a whole number of seconds from 10 to 120. */
+export function validateBidTimerSeconds(seconds: number): string | null {
+  if (
+    Number.isInteger(seconds) &&
+    (seconds === 0 ||
+      (seconds >= MIN_BID_TIMER_SECONDS && seconds <= MAX_BID_TIMER_SECONDS))
+  ) {
+    return null;
+  }
+  return `Bid timer must be off (0) or between ${MIN_BID_TIMER_SECONDS} and ${MAX_BID_TIMER_SECONDS} seconds`;
+}
