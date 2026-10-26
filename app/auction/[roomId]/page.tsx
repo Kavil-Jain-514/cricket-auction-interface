@@ -31,6 +31,7 @@ import { ReconciliationBadge } from '@/components/auction/ReconciliationBadge';
 import { BidTimerRing } from '@/components/auction/BidTimerRing';
 import { GoingOnceHelper } from '@/components/auction/GoingOnceHelper';
 import { useBidCountdown } from '@/hooks/useBidCountdown';
+import { BroadcastMenu } from '@/components/broadcast/BroadcastMenu';
 import { bidTimerSeconds } from '@/convex/bidRules';
 
 // Lazy-load heavy components that are only used conditionally
@@ -906,6 +907,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <Settings2 className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
                   <span className="hidden sm:inline">Players</span>
                 </Button>
+
+                {/* OBS / vMix overlay URLs */}
+                <BroadcastMenu auctionRoomId={auctionRoomId} />
 
                 {/* Final Unsold: only during the second (unsold) round, once the
                     pending pool is exhausted. Grouped with management (kept away
