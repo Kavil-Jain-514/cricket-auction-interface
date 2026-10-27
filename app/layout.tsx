@@ -1,39 +1,45 @@
 import type { Metadata } from "next";
-import { Inter, Poppins } from "next/font/google";
+import { Barlow_Condensed, Inter } from "next/font/google";
 import "./globals.css";
-import { Providers } from "./providers";
 
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-sans',
+  display: 'swap',
 });
 
-const poppins = Poppins({
-  weight: ['400', '600', '700', '800'],
+// Display face (font-head): the logo, headings and prices, condensed with
+// tabular figures. It has no ₹ glyph; PriceTicker sets ₹ in Inter.
+const display = Barlow_Condensed({
+  weight: ['600', '700'],
   subsets: ['latin'],
-  variable: '--font-display',
+  variable: '--font-head-face',
+  display: 'swap',
 });
 
+// Clerk and Convex live in app/(app)/layout.tsx, not here: the marketing
+// pages in app/(marketing) are static and must not ship those bundles.
+// No canonical here: a root canonical would be inherited by every page.
 export const metadata: Metadata = {
   metadataBase: new URL('https://bid11pro.kaviljain.com'),
   title: {
-    default: 'Bid11Pro - Professional Cricket Auction Platform',
+    default: 'Bid11Pro - Cricket Auction Software for IPL-Style Player Auctions',
     template: '%s | Bid11Pro',
   },
-  description: 'The ultimate cricket auction management system with real-time bidding, team management, and live statistics. Experience the thrill of IPL-style auctions!',
-  keywords: ['cricket', 'auction', 'IPL', 'tournament', 'bidding', 'Bid11Pro', 'fantasy cricket', 'player auction'],
+  description: 'Run an IPL-style cricket player auction for your local tournament: live bidding from phones, team purses checked on the server, a projector view and a broadcast overlay.',
+  keywords: ['cricket auction software', 'IPL style auction app', 'player auction for local tournament', 'cricket player auction', 'Bid11Pro'],
   applicationName: 'Bid11Pro',
   openGraph: {
     type: 'website',
     siteName: 'Bid11Pro',
-    title: 'Bid11Pro - Professional Cricket Auction Platform',
-    description: 'Real-time IPL-style cricket auctions with live bidding, team management, and statistics.',
-    url: 'https://bid11pro.kaviljain.com',
+    locale: 'en_IN',
+    title: 'Bid11Pro - Cricket Auction Software',
+    description: 'Run an IPL-style player auction for your tournament, with live bidding, server-checked purses and a projector view.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Bid11Pro - Professional Cricket Auction Platform',
-    description: 'Real-time IPL-style cricket auctions with live bidding, team management, and statistics.',
+    title: 'Bid11Pro - Cricket Auction Software',
+    description: 'Run an IPL-style player auction for your tournament, with live bidding, server-checked purses and a projector view.',
   },
   robots: {
     index: true,
@@ -50,13 +56,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${inter.variable} ${poppins.variable} font-sans antialiased`}
+        className={`${inter.variable} ${display.variable} font-sans antialiased`}
       >
-        <Providers>
-          {children}
-        </Providers>
-        {/* Single global Toaster lives in providers.tsx — a second one here
-            rendered every toast twice. (P1-5) */}
+        {children}
       </body>
     </html>
   );
