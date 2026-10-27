@@ -1,0 +1,49 @@
+{
+  "ci": {
+    "collect": {
+      "startServerCommand": "npm run start -- -p 3100",
+      "startServerReadyPattern": "Ready",
+      "url": [
+        "http://localhost:3100/",
+        "http://localhost:3100/features"
+      ],
+      "numberOfRuns": 3
+    },
+    "assert": {
+      "assertions": {
+        "largest-contentful-paint": [
+          "error",
+          {
+            "maxNumericValue": 3000,
+            "aggregationMethod": "median-run"
+          }
+        ],
+        "cumulative-layout-shift": [
+          "error",
+          {
+            "maxNumericValue": 0.05,
+            "aggregationMethod": "median-run"
+          }
+        ],
+        "total-blocking-time": [
+          "error",
+          {
+            "maxNumericValue": 200,
+            "aggregationMethod": "median-run"
+          }
+        ],
+        "resource-summary:script:size": [
+          "error",
+          {
+            "maxNumericValue": 143360,
+            "aggregationMethod": "median-run"
+          }
+        ]
+      }
+    },
+    "upload": {
+      "target": "filesystem",
+      "outputDir": ".lighthouseci"
+    }
+  }
+}

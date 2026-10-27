@@ -56,7 +56,7 @@ npx tsc --noEmit     # typecheck
 
 - `convex/_generated/`
 - `harness/`
-- The animation timings in `app/auction/[roomId]/page.tsx`
+- The animation timings in `app/(app)/auction/[roomId]/page.tsx`
 
 ## Definition of done
 

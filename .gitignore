@@ -43,3 +43,6 @@ next-env.d.ts
 .claude
 
 /docs/
+# Lighthouse CI and Playwright output
+/.lighthouseci
+/test-results
