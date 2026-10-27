@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { TeamCard } from '@/components/teams/TeamCard';
 import { TeamForm } from '@/components/teams/TeamForm';
+import { TeamRequestsPanel } from '@/components/teams/TeamRequestsPanel';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 
 export default function TeamsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -63,6 +64,8 @@ export default function TeamsPage({ params }: { params: Promise<{ id: string }> 
             </div>
           </div>
         </div>
+
+        {canManage && <TeamRequestsPanel tournamentId={tournamentId} />}
 
         {/* Teams Grid */}
         {!teams ? (
