@@ -23,6 +23,7 @@ import {
   squadRuleValidator,
 } from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { initialPlan } from "./plans";
 import {
   normalizeFooterText,
   validateCategories,
@@ -107,6 +108,7 @@ export const create = mutation({
       logoUrl: args.logoUrl,
       createdBy: user._id,
       status: "draft",
+      plan: initialPlan(),
       settings: { ...args.settings, footerText: footer.text },
       createdAt: Date.now(),
       updatedAt: Date.now(),

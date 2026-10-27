@@ -27,3 +27,19 @@ export const squadRuleValidator = v.object({
   min: v.optional(v.number()),
   max: v.optional(v.number()),
 });
+
+export const planTierValidator = v.union(
+  v.literal("free"),
+  v.literal("club"),
+  v.literal("league"),
+  v.literal("pro"),
+);
+
+export const planValidator = v.object({
+  tier: planTierValidator,
+  maxTeams: v.number(),
+  maxPlayers: v.number(),
+  paidAt: v.optional(v.number()),
+  // Razorpay payment id (or "manual: <reason>" for a super-admin grant).
+  paymentRef: v.optional(v.string()),
+});

@@ -150,6 +150,8 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "members:createInvite": (as, fx) => as.mutation(api.members.createInvite, { teamId: fx.teamA1 }),
   "members:removeMember": (as, fx) => as.mutation(api.members.removeMember, { memberId: fx.member }),
   "members:revokeInvite": (as, fx) => as.mutation(api.members.revokeInvite, { inviteId: fx.invite }),
+  "payments:recordOrder": (as, fx) =>
+    as.mutation(api.payments.recordOrder, { tournamentId: fx.tA, tier: "club", razorpayOrderId: "order_x", amount: 99_900 }),
   "players:create": (as, fx) => as.mutation(api.players.create, { tournamentId: fx.tA, ...newPlayer }),
   "players:bulkImport": (as, fx) => as.mutation(api.players.bulkImport, { tournamentId: fx.tA, players: [newPlayer] }),
   "players:update": (as, fx) => as.mutation(api.players.update, { id: fx.pending, name: "Renamed" }),
@@ -172,13 +174,14 @@ const NOT_STAFF_SCOPED: Record<string, string> = {
   "auth:setUserRole": "global, super-admin only (tested below)",
   "auctions:raiseBid": "team owners bidding from their paddle; checked by team membership",
   "members:claimInvite": "claimed with a one-time invite token",
+  "plans:grantPlan": "super-admin only (tested in plans.test.ts)",
   "tournaments:create": "any signed-in user; they become the owner",
 };
 
 /** Every table a tournament's data lives in, for a before/after comparison. */
 async function snapshot(t: T) {
   return await t.run(async (ctx) => {
-    const tables = ["tournaments", "teams", "players", "auctionRooms", "liveBids", "bidRequests", "teamMembers", "teamInvites", "tournamentStaff", "groupDraws"] as const;
+    const tables = ["tournaments", "teams", "players", "auctionRooms", "liveBids", "bidRequests", "teamMembers", "teamInvites", "tournamentStaff", "groupDraws", "paymentOrders"] as const;
     const out: Record<string, unknown> = {};
     for (const table of tables) out[table] = await ctx.db.query(table).collect();
     return JSON.stringify(out);

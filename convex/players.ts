@@ -9,6 +9,7 @@ import {
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { normalizePhone, validatePlayerFields } from "./validation";
 import { categoryFor, effectiveBasePrice } from "./bidRules";
+import { assertPlayerCapacity } from "./plans";
 import type { Doc } from "./_generated/dataModel";
 
 // Shared validator for T-shirt size — reused across create, bulkImport, and update
@@ -79,6 +80,8 @@ export const create = mutation({
         q.eq("tournamentId", args.tournamentId),
       )
       .collect();
+
+    assertPlayerCapacity(tournament, existingPlayers.length, 1);
 
     const maxPlayerNumber = existingPlayers.reduce((max, player) => {
       return Math.max(max, player.playerNumber || 0);
@@ -204,6 +207,8 @@ export const bulkImport = mutation({
     if (errors.length > 0) {
       return { success: false as const, errors };
     }
+    // All or nothing: a batch that would overflow the plan imports nobody.
+    assertPlayerCapacity(tournament, existingPlayers.length, rows.length);
 
     const maxPlayerNumber = existingPlayers.reduce((max, player) => {
       return Math.max(max, player.playerNumber || 0);

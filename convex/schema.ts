@@ -3,6 +3,8 @@ import { v } from "convex/values";
 import {
   categoryValidator,
   incrementSlabValidator,
+  planTierValidator,
+  planValidator,
   presentationOrderValidator,
   squadRuleValidator,
 } from "./ruleValidators";
@@ -75,6 +77,9 @@ export default defineSchema({
       squadRules: v.optional(v.array(squadRuleValidator)),
     }),
     logoUrl: v.optional(v.string()),
+    // Paid tier and its limits (convex/plans.ts). Set to Free on create;
+    // absent on tournaments from before plans, which stay unlimited.
+    plan: v.optional(planValidator),
     // Visibility flag (independent of the auction lifecycle `status` above).
     // When false, non-admin users can neither see the tournament in listings
     // nor open it. Absent on legacy tournaments — treated as active.
@@ -151,6 +156,23 @@ export default defineSchema({
     .index("by_tournament", ["tournamentId"])
     .index("by_user", ["userId"])
     .index("by_tournament_user", ["tournamentId", "userId"]),
+
+  // Razorpay orders for plan upgrades. Recorded when the order is created;
+  // the signed webhook marks it paid and upgrades the plan (idempotent on
+  // paymentRef). No card data is ever stored.
+  paymentOrders: defineTable({
+    tournamentId: v.id("tournaments"),
+    tier: planTierValidator,
+    amount: v.number(), // paise
+    razorpayOrderId: v.string(),
+    status: v.union(v.literal("created"), v.literal("paid")),
+    paymentRef: v.optional(v.string()),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    paidAt: v.optional(v.number()),
+  })
+    .index("by_order", ["razorpayOrderId"])
+    .index("by_tournament", ["tournamentId"]),
 
   // Team members — users linked to a team (owners bid from their own phones).
   // A user belongs to at most one team per tournament (enforced by claimInvite).
