@@ -1501,6 +1501,7 @@ export const getAuctionRoster = query({
         _id: p._id,
         name: p.name,
         role: p.role,
+        categoryId: p.categoryId, // owner insights: fair-value bands by category
         soldPrice: p.soldPrice,
         teamId: p.teamId,
       }));

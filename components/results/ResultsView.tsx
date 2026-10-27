@@ -11,6 +11,45 @@ import { TeamLogo } from '@/components/ui/team-logo';
 import { CategoryChip } from '@/components/players/CategoryChip';
 import { formatCurrency, getRoleDisplay } from '@/lib/utils';
 import { SpendChart } from './SpendChart';
+import { bestValueBuy, roleBalance } from '@/lib/insights';
+import type { SquadRule } from '@/convex/squadRules';
+
+const ROLE_SHORT: Record<string, string> = { Batter: 'BAT', Bowler: 'BOWL', 'All-Rounder': 'AR', 'Wicket Keeper': 'WK' };
+
+/** Role balance (with any squad minimums) and the best-value buy for one team. */
+function SquadSummary({
+  players,
+  squadRules,
+}: {
+  players: Array<{ name: string; role: string | string[]; soldPrice: number; basePrice: number }>;
+  squadRules: SquadRule[];
+}) {
+  if (players.length === 0) return null;
+  const balance = roleBalance(players, squadRules);
+  const best = bestValueBuy(players);
+  return (
+    <div className="space-y-2 border-b border-slate-800 px-4 py-3">
+      <ul className="flex flex-wrap gap-1.5" aria-label="Role balance">
+        {balance.map((row) => (
+          <li
+            key={row.role}
+            className={`rounded px-2 py-0.5 text-xs tabular-nums ${row.gap > 0 ? 'bg-amber-500/15 text-amber-300' : 'bg-slate-800 text-slate-300'}`}
+            title={row.min !== undefined ? `${row.role}: ${row.count} (needed ${row.min})` : `${row.role}: ${row.count}`}
+          >
+            {ROLE_SHORT[row.role]} {row.count}
+            {row.min !== undefined && <span className="opacity-70">/{row.min}</span>}
+          </li>
+        ))}
+      </ul>
+      {best && (
+        <p className="text-xs text-slate-400">
+          Best value: <span className="font-semibold text-slate-100">{best.name}</span> at {formatCurrency(best.soldPrice)}{' '}
+          <span className="text-slate-500">(base {formatCurrency(best.basePrice)})</span>
+        </p>
+      )}
+    </div>
+  );
+}
 
 /** Public results: squads by team, top buys and spend. No sign-in needed. */
 export function ResultsView({ tournamentId }: { tournamentId: string }) {
@@ -37,7 +76,7 @@ export function ResultsView({ tournamentId }: { tournamentId: string }) {
     );
   }
 
-  const { tournament, teams, topBuys, totals, categories } = results;
+  const { tournament, teams, topBuys, totals, categories, squadRules } = results;
   const teamById = new Map(teams.map((t) => [t._id, t]));
   const completed = new Date(tournament.completedAt).toLocaleDateString('en-IN', {
     day: 'numeric',
@@ -127,6 +166,7 @@ export function ResultsView({ tournamentId }: { tournamentId: string }) {
                     </p>
                   </div>
                 </div>
+                <SquadSummary players={team.players} squadRules={squadRules} />
                 <ul className="divide-y divide-slate-800">
                   {team.captain && (
                     <li className="flex items-center gap-3 px-4 py-2.5">

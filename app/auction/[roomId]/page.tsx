@@ -35,6 +35,7 @@ import { useBidCountdown } from '@/hooks/useBidCountdown';
 import { BroadcastMenu } from '@/components/broadcast/BroadcastMenu';
 import { CategoryChip } from '@/components/players/CategoryChip';
 import { applyOptimisticBid, newRequestId } from '@/lib/optimisticBid';
+import { ownerInsights } from '@/lib/insights';
 import { SetBanner } from '@/components/auction/SetBanner';
 import { ConsoleMoreMenu } from '@/components/auction/ConsoleMoreMenu';
 import { bidTimerSeconds, categoryFor, incrementFor } from '@/convex/bidRules';
@@ -1498,6 +1499,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   auctionRoomId={auctionRoomId}
                   paddle={paddle}
                   biddingOpen={auctionRoom.status === 'live' && !!currentPlayer}
+                  insights={rosterData ? ownerInsights(rosterData, paddle.team._id) : null}
                 />
               ) : undefined
             }
