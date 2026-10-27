@@ -23,6 +23,7 @@ import {
   squadRuleValidator,
 } from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { initialPlan } from "./plans";
 import {
   normalizeFooterText,
   validateCategories,
@@ -56,6 +57,8 @@ export const create = mutation({
       incrementSlabs: v.optional(v.array(incrementSlabValidator)),
       presentationOrder: presentationOrderValidator,
       squadRules: v.optional(v.array(squadRuleValidator)),
+      registrationOpen: v.optional(v.boolean()),
+      registrationFee: v.optional(v.number()),
     }),
   },
   handler: async (ctx, args) => {
@@ -107,6 +110,7 @@ export const create = mutation({
       logoUrl: args.logoUrl,
       createdBy: user._id,
       status: "draft",
+      plan: initialPlan(),
       settings: { ...args.settings, footerText: footer.text },
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -303,13 +307,16 @@ export const update = mutation({
         incrementSlabs: v.optional(v.array(incrementSlabValidator)),
         presentationOrder: presentationOrderValidator,
         squadRules: v.optional(v.array(squadRuleValidator)),
+        // Not locked: registration can open or close at any time.
+        registrationOpen: v.optional(v.boolean()),
+        registrationFee: v.optional(v.number()),
       }),
     ),
   },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
-    await requireTournamentRole(ctx, args.id, OWNER_ONLY);
+    const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     // Cannot edit completed tournaments
     if (tournament.status === "completed") {
@@ -342,6 +349,22 @@ export const update = mutation({
     const bidMode = args.settings?.bidMode ?? tournament.settings.bidMode;
     if (bidMode !== tournament.settings.bidMode) {
       nextSettings = { ...(nextSettings ?? tournament.settings), bidMode };
+    }
+
+    // Nor are the public registration form settings.
+    const registrationOpen = args.settings?.registrationOpen ?? tournament.settings.registrationOpen;
+    const registrationFee = args.settings?.registrationFee ?? tournament.settings.registrationFee;
+    if (
+      registrationFee !== undefined &&
+      (!Number.isInteger(registrationFee) || registrationFee < 0 || registrationFee > 100_000)
+    ) {
+      throw new Error("Registration fee must be a whole number of rupees from 0 to 1,00,000");
+    }
+    if (
+      registrationOpen !== tournament.settings.registrationOpen ||
+      registrationFee !== tournament.settings.registrationFee
+    ) {
+      nextSettings = { ...(nextSettings ?? tournament.settings), registrationOpen, registrationFee };
     }
 
     if (args.settings && settingsChanged(tournament.settings, args.settings)) {
@@ -461,6 +484,8 @@ export const update = mutation({
           args.settings.presentationOrder ??
           tournament.settings.presentationOrder,
         squadRules,
+        registrationOpen,
+        registrationFee,
       };
 
       // Base purse is denormalized onto each team's purse. When it changes,
@@ -497,6 +522,30 @@ export const update = mutation({
     // Base prices (tournament or category) feed minPendingBasePrice, the
     // squad reserve. Cheap no-op when nothing count-relevant changed.
     if (nextSettings) await syncTournamentAuctionCounts(ctx, id);
+
+    // Audit only what actually changed (a base purse change moves every
+    // team's purse, so it must be on record).
+    const before: Record<string, unknown> = { ...tournament.settings };
+    const after: Record<string, unknown> = { ...(nextSettings ?? tournament.settings) };
+    for (const key of ["name", "description", "logoUrl", "status"] as const) {
+      before[key] = tournament[key];
+      after[key] = rest[key] ?? tournament[key];
+    }
+    const changed = Object.keys({ ...before, ...after }).filter(
+      (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]),
+    );
+    if (changed.length > 0) {
+      await logAdminAction(ctx, {
+        userId: admin._id,
+        userEmail: admin.email,
+        action: "update_tournament",
+        targetType: "tournament",
+        targetId: id,
+        previousData: Object.fromEntries(changed.map((k) => [k, before[k]])),
+        newData: Object.fromEntries(changed.map((k) => [k, after[k]])),
+        tournamentId: id,
+      });
+    }
 
     return { success: true };
   },

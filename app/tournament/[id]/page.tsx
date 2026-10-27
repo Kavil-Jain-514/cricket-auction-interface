@@ -5,7 +5,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye, Layers, Link2, EyeOff } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye, Layers, Link2, EyeOff, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
@@ -14,6 +14,7 @@ import { formatCurrency, getErrorMessage, getCaptainPlayerIds } from '@/lib/util
 import { TournamentSettingsModal } from '@/components/tournament/TournamentSettingsModal';
 import { ExportResultsButton } from '@/components/results/ExportResultsButton';
 import { ShareResultsButton } from '@/components/results/ShareResultsButton';
+import { PlanCard } from '@/components/plans/PlanCard';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
@@ -23,7 +24,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const tournamentId = id as Id<"tournaments">;
   const [showSettings, setShowSettings] = useState(false);
   // Owners manage the tournament; auctioneers only run the auction console.
-  const { canManage, canRunAuction } = useTournamentRole(tournamentId);
+  const { canManage, canRunAuction, isSuperAdmin } = useTournamentRole(tournamentId);
   const confirm = useConfirm();
 
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
@@ -406,6 +407,15 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 </Button>
               )}
 
+              {canManage && (
+                <Link href={`/tournament/${tournamentId}/registrations`}>
+                  <Button variant="outline" className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white h-11 px-4 sm:px-5 text-sm">
+                    <ClipboardList className="w-4 h-4 mr-2" />
+                    Registrations
+                  </Button>
+                </Link>
+              )}
+
               {/* Public results page — only exists once completed and active. */}
               {tournament.status === 'completed' && isTournamentActive && (
                 <ShareResultsButton tournamentId={tournamentId} tournamentName={tournament.name} />
@@ -450,6 +460,13 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
           </div>
         )}
 
+
+        {/* Plan and usage (staff); owners can upgrade */}
+        {canRunAuction && (
+          <div className="mb-6 sm:mb-8 max-w-md">
+            <PlanCard tournamentId={tournamentId} tournamentName={tournament.name} canUpgrade={canManage} isSuperAdmin={isSuperAdmin} />
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 lg:gap-6 mb-6 sm:mb-8">

@@ -9,6 +9,7 @@ import { Id } from '@/convex/_generated/dataModel';
 import { formatCurrency, getErrorMessage } from '@/lib/utils';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { nextMinimumBid, type IncrementSlab } from '@/convex/bidRules';
+import type { ownerInsights } from '@/lib/insights';
 
 /** Shape returned by auctions:getMyPaddle (non-null). */
 export interface PaddleState {
@@ -32,7 +33,15 @@ interface OwnerPaddleProps {
   paddle: PaddleState;
   /** Room is live with a player on the block. */
   biddingOpen: boolean;
+  /** Rule-based tips for this team only (lib/insights.ts ownerInsights). */
+  insights?: OwnerInsights | null;
 }
+
+type OwnerInsights = NonNullable<ReturnType<typeof ownerInsights>>;
+
+// Status tone always ships with a word, never colour alone.
+const PACE_LABEL = { good: 'on pace', warning: 'tight', critical: 'short' } as const;
+const PACE_CLASS = { good: 'text-green-400', warning: 'text-amber-300', critical: 'text-red-400' } as const;
 
 type Flash = { tone: 'good' | 'bad' | 'info'; text: string; key: number };
 
@@ -53,7 +62,7 @@ function buzz(pattern: number | number[]) {
  * Every rule is enforced server-side (auctions:raiseBid); the disabled states
  * here only save a round trip.
  */
-export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen }: OwnerPaddleProps) {
+export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen, insights }: OwnerPaddleProps) {
   const raiseBid = useMutation(api.auctions.raiseBid);
   const [step, setStep] = useState<(typeof STEPS)[number]>(1);
   const [sending, setSending] = useState(false);
@@ -164,6 +173,32 @@ export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen }: OwnerPaddleP
           </div>
         </div>
       </div>
+
+      {insights && (insights.needs || insights.pace.perSlot !== null || insights.fairValue) && (
+        <div className="mb-2 space-y-0.5 rounded-lg bg-slate-800/70 px-2.5 py-1.5 text-[11px] text-slate-300" aria-label="Squad tips">
+          {(insights.needs || insights.pace.perSlot !== null) && (
+            <p>
+              {insights.needs}
+              {insights.needs && insights.pace.perSlot !== null && '; '}
+              {insights.pace.perSlot !== null && (
+                <>
+                  {formatCurrency(insights.pace.perSlot)} per slot{' '}
+                  <span className={`font-semibold ${PACE_CLASS[insights.pace.tone]}`}>({PACE_LABEL[insights.pace.tone]})</span>
+                </>
+              )}
+            </p>
+          )}
+          {insights.fairValue && (
+            <p>
+              Similar players went for{' '}
+              <span className="font-semibold text-white">
+                {formatCurrency(insights.fairValue.low)}–{formatCurrency(insights.fairValue.high)}
+              </span>{' '}
+              <span className="text-slate-500">({insights.fairValue.count} sales)</span>
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Steps */}
       <div className="grid grid-cols-3 gap-2 mb-2" role="radiogroup" aria-label="Raise by">

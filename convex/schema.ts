@@ -3,6 +3,8 @@ import { v } from "convex/values";
 import {
   categoryValidator,
   incrementSlabValidator,
+  planTierValidator,
+  planValidator,
   presentationOrderValidator,
   squadRuleValidator,
 } from "./ruleValidators";
@@ -73,8 +75,14 @@ export default defineSchema({
       // Squad composition, per category or role (e.g. max 2 Marquee, min 1
       // Wicket Keeper). Enforced in applyBid; see squadRules.ts.
       squadRules: v.optional(v.array(squadRuleValidator)),
+      // Public self-registration (/register/<id>). Not locked while live.
+      registrationOpen: v.optional(v.boolean()),
+      registrationFee: v.optional(v.number()), // rupees; absent or 0 = free
     }),
     logoUrl: v.optional(v.string()),
+    // Paid tier and its limits (convex/plans.ts). Set to Free on create;
+    // absent on tournaments from before plans, which stay unlimited.
+    plan: v.optional(planValidator),
     // Visibility flag (independent of the auction lifecycle `status` above).
     // When false, non-admin users can neither see the tournament in listings
     // nor open it. Absent on legacy tournaments — treated as active.
@@ -151,6 +159,63 @@ export default defineSchema({
     .index("by_tournament", ["tournamentId"])
     .index("by_user", ["userId"])
     .index("by_tournament_user", ["tournamentId", "userId"]),
+
+  // Console action results by client requestId (convex/idempotency.ts), so a
+  // retried placeBid / acceptBidRequest / finalizePlayerSale applies once.
+  bidRequestsSeen: defineTable({
+    key: v.string(), // "<kind>:<requestId>"
+    auctionRoomId: v.id("auctionRooms"),
+    result: v.any(),
+    createdAt: v.number(),
+  })
+    .index("by_room_key", ["auctionRoomId", "key"])
+    .index("by_createdAt", ["createdAt"]),
+
+  // Self-registrations from the public form. "paid" means ready for review
+  // (fee paid, or no fee); approval creates the player.
+  registrations: defineTable({
+    tournamentId: v.id("tournaments"),
+    name: v.string(),
+    age: v.number(),
+    role: v.array(v.string()),
+    battingBowlingHand: v.union(v.literal("Right-handed"), v.literal("Left-handed")),
+    phoneNumber: v.string(), // normalised 10 digits
+    photoUrl: v.optional(v.string()),
+    jerseyNumber: v.optional(v.number()),
+    jerseyName: v.optional(v.string()),
+    tshirtSize: v.optional(
+      v.union(v.literal("XS"), v.literal("S"), v.literal("M"), v.literal("L"), v.literal("XL"), v.literal("XXL"), v.literal("3XL"), v.literal("4XL")),
+    ),
+    consentWhatsApp: v.boolean(),
+    status: v.union(v.literal("pending_payment"), v.literal("paid"), v.literal("approved"), v.literal("rejected")),
+    fee: v.number(), // rupees at submission
+    razorpayOrderId: v.optional(v.string()),
+    paymentRef: v.optional(v.string()),
+    rejectReason: v.optional(v.string()),
+    playerId: v.optional(v.id("players")),
+    createdAt: v.number(),
+    reviewedAt: v.optional(v.number()),
+  })
+    .index("by_tournament", ["tournamentId"])
+    .index("by_tournament_phone", ["tournamentId", "phoneNumber"])
+    .index("by_order", ["razorpayOrderId"]),
+
+  // Razorpay orders for plan upgrades. Recorded when the order is created;
+  // the signed webhook marks it paid and upgrades the plan (idempotent on
+  // paymentRef). No card data is ever stored.
+  paymentOrders: defineTable({
+    tournamentId: v.id("tournaments"),
+    tier: planTierValidator,
+    amount: v.number(), // paise
+    razorpayOrderId: v.string(),
+    status: v.union(v.literal("created"), v.literal("paid")),
+    paymentRef: v.optional(v.string()),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    paidAt: v.optional(v.number()),
+  })
+    .index("by_order", ["razorpayOrderId"])
+    .index("by_tournament", ["tournamentId"]),
 
   // Team members — users linked to a team (owners bid from their own phones).
   // A user belongs to at most one team per tournament (enforced by claimInvite).

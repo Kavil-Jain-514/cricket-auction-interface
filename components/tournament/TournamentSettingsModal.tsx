@@ -51,6 +51,8 @@ interface TournamentSettingsModalProps {
       incrementSlabs?: IncrementSlab[];
       presentationOrder?: 'random' | 'by_category';
       squadRules?: SquadRule[];
+      registrationOpen?: boolean;
+      registrationFee?: number;
     };
     status?: string;
   };
@@ -80,6 +82,8 @@ export function TournamentSettingsModal({
     footerText: currentSettings.settings.footerText || '',
     bidMode: currentSettings.settings.bidMode ?? 'admin_only',
     bidTimerSeconds: bidTimerSeconds(currentSettings.settings),
+    registrationOpen: currentSettings.settings.registrationOpen ?? false,
+    registrationFee: String(currentSettings.settings.registrationFee ?? 0),
   });
 
   const parsed = {
@@ -110,6 +114,10 @@ export function TournamentSettingsModal({
   }
   if (formData.maxPlayersPerTeam.trim() === '' || !Number.isInteger(parsed.maxPlayersPerTeam) || parsed.maxPlayersPerTeam < 1 || parsed.maxPlayersPerTeam > 50) {
     fieldErrors.maxPlayersPerTeam = 'Enter a whole number from 1 to 50';
+  }
+  const registrationFee = Number(formData.registrationFee);
+  if (formData.registrationFee.trim() === '' || !Number.isInteger(registrationFee) || registrationFee < 0 || registrationFee > 100000) {
+    fieldErrors.registrationFee = 'Enter whole rupees from 0 to 1,00,000';
   }
   if (formData.footerText.trim().length > 120) {
     fieldErrors.footerText = 'Keep it to 120 characters or fewer';
@@ -151,6 +159,10 @@ export function TournamentSettingsModal({
     const footerChanged = formData.footerText.trim() !== (current.footerText || '');
     // Neither is bid mode — the auctioneer can switch modes mid-auction.
     const bidModeChanged = formData.bidMode !== (current.bidMode ?? 'admin_only');
+    // Nor is the public registration form.
+    const registrationChanged =
+      formData.registrationOpen !== (current.registrationOpen ?? false) ||
+      registrationFee !== (current.registrationFee ?? 0);
 
     try {
       await updateTournament({
@@ -158,7 +170,7 @@ export function TournamentSettingsModal({
         name: formData.name,
         description: formData.description || undefined,
         logoUrl: formData.logoUrl || undefined,
-        ...(settingsChanged || rulesChanged || footerChanged || bidModeChanged
+        ...(settingsChanged || rulesChanged || footerChanged || bidModeChanged || registrationChanged
           ? {
               settings: {
                 ...parsed,
@@ -169,6 +181,7 @@ export function TournamentSettingsModal({
                 ...(slabsChanged ? { incrementSlabs: nextSlabs } : {}),
                 ...(orderChanged ? { presentationOrder: rules.presentationOrder } : {}),
                 ...(squadRulesChanged ? { squadRules: nextSquadRules } : {}),
+                ...(registrationChanged ? { registrationOpen: formData.registrationOpen, registrationFee } : {}),
               },
             }
           : {}),
@@ -307,6 +320,21 @@ export function TournamentSettingsModal({
                 Optional. Shown under the Bid11Pro name on the live viewer page. Leave empty to hide.
               </p>
               {fieldError('footerText')}
+            </div>
+
+            <div className="rounded-lg border border-slate-700 p-3 space-y-3">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input type="checkbox" checked={formData.registrationOpen} onChange={(e) => setFormData({ ...formData, registrationOpen: e.target.checked })} />
+                Open player registration
+              </label>
+              <p className="text-xs text-slate-400 -mt-1">
+                Players sign up at /register/&lt;tournament&gt;; you approve each one under Registrations. Can be changed any time.
+              </p>
+              <div className="max-w-48">
+                <Label htmlFor="registrationFee">Registration fee (₹, 0 = free)</Label>
+                <Input id="registrationFee" type="number" min="0" step="50" value={formData.registrationFee} onChange={(e) => setFormData({ ...formData, registrationFee: e.target.value })} className="mt-2" />
+                {fieldError('registrationFee')}
+              </div>
             </div>
 
             <div>

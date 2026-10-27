@@ -6,6 +6,7 @@ import {
   OWNER_ONLY,
   requireTournamentRole,
 } from "./auth";
+import { assertTeamCapacity } from "./plans";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { deleteTeamMembershipData } from "./members";
 import { Doc } from "./_generated/dataModel";
@@ -98,6 +99,7 @@ export const create = mutation({
     if (isDuplicateTeamName(existingTeams, args.name)) {
       throw new Error(`Team "${args.name}" already exists in this tournament`);
     }
+    assertTeamCapacity(tournament, existingTeams.length);
 
     // Captain chosen from players: validate and derive display fields
     let captainFields = {

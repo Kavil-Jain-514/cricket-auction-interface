@@ -54,6 +54,8 @@ export const getPublicResults = query({
       photoUrl: p.photoUrl,
       categoryId: p.categoryId,
       soldPrice: p.soldPrice ?? 0,
+      // For "best value" (price ÷ base) on the squad cards.
+      basePrice: effectiveBasePrice(p, tournament.settings),
       teamId: p.teamId,
     });
 
@@ -71,6 +73,7 @@ export const getPublicResults = query({
         completedAt: tournament.updatedAt,
       },
       categories: tournament.settings.categories ?? [],
+      squadRules: tournament.settings.squadRules ?? [],
       teams: teams.map((team) => {
         const captain = team.captainPlayerId ? playersById.get(team.captainPlayerId) : undefined;
         return {

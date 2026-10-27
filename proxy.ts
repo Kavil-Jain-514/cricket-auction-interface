@@ -7,6 +7,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // a venue PC's Browser Source has no session.
 // /results/<tournamentId> (public results, shared on WhatsApp) is public too;
 // getPublicResults only returns data for completed, active tournaments.
+// /register/<tournamentId> (public player registration) is public too; the
+// form only works while the organiser has registration open.
 const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
   "/tournament(.*)",
