@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Radio, Copy, ExternalLink, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -47,8 +48,10 @@ export function BroadcastMenu({ auctionRoomId }: BroadcastMenuProps) {
         <span className="hidden sm:inline">Broadcast</span>
       </Button>
 
-      {open && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setOpen(false)}>
+      {/* Portalled to <body>: the console header's backdrop-blur would otherwise
+          become the containing block for this fixed overlay and trap it there. */}
+      {open && createPortal(
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-60 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setOpen(false)}>
           <div
             role="dialog"
             aria-modal="true"
@@ -125,7 +128,8 @@ export function BroadcastMenu({ auctionRoomId }: BroadcastMenuProps) {
               <p className="mt-2 text-xs text-slate-400">vMix: Add Input → Web Browser, same URL and size.</p>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

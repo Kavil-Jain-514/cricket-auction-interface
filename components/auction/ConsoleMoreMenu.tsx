@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { MoreVertical, Eraser, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -87,7 +88,8 @@ export function ConsoleMoreMenu({ auctionRoomId, currentPlayerName, bidCount }: 
         </div>
       )}
 
-      {dialogOpen && currentPlayerName && (
+      {/* Portalled to <body> so the header's backdrop-blur can't trap it. */}
+      {dialogOpen && currentPlayerName && createPortal(
         <div className="fixed inset-0 z-80 flex items-center justify-center bg-black/80 p-4" onClick={() => setDialogOpen(false)}>
           <div
             role="dialog"
@@ -116,7 +118,8 @@ export function ConsoleMoreMenu({ auctionRoomId, currentPlayerName, bidCount }: 
               </Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
