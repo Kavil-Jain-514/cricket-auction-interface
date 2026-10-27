@@ -157,6 +157,17 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_tournament_user", ["tournamentId", "userId"]),
 
+  // Console action results by client requestId (convex/idempotency.ts), so a
+  // retried placeBid / acceptBidRequest / finalizePlayerSale applies once.
+  bidRequestsSeen: defineTable({
+    key: v.string(), // "<kind>:<requestId>"
+    auctionRoomId: v.id("auctionRooms"),
+    result: v.any(),
+    createdAt: v.number(),
+  })
+    .index("by_room_key", ["auctionRoomId", "key"])
+    .index("by_createdAt", ["createdAt"]),
+
   // Razorpay orders for plan upgrades. Recorded when the order is created;
   // the signed webhook marks it paid and upgrades the plan (idempotent on
   // paymentRef). No card data is ever stored.

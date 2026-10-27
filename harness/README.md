@@ -56,6 +56,7 @@ NUM_VIEWERS=30 node harness/chaos.mjs
 | bid write → update, p99 | < 1200 ms | `viewer-load.mjs` |
 | client divergence after chaos | 0 | `chaos.mjs` |
 | duplicate bid acceptance | 0 | `chaos.mjs` |
+| retried bid after a 5s admin socket drop | applied once, 0 divergence | `admin-reconnect.mjs` |
 
 ## Owner bidding load (owner-load.mjs)
 
@@ -138,4 +139,17 @@ wait
 - **Chaos is stateful.** Without `CHAOS_ADVANCE` it only bids + restarts (leaves
   the player up). With it, players are consumed — run against a throwaway
   tournament and `restartAuction` afterward.
+```
+
+## Admin reconnect (admin-reconnect.mjs)
+
+Venue Wi-Fi drop on the **console**: each round sends a bid with a `requestId`,
+kills the admin socket immediately, waits `DROP_MS` (default 5000), reconnects
+and resends the same `requestId`. Passes when every round adds exactly one live
+bid and every viewer converges. Places real bids on the current player, so run
+it on staging.
+
+```bash
+CONVEX_URL=... ROOM_ID=... CONVEX_ADMIN_KEY=... ADMIN_EMAIL=... \
+ROUNDS=5 DROP_MS=5000 node harness/admin-reconnect.mjs
 ```

@@ -8,6 +8,7 @@ import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { formatCurrency, getErrorMessage } from '@/lib/utils';
 import { hotkeyBelongsToSomethingElse } from '@/lib/keyboard';
+import { newRequestId } from '@/lib/optimisticBid';
 
 interface IncomingRaisesTrayProps {
   auctionRoomId: Id<"auctionRooms">;
@@ -33,7 +34,8 @@ export function IncomingRaisesTray({ auctionRoomId }: IncomingRaisesTrayProps) {
   const accept = useCallback(async (requestId: Id<"bidRequests">) => {
     setBusyId(requestId);
     try {
-      const res = await acceptRequest({ requestId });
+      // idempotencyKey: a retried accept (dropped socket) applies once.
+      const res = await acceptRequest({ requestId, idempotencyKey: newRequestId() });
       if (!res.success) toast.error(res.reason);
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to accept raise'));

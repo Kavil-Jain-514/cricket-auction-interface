@@ -34,6 +34,7 @@ import { GoingOnceHelper } from '@/components/auction/GoingOnceHelper';
 import { useBidCountdown } from '@/hooks/useBidCountdown';
 import { BroadcastMenu } from '@/components/broadcast/BroadcastMenu';
 import { CategoryChip } from '@/components/players/CategoryChip';
+import { applyOptimisticBid, newRequestId } from '@/lib/optimisticBid';
 import { SetBanner } from '@/components/auction/SetBanner';
 import { ConsoleMoreMenu } from '@/components/auction/ConsoleMoreMenu';
 import { bidTimerSeconds, categoryFor, incrementFor } from '@/convex/bidRules';
@@ -150,7 +151,22 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     };
   }, [liveData, rosterData]);
 
-  const placeBid = useMutation(api.auctions.placeBid);
+  // Optimistic: the console shows the bid the moment it's tapped. Convex drops
+  // the guess when placeBid returns, so a rejected bid rolls back by itself.
+  const placeBid = useMutation(api.auctions.placeBid).withOptimisticUpdate((store, args) => {
+    const live = store.getQuery(api.auctions.getLiveAuction, { auctionRoomId: args.auctionRoomId });
+    if (!live?.auctionRoom.currentPlayerId) return;
+    const roster = store.getQuery(api.auctions.getAuctionRoster, {
+      tournamentId: live.auctionRoom.tournamentId,
+      currentPlayerId: live.auctionRoom.currentPlayerId,
+    });
+    const team = roster?.teams.find((t) => t._id === args.teamId) ?? null;
+    store.setQuery(
+      api.auctions.getLiveAuction,
+      { auctionRoomId: args.auctionRoomId },
+      applyOptimisticBid(live, args, team, Date.now()),
+    );
+  });
   const finalizePlayer = useMutation(api.auctions.finalizePlayerSale);
   const markFinalUnsold = useMutation(api.auctions.markPlayerFinalUnsold);
   const startNext = useMutation(api.auctions.startNextPlayer);
@@ -221,7 +237,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     const playerName = auctionData?.currentPlayer?.name ?? '';
     const playerPhotoUrl = auctionData?.currentPlayer?.photoUrl;
     try {
-      const res = (await finalizePlayer({ auctionRoomId })) as {
+      // requestId: a retried finalize (dropped socket) settles only once.
+      const res = (await finalizePlayer({ auctionRoomId, requestId: newRequestId() })) as {
         playerName?: string;
         teamName?: string | null;
         amount?: number;
@@ -535,7 +552,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       const res = await placeBid({
         auctionRoomId,
         teamId,
-        amount
+        amount,
+        // One id per tap: a retry of this same bid can never land twice.
+        requestId: newRequestId(),
       });
 
       if (res && typeof res === 'object' && 'success' in res) {
