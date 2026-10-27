@@ -89,6 +89,20 @@ The **frontend (Vercel)** and **backend (Convex)** deploy separately — check w
 - **A paid plan didn't apply:** Convex logs show `Razorpay <order>: <reason>` (unknown order, amount mismatch,
   already paid). Razorpay → Webhooks → resend is safe: replays are ignored.
 
+## Player registration (self sign-up)
+
+- Owner: Settings → General → *Open player registration*, optional fee. Share the form link from
+  Tournament → Registrations → *Copy form link* (`/register/<tournamentId>`).
+- Review under Registrations: *Ready* entries (paid, or free) can be approved one by one or with
+  *Approve all ready*; each becomes a pending player with the normal validation and plan limits. Possible
+  duplicates (same name + phone) are flagged. Reject needs a reason.
+- Photo uploads sign in Convex, so set these in the **Convex** env (not just Next.js):
+  `npx convex env set CLOUDINARY_CLOUD_NAME <name>`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
+  Without them the form still works, just without a photo.
+- Fees use the same Razorpay keys and the same webhook as plans; a fee payment carries `registrationId` in
+  its order notes.
+- Spam guards: a hidden honeypot field, and at most 3 sign-ups per phone number per tournament per day.
+
 ## Who to call
 
 | Role | Name | Contact |

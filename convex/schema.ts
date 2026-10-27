@@ -75,6 +75,9 @@ export default defineSchema({
       // Squad composition, per category or role (e.g. max 2 Marquee, min 1
       // Wicket Keeper). Enforced in applyBid; see squadRules.ts.
       squadRules: v.optional(v.array(squadRuleValidator)),
+      // Public self-registration (/register/<id>). Not locked while live.
+      registrationOpen: v.optional(v.boolean()),
+      registrationFee: v.optional(v.number()), // rupees; absent or 0 = free
     }),
     logoUrl: v.optional(v.string()),
     // Paid tier and its limits (convex/plans.ts). Set to Free on create;
@@ -167,6 +170,35 @@ export default defineSchema({
   })
     .index("by_room_key", ["auctionRoomId", "key"])
     .index("by_createdAt", ["createdAt"]),
+
+  // Self-registrations from the public form. "paid" means ready for review
+  // (fee paid, or no fee); approval creates the player.
+  registrations: defineTable({
+    tournamentId: v.id("tournaments"),
+    name: v.string(),
+    age: v.number(),
+    role: v.array(v.string()),
+    battingBowlingHand: v.union(v.literal("Right-handed"), v.literal("Left-handed")),
+    phoneNumber: v.string(), // normalised 10 digits
+    photoUrl: v.optional(v.string()),
+    jerseyNumber: v.optional(v.number()),
+    jerseyName: v.optional(v.string()),
+    tshirtSize: v.optional(
+      v.union(v.literal("XS"), v.literal("S"), v.literal("M"), v.literal("L"), v.literal("XL"), v.literal("XXL"), v.literal("3XL"), v.literal("4XL")),
+    ),
+    consentWhatsApp: v.boolean(),
+    status: v.union(v.literal("pending_payment"), v.literal("paid"), v.literal("approved"), v.literal("rejected")),
+    fee: v.number(), // rupees at submission
+    razorpayOrderId: v.optional(v.string()),
+    paymentRef: v.optional(v.string()),
+    rejectReason: v.optional(v.string()),
+    playerId: v.optional(v.id("players")),
+    createdAt: v.number(),
+    reviewedAt: v.optional(v.number()),
+  })
+    .index("by_tournament", ["tournamentId"])
+    .index("by_tournament_phone", ["tournamentId", "phoneNumber"])
+    .index("by_order", ["razorpayOrderId"]),
 
   // Razorpay orders for plan upgrades. Recorded when the order is created;
   // the signed webhook marks it paid and upgrades the plan (idempotent on

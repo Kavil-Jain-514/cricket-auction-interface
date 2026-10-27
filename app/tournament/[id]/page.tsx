@@ -5,7 +5,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye, Layers, Link2, EyeOff } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye, Layers, Link2, EyeOff, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
@@ -405,6 +405,15 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                   <Link2 className="w-4 h-4 mr-2" />
                   Copy Auction Link
                 </Button>
+              )}
+
+              {canManage && (
+                <Link href={`/tournament/${tournamentId}/registrations`}>
+                  <Button variant="outline" className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white h-11 px-4 sm:px-5 text-sm">
+                    <ClipboardList className="w-4 h-4 mr-2" />
+                    Registrations
+                  </Button>
+                </Link>
               )}
 
               {/* Public results page — only exists once completed and active. */}

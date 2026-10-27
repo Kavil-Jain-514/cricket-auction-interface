@@ -1,4 +1,5 @@
-// convex/http.ts - HTTP endpoints. Razorpay posts plan payments here:
+// convex/http.ts - HTTP endpoints. Razorpay posts plan and registration-fee
+// payments here:
 //   <CONVEX_SITE_URL>/razorpay/webhook   (set RAZORPAY_WEBHOOK_SECRET in Convex env)
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
@@ -26,7 +27,7 @@ http.route({
       event?: string;
       payload?: {
         payment?: { entity?: { id?: string; amount?: number; order_id?: string } };
-        order?: { entity?: { id?: string; notes?: { tournamentId?: string } } };
+        order?: { entity?: { id?: string; notes?: { tournamentId?: string; registrationId?: string } } };
       };
     };
     if (event.event !== "order.paid") {
@@ -41,13 +42,22 @@ http.route({
     }
 
     // 200 even when not applied, so Razorpay doesn't retry a payment we have
-    // deliberately ignored (mismatch) or already applied (replay).
-    const result = await ctx.runMutation(internal.payments.applyRazorpayPayment, {
-      razorpayOrderId,
-      paymentId: payment.id,
-      amount: payment.amount,
-      notesTournamentId: order?.notes?.tournamentId,
-    });
+    // deliberately ignored (mismatch) or already applied (replay). Orders for
+    // a registration fee carry notes.registrationId; plan upgrades don't.
+    const registrationId = order?.notes?.registrationId;
+    const result = registrationId
+      ? await ctx.runMutation(internal.registrations.applyRegistrationPayment, {
+          razorpayOrderId,
+          paymentId: payment.id,
+          amount: payment.amount,
+          notesRegistrationId: registrationId,
+        })
+      : await ctx.runMutation(internal.payments.applyRazorpayPayment, {
+          razorpayOrderId,
+          paymentId: payment.id,
+          amount: payment.amount,
+          notesTournamentId: order?.notes?.tournamentId,
+        });
     if (!result.applied) console.warn(`Razorpay ${razorpayOrderId}: ${result.reason}`);
     return Response.json(result);
   }),

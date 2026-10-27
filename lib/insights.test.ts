@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { bestValueBuy, budgetPace, fairValueBand, needsSummary, roleBalance } from "./insights";
 
-const wk = { role: ["Wicket Keeper"] };
 const bat = { role: ["Batter"] };
 const bowl = { role: "Bowler" };
 

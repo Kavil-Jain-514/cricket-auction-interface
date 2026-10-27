@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, MutationCtx, query } from "./_generated/server";
 import {
   isTournamentStaff,
   logAdminAction,
@@ -10,7 +10,7 @@ import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { normalizePhone, validatePlayerFields } from "./validation";
 import { categoryFor, effectiveBasePrice } from "./bidRules";
 import { assertPlayerCapacity } from "./plans";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 // Shared validator for T-shirt size — reused across create, bulkImport, and update
 const tshirtSizeValidator = v.optional(
@@ -35,6 +35,63 @@ function unknownCategoryError(
   return categoryFor(categoryId, tournament.settings.categories)
     ? null
     : "Unknown category — add it in Tournament Settings first";
+}
+
+/** Fields a new player is created with (players:create, registration approval). */
+export type NewPlayerFields = {
+  name: string;
+  age: number;
+  photoUrl?: string;
+  role: string[];
+  battingBowlingHand: "Right-handed" | "Left-handed";
+  basePrice?: number;
+  categoryId?: string;
+  jerseyNumber?: number;
+  jerseyName?: string;
+  phoneNumber?: string;
+  tshirtSize?: Doc<"players">["tshirtSize"];
+};
+
+/**
+ * Validate and insert one pending player with the next player number: the
+ * shared rules (convex/validation.ts), a known category and the plan's player
+ * limit. Callers check access, resync counts and write the audit row.
+ */
+export async function insertValidatedPlayer(
+  ctx: MutationCtx,
+  tournament: Doc<"tournaments">,
+  fields: NewPlayerFields,
+): Promise<Id<"players">> {
+  const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
+  if (errors.length > 0) throw new Error(errors[0].message);
+  const categoryError = unknownCategoryError(fields.categoryId, tournament);
+  if (categoryError) throw new Error(categoryError);
+
+  const existingPlayers = await ctx.db
+    .query("players")
+    .withIndex("by_tournament", (q) => q.eq("tournamentId", tournament._id))
+    .collect();
+  assertPlayerCapacity(tournament, existingPlayers.length, 1);
+  const nextPlayerNumber = existingPlayers.reduce((max, p) => Math.max(max, p.playerNumber || 0), 0) + 1;
+
+  return await ctx.db.insert("players", {
+    tournamentId: tournament._id,
+    name: fields.name,
+    phoneNumber,
+    age: fields.age,
+    photoUrl: fields.photoUrl,
+    role: fields.role,
+    battingBowlingHand: fields.battingBowlingHand,
+    basePrice: fields.basePrice,
+    categoryId: fields.categoryId,
+    jerseyNumber: fields.jerseyNumber,
+    jerseyName: fields.jerseyName,
+    playerNumber: nextPlayerNumber,
+    tshirtSize: fields.tshirtSize,
+    auctionStatus: "pending",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
 }
 
 /** Create a single player for a tournament. Auto-assigns the next sequential playerNumber. */
@@ -64,48 +121,7 @@ export const create = mutation({
     }
     const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
-    // Validation (shared with update and bulkImport — convex/validation.ts)
-    const { errors, phoneNumber } = validatePlayerFields(
-      args,
-      tournament.settings.basePurse,
-    );
-    if (errors.length > 0) throw new Error(errors[0].message);
-    const categoryError = unknownCategoryError(args.categoryId, tournament);
-    if (categoryError) throw new Error(categoryError);
-
-    // Get the next player number for this tournament
-    const existingPlayers = await ctx.db
-      .query("players")
-      .withIndex("by_tournament", (q) =>
-        q.eq("tournamentId", args.tournamentId),
-      )
-      .collect();
-
-    assertPlayerCapacity(tournament, existingPlayers.length, 1);
-
-    const maxPlayerNumber = existingPlayers.reduce((max, player) => {
-      return Math.max(max, player.playerNumber || 0);
-    }, 0);
-    const nextPlayerNumber = maxPlayerNumber + 1;
-
-    const playerId = await ctx.db.insert("players", {
-      tournamentId: args.tournamentId,
-      name: args.name,
-      phoneNumber,
-      age: args.age,
-      photoUrl: args.photoUrl,
-      role: args.role,
-      battingBowlingHand: args.battingBowlingHand,
-      basePrice: args.basePrice,
-      categoryId: args.categoryId,
-      jerseyNumber: args.jerseyNumber,
-      jerseyName: args.jerseyName,
-      playerNumber: nextPlayerNumber,
-      tshirtSize: args.tshirtSize,
-      auctionStatus: "pending",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    const playerId = await insertValidatedPlayer(ctx, tournament, args);
 
     // New pending player — refresh denormalized counts / min pending base price.
     await syncTournamentAuctionCounts(ctx, args.tournamentId);

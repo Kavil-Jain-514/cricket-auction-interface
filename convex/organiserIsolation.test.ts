@@ -112,8 +112,12 @@ async function seed(t: T) {
     });
     const member = await ctx.db.insert("teamMembers", { teamId: teamA1, tournamentId: tA, userId: auctioneerA, role: "owner", createdAt: now });
     const invite = await ctx.db.insert("teamInvites", { teamId: teamA2, tournamentId: tA, tokenHash: "h", expiresAt: now + 86_400_000, createdBy: orgA });
+    const registration = await ctx.db.insert("registrations", {
+      tournamentId: tA, name: "Applicant", age: 20, role: ["Batter"], battingBowlingHand: "Right-handed",
+      phoneNumber: "9000000009", consentWhatsApp: false, status: "paid", fee: 0, createdAt: now,
+    });
     await syncTournamentAuctionCounts(ctx, tA);
-    return { orgA, orgB, auctioneerA, tA, tB, teamA1, teamA2, pending, sold, onBlock, roomA, request, member, invite, staffAuctioneer };
+    return { registration, orgA, orgB, auctioneerA, tA, tB, teamA1, teamA2, pending, sold, onBlock, roomA, request, member, invite, staffAuctioneer };
   });
 }
 
@@ -152,6 +156,9 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "members:revokeInvite": (as, fx) => as.mutation(api.members.revokeInvite, { inviteId: fx.invite }),
   "payments:recordOrder": (as, fx) =>
     as.mutation(api.payments.recordOrder, { tournamentId: fx.tA, tier: "club", razorpayOrderId: "order_x", amount: 99_900 }),
+  "registrations:approve": (as, fx) => as.mutation(api.registrations.approve, { registrationId: fx.registration }),
+  "registrations:bulkApprove": (as, fx) => as.mutation(api.registrations.bulkApprove, { tournamentId: fx.tA }),
+  "registrations:reject": (as, fx) => as.mutation(api.registrations.reject, { registrationId: fx.registration, reason: "x" }),
   "players:create": (as, fx) => as.mutation(api.players.create, { tournamentId: fx.tA, ...newPlayer }),
   "players:bulkImport": (as, fx) => as.mutation(api.players.bulkImport, { tournamentId: fx.tA, players: [newPlayer] }),
   "players:update": (as, fx) => as.mutation(api.players.update, { id: fx.pending, name: "Renamed" }),
@@ -175,13 +182,15 @@ const NOT_STAFF_SCOPED: Record<string, string> = {
   "auctions:raiseBid": "team owners bidding from their paddle; checked by team membership",
   "members:claimInvite": "claimed with a one-time invite token",
   "plans:grantPlan": "super-admin only (tested in plans.test.ts)",
+  "registrations:submit": "public registration form (anonymous; tested in registrations.test.ts)",
+  "registrations:recordOrder": "anonymous registrant's fee order; only the signed webhook marks it paid",
   "tournaments:create": "any signed-in user; they become the owner",
 };
 
 /** Every table a tournament's data lives in, for a before/after comparison. */
 async function snapshot(t: T) {
   return await t.run(async (ctx) => {
-    const tables = ["tournaments", "teams", "players", "auctionRooms", "liveBids", "bidRequests", "teamMembers", "teamInvites", "tournamentStaff", "groupDraws", "paymentOrders"] as const;
+    const tables = ["tournaments", "teams", "players", "auctionRooms", "liveBids", "bidRequests", "teamMembers", "teamInvites", "tournamentStaff", "groupDraws", "paymentOrders", "registrations"] as const;
     const out: Record<string, unknown> = {};
     for (const table of tables) out[table] = await ctx.db.query(table).collect();
     return JSON.stringify(out);

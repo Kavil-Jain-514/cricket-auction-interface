@@ -57,6 +57,8 @@ export const create = mutation({
       incrementSlabs: v.optional(v.array(incrementSlabValidator)),
       presentationOrder: presentationOrderValidator,
       squadRules: v.optional(v.array(squadRuleValidator)),
+      registrationOpen: v.optional(v.boolean()),
+      registrationFee: v.optional(v.number()),
     }),
   },
   handler: async (ctx, args) => {
@@ -305,6 +307,9 @@ export const update = mutation({
         incrementSlabs: v.optional(v.array(incrementSlabValidator)),
         presentationOrder: presentationOrderValidator,
         squadRules: v.optional(v.array(squadRuleValidator)),
+        // Not locked: registration can open or close at any time.
+        registrationOpen: v.optional(v.boolean()),
+        registrationFee: v.optional(v.number()),
       }),
     ),
   },
@@ -344,6 +349,22 @@ export const update = mutation({
     const bidMode = args.settings?.bidMode ?? tournament.settings.bidMode;
     if (bidMode !== tournament.settings.bidMode) {
       nextSettings = { ...(nextSettings ?? tournament.settings), bidMode };
+    }
+
+    // Nor are the public registration form settings.
+    const registrationOpen = args.settings?.registrationOpen ?? tournament.settings.registrationOpen;
+    const registrationFee = args.settings?.registrationFee ?? tournament.settings.registrationFee;
+    if (
+      registrationFee !== undefined &&
+      (!Number.isInteger(registrationFee) || registrationFee < 0 || registrationFee > 100_000)
+    ) {
+      throw new Error("Registration fee must be a whole number of rupees from 0 to 1,00,000");
+    }
+    if (
+      registrationOpen !== tournament.settings.registrationOpen ||
+      registrationFee !== tournament.settings.registrationFee
+    ) {
+      nextSettings = { ...(nextSettings ?? tournament.settings), registrationOpen, registrationFee };
     }
 
     if (args.settings && settingsChanged(tournament.settings, args.settings)) {
@@ -463,6 +484,8 @@ export const update = mutation({
           args.settings.presentationOrder ??
           tournament.settings.presentationOrder,
         squadRules,
+        registrationOpen,
+        registrationFee,
       };
 
       // Base purse is denormalized onto each team's purse. When it changes,

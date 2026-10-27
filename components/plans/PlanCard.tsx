@@ -8,25 +8,7 @@ import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { PLAN_ORDER, PLAN_TIERS, upgradePrice, type PlanTier } from '@/convex/planTiers';
 import { Button } from '@/components/ui/button';
-
-declare global {
-  interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
-  }
-}
-
-const CHECKOUT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
-
-function loadCheckout(): Promise<void> {
-  if (window.Razorpay) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = CHECKOUT_SRC;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Could not load Razorpay'));
-    document.body.appendChild(script);
-  });
-}
+import { openRazorpayCheckout } from '@/lib/razorpayCheckout';
 
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN')}`;
 
@@ -90,20 +72,17 @@ export function PlanCard({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Could not start the payment');
-      await loadCheckout();
-      new window.Razorpay!({
-        key: data.keyId,
-        order_id: data.orderId,
+      await openRazorpayCheckout({
+        keyId: data.keyId,
+        orderId: data.orderId,
         amount: data.amount,
         currency: data.currency,
-        name: 'Bid11Pro',
         description: `${PLAN_TIERS[tier].label} plan · ${tournamentName}`,
-        theme: { color: '#2563eb' },
-        handler: () => {
+        onPaid: () => {
           setPicking(false);
           toast.success('Payment received. Your plan updates in a few seconds.');
         },
-      }).open();
+      });
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
