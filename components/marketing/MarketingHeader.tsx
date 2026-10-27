@@ -4,7 +4,7 @@ import Link from "next/link";
 import { MenuIcon } from "lucide-react";
 
 import { buttonVariants } from "@/components/ds/button";
-import { Logo } from "@/components/marketing/Logo";
+import { Logo } from "@/components/ds/logo";
 import { MARKETING_PAGES } from "@/lib/marketing/content";
 
 const NAV = MARKETING_PAGES.filter((p) => p.path !== "/");

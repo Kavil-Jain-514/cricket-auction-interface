@@ -2,7 +2,7 @@
 // every marketing page shares.
 import Link from "next/link";
 
-import { Logo } from "@/components/marketing/Logo";
+import { Logo } from "@/components/ds/logo";
 import { MARKETING_PAGES } from "@/lib/marketing/content";
 
 export function MarketingFooter() {

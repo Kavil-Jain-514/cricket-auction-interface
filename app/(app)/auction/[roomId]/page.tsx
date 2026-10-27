@@ -11,6 +11,7 @@ import {
   Users, Gavel, RotateCcw, RotateCw, Play, Pause, RefreshCcw,
   Eye, Settings2, UserX, AlertTriangle, LogIn
 } from 'lucide-react';
+import { Logo } from '@/components/ds/logo';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { formatCurrency, getErrorMessage, getRoleDisplay } from '@/lib/utils';
@@ -1033,10 +1034,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               /* Viewer Mode: Bid11Pro Branding */
               <div className="flex items-center gap-3 sm:gap-5">
                 {/* Bid11Pro Branding */}
-                <div className="hidden sm:flex flex-col">
-                  <span className="text-lg sm:text-xl font-extrabold tracking-tight bg-linear-to-r from-yellow-400 via-orange-400 to-orange-500 bg-clip-text text-transparent leading-tight">
-                    Bid11Pro
-                  </span>
+                <div className="hidden sm:flex flex-col gap-1">
+                  <Logo size="sm" />
                   {auctionData.tournament?.settings?.footerText && (
                     <span className="text-[10px] sm:text-[11px] text-slate-400 leading-tight">
                       {auctionData.tournament.settings.footerText}
