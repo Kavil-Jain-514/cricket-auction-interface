@@ -176,6 +176,10 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
     }
   };
 
+  // Older deployments return no categories or sponsors.
+  const categories = info?.categories ?? [];
+  const sponsors = info?.sponsors ?? [];
+
   if (info === undefined) {
     return <main className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500" aria-label="Loading" /></main>;
   }
@@ -197,11 +201,11 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
               {info?.description && <p className="mt-1 text-sm text-slate-300 line-clamp-3">{info.description}</p>}
             </div>
           </div>
-          {info && info.sponsors.length > 0 && (
+          {sponsors.length > 0 && (
             <div className="border-t border-white/10 bg-black/20 px-5 py-3">
               <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-widest text-slate-400 sm:text-left">Supported by</p>
               <ul className="flex flex-wrap items-center justify-center gap-3 sm:justify-start">
-                {info.sponsors.map((s) => (
+                {sponsors.map((s) => (
                   <li key={s.name} className="flex items-center gap-2 rounded-lg bg-white/5 px-2.5 py-1.5">
                     {s.logoUrl && <ImgWithFallback src={s.logoUrl} alt="" className="h-7 w-7 rounded object-contain" fallback={null} />}
                     <span className="text-sm font-medium text-slate-200">{s.name}</span>
@@ -348,12 +352,12 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
           </div>
         </fieldset>
 
-        {info.categories.length > 0 && (
+        {categories.length > 0 && (
           <fieldset>
             <legend className="text-sm font-medium text-slate-300">Your category</legend>
             <p className="text-xs text-slate-500">Pick the group you belong to. The organiser can change it.</p>
             <div className="mt-2 flex flex-wrap gap-2">
-              {info.categories.map((c) => {
+              {categories.map((c) => {
                 const on = form.categoryId === c.id;
                 return (
                   <button
