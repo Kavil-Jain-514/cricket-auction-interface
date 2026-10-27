@@ -1,8 +1,10 @@
 // convex/registrations.ts - Public player registration (/register/<id>).
 // Anyone can submit while the organiser has registration open; an optional
-// fee is paid through Razorpay (the signed webhook in http.ts marks it paid);
-// the organiser approves, which creates the player through the same
-// validation as players:create. Registrants can never set auction fields.
+// fee is paid by scanning the organiser's QR and uploading a screenshot, in
+// person (the owner marks it paid), or through Razorpay (the signed webhook
+// in http.ts marks it paid). The organiser approves, which creates the
+// player through the same validation as players:create. Registrants may pick
+// a category; they can never set auction fields such as price or status.
 import { v } from "convex/values";
 import { action, internalMutation, mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -31,7 +33,19 @@ function playerPhone(p: Doc<"players">): string | undefined {
   return phone.ok ? phone.phone : p.phoneNumber;
 }
 
-/** Name, logo, fee and whether the form is open. Public; nothing private. */
+const isUploadedImage = (url: string) => url.startsWith("https://res.cloudinary.com/");
+
+/** Throws unless `categoryId` is absent or one of the tournament's categories. */
+function assertKnownCategory(tournament: Doc<"tournaments">, categoryId: string | undefined) {
+  if (categoryId !== undefined && !(tournament.settings.categories ?? []).some((c) => c.id === categoryId)) {
+    throw new Error("Pick a category from the tournament's list");
+  }
+}
+
+/**
+ * Name, logo, sponsors, fee, payment QR, categories and whether the form is
+ * open. Public and identity-free; nothing private.
+ */
 export const getPublicInfo = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
@@ -39,9 +53,15 @@ export const getPublicInfo = query({
     if (!tournament || tournament.isActive === false) return null;
     return {
       name: tournament.name,
+      description: tournament.description,
       logoUrl: tournament.logoUrl,
       open: tournament.settings.registrationOpen === true && tournament.status !== "completed",
       fee: tournament.settings.registrationFee ?? 0,
+      paymentQrUrl: tournament.settings.paymentQrUrl,
+      sponsors: tournament.sponsors ?? [],
+      categories: [...(tournament.settings.categories ?? [])]
+        .sort((a, b) => a.order - b.order)
+        .map((c) => ({ id: c.id, name: c.name })),
     };
   },
 });
@@ -82,6 +102,7 @@ export const submit = mutation({
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
     tshirtSize,
+    categoryId: v.optional(v.string()),
     consentWhatsApp: v.boolean(),
     website: v.string(),
   },
@@ -93,14 +114,15 @@ export const submit = mutation({
     }
     if (args.website.trim() !== "") return { success: true as const, needsPayment: false, fee: 0 };
 
-    const { website: _honeypot, consentWhatsApp, tournamentId, ...fields } = args;
+    const { website: _honeypot, consentWhatsApp, tournamentId, categoryId, ...fields } = args;
     const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
     if (errors.length > 0) throw new Error(errors[0].message);
     if (!phoneNumber) throw new Error("Phone number is required");
     if (fields.role.length === 0) throw new Error("Choose at least one role");
-    if (fields.photoUrl && !fields.photoUrl.startsWith("https://res.cloudinary.com/")) {
+    if (fields.photoUrl && !isUploadedImage(fields.photoUrl)) {
       throw new Error("Upload your photo with the form's photo button");
     }
+    assertKnownCategory(tournament, categoryId);
 
     const now = Date.now();
     const samePhone = await ctx.db
@@ -129,6 +151,7 @@ export const submit = mutation({
       name: fields.name.trim(),
       tournamentId,
       phoneNumber,
+      categoryId,
       consentWhatsApp,
       status: fee > 0 ? "pending_payment" : "paid",
       fee,
@@ -169,8 +192,82 @@ export const applyRegistrationPayment = internalMutation({
       return { applied: false, reason: "registration mismatch" };
     }
     if (args.amount !== registration.fee * 100) return { applied: false, reason: "amount mismatch" };
-    await ctx.db.patch(registration._id, { status: "paid", paymentRef: args.paymentId });
+    await ctx.db.patch(registration._id, { status: "paid", paymentMethod: "razorpay", paymentRef: args.paymentId });
     return { applied: true };
+  },
+});
+
+/**
+ * The registrant paid by scanning the tournament's QR and uploads the
+ * screenshot. Public (registrants are anonymous): it only moves an unpaid
+ * registration to review, and the owner checks the screenshot before
+ * approving.
+ */
+export const submitPaymentProof = mutation({
+  args: { registrationId: v.id("registrations"), proofUrl: v.string() },
+  handler: async (ctx, args) => {
+    const registration = await ctx.db.get(args.registrationId);
+    if (!registration) throw new Error("Registration not found");
+    if (registration.status !== "pending_payment") throw new Error("Nothing to pay for this registration");
+    const tournament = await ctx.db.get(registration.tournamentId);
+    if (!tournament?.settings.paymentQrUrl) throw new Error("This tournament has no payment QR. Pay the organiser directly.");
+    if (!isUploadedImage(args.proofUrl)) throw new Error("Upload the payment screenshot with the form's upload button");
+    await ctx.db.patch(args.registrationId, { status: "paid", paymentMethod: "qr", paymentProofUrl: args.proofUrl });
+    return { success: true };
+  },
+});
+
+/**
+ * The registrant will pay the organiser in person. The entry stays unpaid
+ * until an owner marks the fee received (markPaid). Public, like submit.
+ */
+export const chooseOfflinePayment = mutation({
+  args: { registrationId: v.id("registrations") },
+  handler: async (ctx, args) => {
+    const registration = await ctx.db.get(args.registrationId);
+    if (!registration) throw new Error("Registration not found");
+    if (registration.status !== "pending_payment") throw new Error("Nothing to pay for this registration");
+    await ctx.db.patch(args.registrationId, { paymentMethod: "offline" });
+    return { success: true };
+  },
+});
+
+/** The owner received the fee in person. Owners only; audited. */
+export const markPaid = mutation({
+  args: { registrationId: v.id("registrations") },
+  handler: async (ctx, args) => {
+    const registration = await ctx.db.get(args.registrationId);
+    if (!registration) throw new Error("Registration not found");
+    const admin = await requireTournamentRole(ctx, registration.tournamentId, OWNER_ONLY);
+    if (registration.status !== "pending_payment") throw new Error("Already paid");
+    await ctx.db.patch(args.registrationId, { status: "paid", paymentMethod: "offline" });
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "mark_registration_paid",
+      targetType: "registration",
+      targetId: args.registrationId,
+      previousData: { status: registration.status },
+      newData: { status: "paid", paymentMethod: "offline", fee: registration.fee },
+      tournamentId: registration.tournamentId,
+    });
+    return { success: true };
+  },
+});
+
+/** Change (or clear) a registrant's self-selected category before approval. */
+export const setCategory = mutation({
+  args: { registrationId: v.id("registrations"), categoryId: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const registration = await ctx.db.get(args.registrationId);
+    if (!registration) throw new Error("Registration not found");
+    await requireTournamentRole(ctx, registration.tournamentId, OWNER_ONLY);
+    const tournament = await ctx.db.get(registration.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+    assertKnownCategory(tournament, args.categoryId);
+    if (registration.status === "approved") throw new Error("Already approved; change the player's category instead");
+    await ctx.db.patch(args.registrationId, { categoryId: args.categoryId });
+    return { success: true };
   },
 });
 
@@ -219,8 +316,13 @@ async function approveOne(ctx: MutationCtx, registration: Doc<"registrations">, 
     throw new Error(`${registration.name} is already a player`);
   }
 
+  // A category removed since they registered is dropped, not an error.
+  const categoryId = (tournament.settings.categories ?? []).some((c) => c.id === registration.categoryId)
+    ? registration.categoryId
+    : undefined;
   // Same validation, category and plan-limit rules as players:create.
   const playerId = await insertValidatedPlayer(ctx, tournament, {
+    categoryId,
     name: registration.name,
     age: registration.age,
     role: registration.role,

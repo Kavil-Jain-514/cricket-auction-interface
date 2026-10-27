@@ -6,6 +6,7 @@ import {
   planTierValidator,
   planValidator,
   presentationOrderValidator,
+  sponsorValidator,
   squadRuleValidator,
 } from "./ruleValidators";
 
@@ -15,6 +16,9 @@ export default defineSchema({
     email: v.string(),
     name: v.optional(v.string()),
     role: v.optional(v.union(v.literal("admin"), v.literal("user"))), // Default: user
+    // Asked once after sign-up. "team_owner" can request a team in a
+    // tournament (teamRequests). Absent = not asked yet.
+    accountType: v.optional(v.union(v.literal("team_owner"), v.literal("visitor"))),
     createdAt: v.number(),
   }).index("by_email", ["email"]),
 
@@ -78,8 +82,12 @@ export default defineSchema({
       // Public self-registration (/register/<id>). Not locked while live.
       registrationOpen: v.optional(v.boolean()),
       registrationFee: v.optional(v.number()), // rupees; absent or 0 = free
+      // UPI QR the registrant scans to pay the fee; they upload a screenshot.
+      paymentQrUrl: v.optional(v.string()),
     }),
     logoUrl: v.optional(v.string()),
+    // Shown on the public registration form. Not a locked setting.
+    sponsors: v.optional(v.array(sponsorValidator)),
     // Paid tier and its limits (convex/plans.ts). Set to Free on create;
     // absent on tournaments from before plans, which stay unlimited.
     plan: v.optional(planValidator),
@@ -186,11 +194,18 @@ export default defineSchema({
     tshirtSize: v.optional(
       v.union(v.literal("XS"), v.literal("S"), v.literal("M"), v.literal("L"), v.literal("XL"), v.literal("XXL"), v.literal("3XL"), v.literal("4XL")),
     ),
+    // Self-selected settings.categories[].id; the owner can change it.
+    categoryId: v.optional(v.string()),
     consentWhatsApp: v.boolean(),
     status: v.union(v.literal("pending_payment"), v.literal("paid"), v.literal("approved"), v.literal("rejected")),
     fee: v.number(), // rupees at submission
     razorpayOrderId: v.optional(v.string()),
     paymentRef: v.optional(v.string()),
+    // How the fee was paid. "qr": the registrant uploaded a screenshot
+    // (paymentProofUrl) for the owner to check. "offline": in person; stays
+    // pending_payment until the owner marks it paid.
+    paymentMethod: v.optional(v.union(v.literal("razorpay"), v.literal("qr"), v.literal("offline"))),
+    paymentProofUrl: v.optional(v.string()),
     rejectReason: v.optional(v.string()),
     playerId: v.optional(v.id("players")),
     createdAt: v.number(),
@@ -199,6 +214,27 @@ export default defineSchema({
     .index("by_tournament", ["tournamentId"])
     .index("by_tournament_phone", ["tournamentId", "phoneNumber"])
     .index("by_order", ["razorpayOrderId"]),
+
+  // Teams requested by self-declared team owners (users.accountType
+  // "team_owner"). The tournament's owner approves, which creates the team
+  // and makes the requester its owner member.
+  teamRequests: defineTable({
+    tournamentId: v.id("tournaments"),
+    userId: v.id("users"),
+    name: v.string(),
+    ownerName: v.string(),
+    sponsorName: v.optional(v.string()),
+    logoUrl: v.optional(v.string()),
+    colorPrimary: v.string(),
+    colorSecondary: v.string(),
+    status: v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected")),
+    rejectReason: v.optional(v.string()),
+    teamId: v.optional(v.id("teams")),
+    createdAt: v.number(),
+    reviewedAt: v.optional(v.number()),
+  })
+    .index("by_tournament", ["tournamentId"])
+    .index("by_user", ["userId"]),
 
   // Razorpay orders for plan upgrades. Recorded when the order is created;
   // the signed webhook marks it paid and upgrades the plan (idempotent on

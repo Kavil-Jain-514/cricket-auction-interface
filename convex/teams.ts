@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import {
   isTournamentStaff,
   logAdminAction,
@@ -9,7 +9,7 @@ import {
 import { assertTeamCapacity } from "./plans";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { deleteTeamMembershipData } from "./members";
-import { Doc } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 import { toPublicPlayer } from "./projections";
 import { validateOwnerName, validateTeamName } from "./validation";
 
@@ -53,6 +53,84 @@ function isDuplicateTeamName(
   );
 }
 
+type NewTeamFields = {
+  name: string;
+  ownerName: string;
+  sponsorName?: string;
+  logoUrl?: string;
+  colorPrimary: string;
+  colorSecondary: string;
+  captainPlayerId?: Id<"players">;
+  captainName?: string;
+  captainPhotoUrl?: string;
+  captainAge?: number;
+  captainRole?: Doc<"teams">["captainRole"];
+  captainHand?: Doc<"teams">["captainHand"];
+};
+
+/**
+ * Validate and insert one team with a full purse: the shared name rules, a
+ * unique name, the plan's team limit and a free captain. Callers check
+ * access and write the audit row. Used by create and teamRequests:approve.
+ */
+export async function insertValidatedTeam(
+  ctx: MutationCtx,
+  tournament: Doc<"tournaments">,
+  fields: NewTeamFields,
+): Promise<Id<"teams">> {
+  // Validation (shared with update — convex/validation.ts)
+  const error =
+    validateTeamName(fields.name) ?? validateOwnerName(fields.ownerName);
+  if (error) throw new Error(error);
+
+  // Check for duplicate team name in tournament
+  const existingTeams = await ctx.db
+    .query("teams")
+    .withIndex("by_tournament", (q) => q.eq("tournamentId", tournament._id))
+    .collect();
+
+  if (isDuplicateTeamName(existingTeams, fields.name)) {
+    throw new Error(`Team "${fields.name}" already exists in this tournament`);
+  }
+  assertTeamCapacity(tournament, existingTeams.length);
+
+  // Captain chosen from players: validate and derive display fields
+  let captainFields = {
+    captainName: fields.captainName,
+    captainPhotoUrl: fields.captainPhotoUrl,
+    captainAge: fields.captainAge,
+    captainRole: fields.captainRole,
+    captainHand: fields.captainHand,
+  };
+  if (fields.captainPlayerId) {
+    const captain = await ctx.db.get(fields.captainPlayerId);
+    if (!captain) throw new Error("Selected captain player not found");
+    if (captain.tournamentId !== tournament._id) {
+      throw new Error("Captain must be a player in this tournament");
+    }
+    if (existingTeams.some((t) => t.captainPlayerId === fields.captainPlayerId)) {
+      throw new Error(`${captain.name} is already the captain of another team`);
+    }
+    captainFields = deriveCaptainFields(captain);
+  }
+
+  return await ctx.db.insert("teams", {
+    tournamentId: tournament._id,
+    name: fields.name,
+    ownerName: fields.ownerName,
+    sponsorName: fields.sponsorName,
+    logoUrl: fields.logoUrl,
+    colorPrimary: fields.colorPrimary,
+    colorSecondary: fields.colorSecondary,
+    captainPlayerId: fields.captainPlayerId,
+    ...captainFields,
+    purseRemaining: tournament.settings.basePurse,
+    purseSpent: 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
 export const create = mutation({
   args: {
     tournamentId: v.id("tournaments"),
@@ -79,67 +157,10 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
-    // Validation (shared with update — convex/validation.ts)
-    const error =
-      validateTeamName(args.name) ?? validateOwnerName(args.ownerName);
-    if (error) throw new Error(error);
-
-    // Get tournament to get base purse
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
-
-    // Check for duplicate team name in tournament
-    const existingTeams = await ctx.db
-      .query("teams")
-      .withIndex("by_tournament", (q) =>
-        q.eq("tournamentId", args.tournamentId),
-      )
-      .collect();
-
-    if (isDuplicateTeamName(existingTeams, args.name)) {
-      throw new Error(`Team "${args.name}" already exists in this tournament`);
-    }
-    assertTeamCapacity(tournament, existingTeams.length);
-
-    // Captain chosen from players: validate and derive display fields
-    let captainFields = {
-      captainName: args.captainName,
-      captainPhotoUrl: args.captainPhotoUrl,
-      captainAge: args.captainAge,
-      captainRole: args.captainRole,
-      captainHand: args.captainHand,
-    };
-    if (args.captainPlayerId) {
-      const captain = await ctx.db.get(args.captainPlayerId);
-      if (!captain) throw new Error("Selected captain player not found");
-      if (captain.tournamentId !== args.tournamentId) {
-        throw new Error("Captain must be a player in this tournament");
-      }
-      if (
-        existingTeams.some((t) => t.captainPlayerId === args.captainPlayerId)
-      ) {
-        throw new Error(
-          `${captain.name} is already the captain of another team`,
-        );
-      }
-      captainFields = deriveCaptainFields(captain);
-    }
-
-    const teamId = await ctx.db.insert("teams", {
-      tournamentId: args.tournamentId,
-      name: args.name,
-      ownerName: args.ownerName,
-      sponsorName: args.sponsorName,
-      logoUrl: args.logoUrl,
-      colorPrimary: args.colorPrimary,
-      colorSecondary: args.colorSecondary,
-      captainPlayerId: args.captainPlayerId,
-      ...captainFields,
-      purseRemaining: tournament.settings.basePurse,
-      purseSpent: 0,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    const { tournamentId: _tournamentId, ...fields } = args;
+    const teamId = await insertValidatedTeam(ctx, tournament, fields);
 
     await logAdminAction(ctx, {
       userId: admin._id,

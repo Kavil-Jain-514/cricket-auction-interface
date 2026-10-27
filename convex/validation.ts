@@ -82,6 +82,51 @@ export function normalizeFooterText(
   return { ok: true, text: text === "" ? undefined : text };
 }
 
+const MAX_IMAGE_URL = 500;
+
+/** An uploaded image link: https only, so it can't carry script. */
+function isImageUrl(url: string): boolean {
+  return url.startsWith("https://") && url.length <= MAX_IMAGE_URL;
+}
+
+/** Trim the registration payment QR link. Blank means "none" (undefined). */
+export function normalizePaymentQrUrl(
+  raw: string,
+): { ok: true; url: string | undefined } | { ok: false; error: string } {
+  const url = raw.trim();
+  if (url === "") return { ok: true, url: undefined };
+  if (!isImageUrl(url)) return { ok: false, error: "Upload the payment QR as an image" };
+  return { ok: true, url };
+}
+
+export const MAX_SPONSORS = 12;
+
+/** Trimmed sponsors for the registration form, or an error. */
+export function normalizeSponsors(
+  sponsors: Array<{ name: string; logoUrl?: string }>,
+): { ok: true; sponsors: Array<{ name: string; logoUrl?: string }> } | { ok: false; error: string } {
+  if (sponsors.length > MAX_SPONSORS) {
+    return { ok: false, error: `Add at most ${MAX_SPONSORS} sponsors` };
+  }
+  const out: Array<{ name: string; logoUrl?: string }> = [];
+  for (const sponsor of sponsors) {
+    const error = lengthError("Sponsor name", sponsor.name, 1, 60);
+    if (error) return { ok: false, error };
+    const logoUrl = sponsor.logoUrl?.trim() || undefined;
+    if (logoUrl && !isImageUrl(logoUrl)) {
+      return { ok: false, error: `Upload ${sponsor.name.trim()}'s logo as an image` };
+    }
+    out.push(logoUrl ? { name: sponsor.name.trim(), logoUrl } : { name: sponsor.name.trim() });
+  }
+  return { ok: true, sponsors: out };
+}
+
+export function validateTeamColours(primary: string, secondary: string): string | null {
+  return HEX_COLOUR.test(primary) && HEX_COLOUR.test(secondary)
+    ? null
+    : "Team colours must be hex colours like #3B82F6";
+}
+
 export function validateTeamName(name: string): string | null {
   return lengthError("Team name", name, 2, 29);
 }

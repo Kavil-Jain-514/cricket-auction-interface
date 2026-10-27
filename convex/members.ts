@@ -35,7 +35,7 @@ function generateInviteToken(): string {
 }
 
 /** The signed-in user's row, created on first use (like auth:ensureUser). */
-async function getOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> {
+export async function getOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> {
   const existing = await getCurrentUser(ctx);
   if (existing) return existing;
 

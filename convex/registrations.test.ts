@@ -74,6 +74,13 @@ afterEach(() => {
   delete process.env.RAZORPAY_WEBHOOK_SECRET;
 });
 
+const QR = "https://res.cloudinary.com/demo/image/upload/qr.png";
+const PROOF = "https://res.cloudinary.com/demo/image/upload/proof.png";
+const CATEGORIES: Settings["categories"] = [
+  { id: "b", name: "Category B", basePrice: 50_000, order: 2, colour: "#22c55e" },
+  { id: "a", name: "Category A", basePrice: 100_000, order: 1, colour: "#3b82f6" },
+];
+
 const registrations = (t: ReturnType<typeof convexTest>) => t.run((ctx) => ctx.db.query("registrations").collect());
 
 describe("public submission", () => {
@@ -85,10 +92,10 @@ describe("public submission", () => {
     expect(await registrations(t)).toMatchObject([{ name: "Ravi Kumar", status: "paid", phoneNumber: "9876543210", consentWhatsApp: true }]);
   });
 
-  test("cannot set auctionStatus, basePrice or categoryId", async () => {
+  test("cannot set auctionStatus or basePrice", async () => {
     const t = convexTest(schema, modules);
     const { tournamentId } = await setup(t);
-    for (const sneaky of [{ auctionStatus: "sold" }, { basePrice: 1 }, { categoryId: "marquee" }]) {
+    for (const sneaky of [{ auctionStatus: "sold" }, { basePrice: 1 }]) {
       await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry(sneaky) } as never)).rejects.toThrow();
     }
     expect(await registrations(t)).toHaveLength(0);
@@ -160,6 +167,79 @@ describe("registration fee", () => {
   });
 });
 
+describe("QR and offline payment", () => {
+  test("a screenshot of the QR payment makes it ready for review", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { registrationFee: 300, paymentQrUrl: QR });
+    const registrationId = (await t.mutation(api.registrations.submit, { tournamentId, ...entry() })).registrationId as Id<"registrations">;
+
+    await expect(t.mutation(api.registrations.submitPaymentProof, { registrationId, proofUrl: "https://evil.example/x.png" })).rejects.toThrow(/screenshot/i);
+    await t.mutation(api.registrations.submitPaymentProof, { registrationId, proofUrl: PROOF });
+    expect((await registrations(t))[0]).toMatchObject({ status: "paid", paymentMethod: "qr", paymentProofUrl: PROOF });
+    await expect(t.mutation(api.registrations.submitPaymentProof, { registrationId, proofUrl: PROOF })).rejects.toThrow(/Nothing to pay/);
+  });
+
+  test("no QR set: a screenshot is refused", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { registrationFee: 300 });
+    const registrationId = (await t.mutation(api.registrations.submit, { tournamentId, ...entry() })).registrationId as Id<"registrations">;
+    await expect(t.mutation(api.registrations.submitPaymentProof, { registrationId, proofUrl: PROOF })).rejects.toThrow(/QR/);
+  });
+
+  test("offline: stays unpaid until the owner marks the fee received", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { registrationFee: 300 });
+    const registrationId = (await t.mutation(api.registrations.submit, { tournamentId, ...entry() })).registrationId as Id<"registrations">;
+    await t.mutation(api.registrations.chooseOfflinePayment, { registrationId });
+    expect((await registrations(t))[0]).toMatchObject({ status: "pending_payment", paymentMethod: "offline" });
+
+    await expect(t.withIdentity(OTHER).mutation(api.registrations.markPaid, { registrationId })).rejects.toThrow(/access to this tournament/);
+    await t.withIdentity(OWNER).mutation(api.registrations.markPaid, { registrationId });
+    expect((await registrations(t))[0]).toMatchObject({ status: "paid", paymentMethod: "offline" });
+    await expect(t.withIdentity(OWNER).mutation(api.registrations.markPaid, { registrationId })).rejects.toThrow(/Already paid/);
+
+    const logs = await t.run((ctx) => ctx.db.query("auditLogs").collect());
+    expect(logs.map((l) => l.action)).toContain("mark_registration_paid");
+  });
+});
+
+describe("self-selected category", () => {
+  test("registrants pick a category; the player gets it on approval", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { categories: CATEGORIES });
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({ categoryId: "nope" }) })).rejects.toThrow(/category/i);
+    const registrationId = (await t.mutation(api.registrations.submit, { tournamentId, ...entry({ categoryId: "b" }) })).registrationId as Id<"registrations">;
+    expect((await registrations(t))[0].categoryId).toBe("b");
+
+    const playerId = await t.withIdentity(OWNER).mutation(api.registrations.approve, { registrationId });
+    expect((await t.run((ctx) => ctx.db.get(playerId)))?.categoryId).toBe("b");
+  });
+
+  test("the owner can change it before approval", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { categories: CATEGORIES });
+    const registrationId = (await t.mutation(api.registrations.submit, { tournamentId, ...entry({ categoryId: "b" }) })).registrationId as Id<"registrations">;
+    await expect(t.withIdentity(OTHER).mutation(api.registrations.setCategory, { registrationId, categoryId: "a" })).rejects.toThrow(/access to this tournament/);
+    await expect(t.withIdentity(OWNER).mutation(api.registrations.setCategory, { registrationId, categoryId: "zzz" })).rejects.toThrow(/category/i);
+    await t.withIdentity(OWNER).mutation(api.registrations.setCategory, { registrationId, categoryId: "a" });
+    expect((await registrations(t))[0].categoryId).toBe("a");
+    await t.withIdentity(OWNER).mutation(api.registrations.setCategory, { registrationId });
+    expect((await registrations(t))[0].categoryId).toBeUndefined();
+  });
+
+  test("a category removed since registering is dropped on approval", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { categories: CATEGORIES });
+    const registrationId = (await t.mutation(api.registrations.submit, { tournamentId, ...entry({ categoryId: "b" }) })).registrationId as Id<"registrations">;
+    await t.run(async (ctx) => {
+      const tournament = (await ctx.db.get(tournamentId))!;
+      await ctx.db.patch(tournamentId, { settings: { ...tournament.settings, categories: CATEGORIES!.filter((c) => c.id !== "b") } });
+    });
+    const playerId = await t.withIdentity(OWNER).mutation(api.registrations.approve, { registrationId });
+    expect((await t.run((ctx) => ctx.db.get(playerId)))?.categoryId).toBeUndefined();
+  });
+});
+
 describe("organiser review", () => {
   test("approve creates a validated pending player; unpaid can't be approved", async () => {
     const t = convexTest(schema, modules);
@@ -223,7 +303,27 @@ describe("public info", () => {
   test("shows name, fee and whether it's open; nothing private", async () => {
     const t = convexTest(schema, modules);
     const { tournamentId } = await setup(t, { registrationFee: 250 });
-    expect(await t.query(api.registrations.getPublicInfo, { tournamentId })).toEqual({ name: "Open Cup", logoUrl: undefined, open: true, fee: 250 });
+    expect(await t.query(api.registrations.getPublicInfo, { tournamentId })).toEqual({
+      name: "Open Cup",
+      description: undefined,
+      logoUrl: undefined,
+      open: true,
+      fee: 250,
+      paymentQrUrl: undefined,
+      sponsors: [],
+      categories: [],
+    });
+  });
+
+  test("lists categories (in order), the payment QR and sponsors", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { registrationFee: 250, paymentQrUrl: QR, categories: CATEGORIES });
+    await t.run((ctx) => ctx.db.patch(tournamentId, { sponsors: [{ name: "Acme", logoUrl: "https://res.cloudinary.com/x/acme.png" }] }));
+    expect(await t.query(api.registrations.getPublicInfo, { tournamentId })).toMatchObject({
+      paymentQrUrl: QR,
+      sponsors: [{ name: "Acme", logoUrl: "https://res.cloudinary.com/x/acme.png" }],
+      categories: [{ id: "a", name: "Category A" }, { id: "b", name: "Category B" }],
+    });
   });
 });
 
@@ -253,5 +353,30 @@ describe("tournaments.update — registration settings", () => {
     await expect(
       asOwner.mutation(api.tournaments.update, { id: tournamentId, settings: { ...base, registrationOpen: true, registrationFee: -5 } }),
     ).rejects.toThrow(/fee/);
+  });
+
+  test("payment QR: set, cleared with an empty string, must be an https image link", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const asOwner = t.withIdentity(OWNER);
+    const base = (await t.run((ctx) => ctx.db.get(tournamentId)))!.settings;
+    await asOwner.mutation(api.tournaments.update, { id: tournamentId, settings: { ...base, paymentQrUrl: QR } });
+    expect((await t.run((ctx) => ctx.db.get(tournamentId)))?.settings.paymentQrUrl).toBe(QR);
+    await expect(asOwner.mutation(api.tournaments.update, { id: tournamentId, settings: { ...base, paymentQrUrl: "javascript:alert(1)" } })).rejects.toThrow(/QR/);
+    await asOwner.mutation(api.tournaments.update, { id: tournamentId, settings: { ...base, paymentQrUrl: "" } });
+    expect((await t.run((ctx) => ctx.db.get(tournamentId)))?.settings.paymentQrUrl).toBeUndefined();
+  });
+
+  test("sponsors: trimmed, named and capped", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const asOwner = t.withIdentity(OWNER);
+    await asOwner.mutation(api.tournaments.update, { id: tournamentId, sponsors: [{ name: "  Acme  " }] });
+    expect((await t.run((ctx) => ctx.db.get(tournamentId)))?.sponsors).toEqual([{ name: "Acme" }]);
+    await expect(asOwner.mutation(api.tournaments.update, { id: tournamentId, sponsors: [{ name: " " }] })).rejects.toThrow(/name/);
+    await expect(
+      asOwner.mutation(api.tournaments.update, { id: tournamentId, sponsors: Array.from({ length: 13 }, (_, i) => ({ name: `S${i}` })) }),
+    ).rejects.toThrow(/12/);
+    await expect(asOwner.mutation(api.tournaments.update, { id: tournamentId, sponsors: [{ name: "X", logoUrl: "http://x" }] })).rejects.toThrow(/logo/);
   });
 });
