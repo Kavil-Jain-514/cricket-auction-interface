@@ -1,9 +1,10 @@
 "use client";
 
-import type { ReactNode, FormEvent, ComponentType } from 'react';
-import { UserRound, Activity, Tag, Check, X, UserPlus, Pencil, IndianRupee } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import type { ReactNode, FormEvent } from 'react';
+import { UserRound, Activity, Tag, Check, UserPlus, Pencil, IndianRupee } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Field, FormModal, SectionHeading } from '@/components/ui/form-modal';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { cn, formatCurrency, PLAYER_ROLES, getRoleBadgeBg } from '@/lib/utils';
@@ -40,120 +41,8 @@ interface PlayerFormModalProps {
   children: ReactNode;
 }
 
-export function PlayerFormModal({
-  mode,
-  title,
-  subtitle,
-  submitLabel,
-  loadingLabel,
-  loading,
-  onClose,
-  onSubmit,
-  children,
-}: PlayerFormModalProps) {
-  const HeaderIcon = mode === 'add' ? UserPlus : Pencil;
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/80 p-3 sm:p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <form
-        onSubmit={onSubmit}
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl"
-      >
-        {/* Header */}
-        <div className="relative shrink-0 border-b border-slate-800 bg-linear-to-r from-blue-600/20 via-slate-900 to-purple-600/10 px-5 py-4 sm:px-6">
-          <div className="flex items-center gap-3 pr-10">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600/20 text-blue-400 ring-1 ring-blue-500/30">
-              <HeaderIcon className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-lg sm:text-xl font-bold text-white leading-tight truncate">{title}</h2>
-              {subtitle && <p className="text-xs sm:text-sm text-slate-400 truncate">{subtitle}</p>}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-white"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto ipad-scroll px-5 py-5 sm:px-6">{children}</div>
-
-        {/* Sticky footer */}
-        <div className="shrink-0 border-t border-slate-800 bg-slate-900/95 px-5 py-3.5 sm:px-6">
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onClose}
-              className="h-11 sm:min-w-28"
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading} className="h-11 sm:min-w-40">
-              {loading ? (
-                <>
-                  <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                  {loadingLabel}
-                </>
-              ) : (
-                submitLabel
-              )}
-            </Button>
-          </div>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-// ── Field helpers ───────────────────────────────────────────────────────────
-
-function SectionHeading({ icon: Icon, title, hint }: { icon: ComponentType<{ className?: string }>; title: string; hint?: string }) {
-  return (
-    <div className="mb-3 flex items-center gap-2">
-      <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-blue-400">
-        <Icon className="h-4 w-4" />
-      </div>
-      <h3 className="text-sm font-semibold text-slate-200">{title}</h3>
-      {hint && <span className="text-xs text-slate-500">· {hint}</span>}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  htmlFor,
-  error,
-  hint,
-  className,
-  children,
-}: {
-  label: string;
-  htmlFor?: string;
-  error?: string;
-  hint?: string;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className={className}>
-      <Label htmlFor={htmlFor} className="text-slate-300">{label}</Label>
-      <div className="mt-1.5">{children}</div>
-      {error ? (
-        <p className="mt-1 text-xs text-red-400">{error}</p>
-      ) : hint ? (
-        <p className="mt-1 text-xs text-slate-500">{hint}</p>
-      ) : null}
-    </div>
-  );
+export function PlayerFormModal({ mode, ...props }: PlayerFormModalProps) {
+  return <FormModal icon={mode === 'add' ? UserPlus : Pencil} {...props} />;
 }
 
 // ── Fields ──────────────────────────────────────────────────────────────────
@@ -356,17 +245,17 @@ export function PlayerFormFields({
 
           {categories && categories.length > 0 && (
             <Field label="Category" htmlFor="categoryId" error={errors?.categoryId} className="col-span-2 sm:col-span-1">
-              <select
+              <NativeSelect
                 id="categoryId"
                 value={values.categoryId ?? ''}
                 onChange={(e) => onChange({ categoryId: e.target.value || undefined })}
-                className={cn(inputCls, 'w-full rounded-md border border-slate-600 bg-slate-800 px-3 text-white')}
+                className={inputCls}
               >
                 <option value="">No category</option>
                 {[...categories].sort((a, b) => a.order - b.order).map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </Field>
           )}
 

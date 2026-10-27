@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Radio, Copy, ExternalLink, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { NativeSelect } from '@/components/ui/native-select';
 import { OVERLAY_MODES, overlayUrl, type OverlayMode, type OverlayTheme } from '@/lib/overlayParams';
 
 const MODE_LABELS: Record<OverlayMode, { title: string; hint: string }> = {
@@ -67,14 +68,14 @@ export function BroadcastMenu({ auctionRoomId }: BroadcastMenuProps) {
             <div className="flex flex-wrap gap-4 mb-5 text-sm">
               <label className="flex items-center gap-2">
                 Theme
-                <select
+                <NativeSelect
                   value={theme}
                   onChange={(e) => setTheme(e.target.value as OverlayTheme)}
-                  className="bg-slate-800 border border-slate-600 rounded-lg px-2 py-1"
+                  className="h-8 w-28"
                 >
                   <option value="dark">Dark</option>
                   <option value="light">Light</option>
-                </select>
+                </NativeSelect>
               </label>
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={safe} onChange={(e) => setSafe(e.target.checked)} />

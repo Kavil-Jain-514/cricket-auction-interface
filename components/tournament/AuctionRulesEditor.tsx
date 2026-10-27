@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import type { IncrementSlab, PlayerCategory } from '@/convex/bidRules';
 import { SQUAD_RULE_ROLES, type SquadRule } from '@/convex/squadRules';
 import { formatCurrency } from '@/lib/utils';
@@ -203,15 +204,15 @@ export function AuctionRulesEditor({ value, onChange, minBidIncrement, error }: 
 
       <section className="space-y-2">
         <Label htmlFor="presentationOrder" className="text-lg font-semibold text-slate-300">Player order</Label>
-        <select
+        <NativeSelect
           id="presentationOrder"
           value={value.presentationOrder}
           onChange={(e) => onChange({ ...value, presentationOrder: e.target.value as PresentationOrder })}
-          className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+          className="h-10"
         >
           <option value="random">Random</option>
           <option value="by_category" disabled={value.categories.length === 0}>By category (sets, in the order above)</option>
-        </select>
+        </NativeSelect>
         <p className="text-xs text-slate-400">
           {value.presentationOrder === 'by_category'
             ? 'Each category is auctioned as a set, top to bottom, in random order within the set. Players with no category go last. Unsold rounds stay random.'
@@ -268,11 +269,11 @@ export function AuctionRulesEditor({ value, onChange, minBidIncrement, error }: 
           <div key={r.id} className="grid grid-cols-[1fr_5rem_5rem_auto] items-end gap-2">
             <div>
               <Label htmlFor={`rule-target-${r.id}`} className="text-xs">Applies to</Label>
-              <select
+              <NativeSelect
                 id={`rule-target-${r.id}`}
                 value={r.target}
                 onChange={(e) => patchRule(i, { target: e.target.value })}
-                className="mt-1 h-9 w-full bg-slate-800 border border-slate-600 rounded-md px-2 text-sm text-white"
+                className="mt-1 h-9"
               >
                 {namedCategories.length > 0 && (
                   <optgroup label="Category">
@@ -286,7 +287,7 @@ export function AuctionRulesEditor({ value, onChange, minBidIncrement, error }: 
                     <option key={role} value={`role:${role}`}>{role}</option>
                   ))}
                 </optgroup>
-              </select>
+              </NativeSelect>
             </div>
             <div>
               <Label htmlFor={`rule-min-${r.id}`} className="text-xs">Min</Label>

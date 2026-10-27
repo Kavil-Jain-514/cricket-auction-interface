@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
+import { NativeSelect } from '@/components/ui/native-select';
 import { X, Search, UserCheck, UserX, ArrowRightLeft, DollarSign, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -348,10 +349,10 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                                 <div>
                                                                     <label className="text-xs text-slate-400 mb-1 block">Assign to Team</label>
-                                                                    <select
+                                                                    <NativeSelect
                                                                         value={editState.newTeamId || ''}
                                                                         onChange={(e) => setEditState({ ...editState, newTeamId: e.target.value as Id<"teams"> })}
-                                                                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+                                                                        className="h-10"
                                                                     >
                                                                         <option value="">Select team...</option>
                                                                         {teams?.map(t => (
@@ -359,7 +360,7 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                                                                                 {t.name} (₹{(t.purseRemaining / 100000).toFixed(1)}L left)
                                                                             </option>
                                                                         ))}
-                                                                    </select>
+                                                                    </NativeSelect>
                                                                 </div>
                                                                 <div>
                                                                     <label className="text-xs text-slate-400 mb-1 block">Sold Price (₹)</label>
@@ -400,10 +401,10 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                                 <div>
                                                                     <label className="text-xs text-slate-400 mb-1 block">New Team</label>
-                                                                    <select
+                                                                    <NativeSelect
                                                                         value={editState.newTeamId || ''}
                                                                         onChange={(e) => setEditState({ ...editState, newTeamId: e.target.value as Id<"teams"> })}
-                                                                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+                                                                        className="h-10"
                                                                     >
                                                                         <option value="">Select team...</option>
                                                                         {teams?.filter(t => t._id !== player.teamId).map(t => (
@@ -411,7 +412,7 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                                                                                 {t.name} (₹{(t.purseRemaining / 100000).toFixed(1)}L left)
                                                                             </option>
                                                                         ))}
-                                                                    </select>
+                                                                    </NativeSelect>
                                                                 </div>
                                                                 <div>
                                                                     <label className="text-xs text-slate-400 mb-1 block">Sold Price (₹)</label>
