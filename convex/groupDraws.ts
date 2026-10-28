@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAdmin } from "./auth";
+import { logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
 import {
   computeGroupAssignments,
   validateGroupConfig,
@@ -30,8 +30,7 @@ export const runDraw = mutation({
     numGroups: v.number(),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    const admin = await requireAdmin(ctx);
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
@@ -67,25 +66,40 @@ export const runDraw = mutation({
       args.numGroups,
     );
 
-    if (existing) {
-      await ctx.db.patch(existing._id, {
+    let drawId = existing?._id;
+    if (drawId) {
+      await ctx.db.patch(drawId, {
         numGroups: args.numGroups,
         status: "drawn",
         assignments,
         updatedAt: Date.now(),
       });
-      return existing._id;
+    } else {
+      drawId = await ctx.db.insert("groupDraws", {
+        tournamentId: args.tournamentId,
+        numGroups: args.numGroups,
+        status: "drawn",
+        assignments,
+        createdBy: admin._id,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
     }
 
-    return await ctx.db.insert("groupDraws", {
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "run_group_draw",
+      targetType: "groupDraw",
+      targetId: drawId,
+      previousData: existing
+        ? { numGroups: existing.numGroups, assignments: existing.assignments }
+        : undefined,
+      newData: { numGroups: args.numGroups, assignments },
       tournamentId: args.tournamentId,
-      numGroups: args.numGroups,
-      status: "drawn",
-      assignments,
-      createdBy: admin._id,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
     });
+
+    return drawId;
   },
 });
 
@@ -93,8 +107,7 @@ export const runDraw = mutation({
 export const lockDraw = mutation({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const draw = await ctx.db
       .query("groupDraws")
@@ -111,6 +124,15 @@ export const lockDraw = mutation({
       updatedAt: Date.now(),
     });
 
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "lock_group_draw",
+      targetType: "groupDraw",
+      targetId: draw._id,
+      tournamentId: args.tournamentId,
+    });
+
     return { success: true };
   },
 });
@@ -122,8 +144,7 @@ export const lockDraw = mutation({
 export const resetDraw = mutation({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const draw = await ctx.db
       .query("groupDraws")
@@ -135,6 +156,21 @@ export const resetDraw = mutation({
     if (!draw) throw new Error("No group draw found for this tournament");
 
     await ctx.db.delete(draw._id);
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "reset_group_draw",
+      targetType: "groupDraw",
+      targetId: draw._id,
+      previousData: {
+        status: draw.status,
+        numGroups: draw.numGroups,
+        assignments: draw.assignments,
+      },
+      tournamentId: args.tournamentId,
+    });
+
     return { success: true };
   },
 });

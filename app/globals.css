@@ -3,6 +3,121 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── Floodlight design system (step 20) ─────────────────────────────────
+   Dark-first: a night match under stadium lights. One electric accent
+   ("signal", cyan) so it never reads as SOLD green. Role names avoid the
+   shadcn ones below (accent, muted...) so nothing in the app changes until
+   screens opt in. Hex only: lib/design/contrast.test.ts parses these two
+   blocks and checks every pair against WCAG 2.2 AA. */
+:root,
+[data-theme="dark"] {
+  --fl-canvas: #070b14;
+  --fl-surface: #0e1524;
+  --fl-raised: #172036;
+  --fl-ink: #f2f5fa;
+  --fl-ink-muted: #9aa6bc;
+  --fl-line: #1f2a40;
+  --fl-line-strong: #6b7a96;
+  --fl-signal: #22d3ee;
+  --fl-signal-ink: #03161c;
+  --fl-sold: #34d399;
+  --fl-unsold: #f87171;
+  --fl-timer: #fbbf24;
+  --fl-focus: #67e8f9;
+  --fl-glass: rgb(14 21 36 / 0.72);
+  --fl-glow: rgb(34 211 238 / 0.35);
+}
+
+[data-theme="light"] {
+  --fl-canvas: #f4f6fa;
+  --fl-surface: #ffffff;
+  --fl-raised: #e8edf5;
+  --fl-ink: #0b1220;
+  --fl-ink-muted: #4a5568;
+  --fl-line: #d5dce8;
+  --fl-line-strong: #6b778c;
+  --fl-signal: #0e7490;
+  --fl-signal-ink: #ffffff;
+  --fl-sold: #047857;
+  --fl-unsold: #b91c1c;
+  --fl-timer: #a14a07;
+  --fl-focus: #0e7490;
+  --fl-glass: rgb(255 255 255 / 0.78);
+  --fl-glow: rgb(14 116 144 / 0.25);
+}
+
+:root {
+  /* One easing family (expo-out); UI moves in 150–250 ms, SOLD moments
+     in 600–900 ms. Zeroed under prefers-reduced-motion below. */
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --dur-slow: 250ms;
+  --dur-moment: 750ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0.01ms;
+    --dur-base: 0.01ms;
+    --dur-slow: 0.01ms;
+    --dur-moment: 0.01ms;
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--fl-canvas);
+  --color-surface: var(--fl-surface);
+  --color-raised: var(--fl-raised);
+  --color-ink: var(--fl-ink);
+  --color-ink-muted: var(--fl-ink-muted);
+  --color-line: var(--fl-line);
+  --color-line-strong: var(--fl-line-strong);
+  --color-signal: var(--fl-signal);
+  --color-signal-ink: var(--fl-signal-ink);
+  --color-sold: var(--fl-sold);
+  --color-unsold: var(--fl-unsold);
+  --color-timer: var(--fl-timer);
+  --color-focus: var(--fl-focus);
+  --color-glass: var(--fl-glass);
+
+  --font-head: var(--font-head-face), "Arial Narrow", sans-serif;
+
+  /* Spacing stays Tailwind's 4 px scale (--spacing: 0.25rem). */
+  --radius-control: 0.625rem;
+  --radius-card: 1rem;
+  --radius-panel: 1.5rem;
+
+  --shadow-raised: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 8px 24px -12px rgb(0 0 0 / 0.6);
+  --shadow-floating: 0 1px 0 rgb(255 255 255 / 0.06) inset, 0 24px 48px -16px rgb(0 0 0 / 0.7);
+  --shadow-glow: 0 0 0 1px var(--fl-signal), 0 0 32px -4px var(--fl-glow);
+
+  --ease-floodlight: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --animate-fl-rise: fl-rise var(--dur-slow) var(--ease-floodlight) both;
+  --animate-fl-sold: fl-sold var(--dur-moment) var(--ease-floodlight) both;
+  --animate-fl-shimmer: fl-shimmer 1.6s linear infinite;
+}
+
+@keyframes fl-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes fl-sold {
+  0% { opacity: 0; transform: scale(1.35); letter-spacing: 0.3em; }
+  60% { opacity: 1; transform: scale(0.98); }
+  100% { opacity: 1; transform: none; letter-spacing: 0.08em; }
+}
+
+@keyframes fl-shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fl-shimmer { animation: none; }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -122,6 +237,12 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Broadcast overlay: see-through from the first paint in OBS / vMix
+     (BroadcastOverlay also clears it at runtime for browsers without :has). */
+  html:has([data-broadcast-overlay]),
+  html:has([data-broadcast-overlay]) body {
+    background: transparent;
+  }
 }
 
 /* iPad-Friendly Utilities */
@@ -221,6 +342,36 @@
     @apply h-14 px-6 text-lg font-semibold rounded-xl;
   }
   
+  /* Floodlight: numbers that never jitter (prices, purses, timers) */
+  .tabular {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  /* Floodlight: film grain over the canvas, CSS only */
+  .fl-grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.05'/%3E%3C/svg%3E");
+  }
+
+  /* Floodlight: faint mown-turf stripes for hero bands */
+  .fl-turf {
+    background-image: repeating-linear-gradient(
+      90deg,
+      rgb(52 211 153 / 0.035) 0 64px,
+      transparent 64px 128px
+    );
+  }
+
+  /* Floodlight: glass only where content sits over imagery */
+  .fl-glass {
+    background: var(--fl-glass);
+    backdrop-filter: blur(14px) saturate(1.4);
+  }
+
+  /* Floodlight: the one focus ring every control uses */
+  .fl-focus {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-canvas;
+  }
+
   /* Safe area padding for iPads with home indicator */
   .safe-bottom {
     padding-bottom: max(1rem, env(safe-area-inset-bottom));

@@ -1,7 +1,16 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
-import { requireAdmin } from "./auth";
+import { mutation, MutationCtx, query } from "./_generated/server";
+import {
+  isTournamentStaff,
+  logAdminAction,
+  OWNER_ONLY,
+  requireTournamentRole,
+} from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { normalizePhone, validatePlayerFields } from "./validation";
+import { categoryFor, effectiveBasePrice } from "./bidRules";
+import { assertPlayerCapacity } from "./plans";
+import type { Doc, Id } from "./_generated/dataModel";
 
 // Shared validator for T-shirt size — reused across create, bulkImport, and update
 const tshirtSizeValidator = v.optional(
@@ -17,6 +26,74 @@ const tshirtSizeValidator = v.optional(
   ),
 );
 
+/** Error message when `categoryId` isn't one of the tournament's categories. */
+function unknownCategoryError(
+  categoryId: string | undefined,
+  tournament: Doc<"tournaments">,
+): string | null {
+  if (categoryId === undefined) return null;
+  return categoryFor(categoryId, tournament.settings.categories)
+    ? null
+    : "Unknown category — add it in Tournament Settings first";
+}
+
+/** Fields a new player is created with (players:create, registration approval). */
+export type NewPlayerFields = {
+  name: string;
+  age: number;
+  photoUrl?: string;
+  role: string[];
+  battingBowlingHand: "Right-handed" | "Left-handed";
+  basePrice?: number;
+  categoryId?: string;
+  jerseyNumber?: number;
+  jerseyName?: string;
+  phoneNumber?: string;
+  tshirtSize?: Doc<"players">["tshirtSize"];
+};
+
+/**
+ * Validate and insert one pending player with the next player number: the
+ * shared rules (convex/validation.ts), a known category and the plan's player
+ * limit. Callers check access, resync counts and write the audit row.
+ */
+export async function insertValidatedPlayer(
+  ctx: MutationCtx,
+  tournament: Doc<"tournaments">,
+  fields: NewPlayerFields,
+): Promise<Id<"players">> {
+  const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
+  if (errors.length > 0) throw new Error(errors[0].message);
+  const categoryError = unknownCategoryError(fields.categoryId, tournament);
+  if (categoryError) throw new Error(categoryError);
+
+  const existingPlayers = await ctx.db
+    .query("players")
+    .withIndex("by_tournament", (q) => q.eq("tournamentId", tournament._id))
+    .collect();
+  assertPlayerCapacity(tournament, existingPlayers.length, 1);
+  const nextPlayerNumber = existingPlayers.reduce((max, p) => Math.max(max, p.playerNumber || 0), 0) + 1;
+
+  return await ctx.db.insert("players", {
+    tournamentId: tournament._id,
+    name: fields.name,
+    phoneNumber,
+    age: fields.age,
+    photoUrl: fields.photoUrl,
+    role: fields.role,
+    battingBowlingHand: fields.battingBowlingHand,
+    basePrice: fields.basePrice,
+    categoryId: fields.categoryId,
+    jerseyNumber: fields.jerseyNumber,
+    jerseyName: fields.jerseyName,
+    playerNumber: nextPlayerNumber,
+    tshirtSize: fields.tshirtSize,
+    auctionStatus: "pending",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
 /** Create a single player for a tournament. Auto-assigns the next sequential playerNumber. */
 export const create = mutation({
   args: {
@@ -30,71 +107,34 @@ export const create = mutation({
       v.literal("Left-handed"),
     ),
     basePrice: v.optional(v.number()),
+    categoryId: v.optional(v.string()),
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
     phoneNumber: v.optional(v.string()),
     tshirtSize: tshirtSizeValidator,
   },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
-
-    // Validation
-    if (!args.name || args.name.trim().length < 2) {
-      throw new Error("Player name must be at least 2 characters");
-    }
-    if (args.name.trim().length > 50) {
-      throw new Error("Player name must be less than 50 characters");
-    }
-    if (
-      args.jerseyNumber !== undefined &&
-      (args.jerseyNumber < 1 || args.jerseyNumber > 99)
-    ) {
-      throw new Error("Jersey number must be between 1 and 99");
-    }
-    if (args.phoneNumber && !/^[0-9]{10}$/.test(args.phoneNumber)) {
-      throw new Error("Phone number must be 10 digits");
-    }
-
     // Verify tournament exists
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) {
       throw new Error("Tournament not found");
     }
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
-    // Get the next player number for this tournament
-    const existingPlayers = await ctx.db
-      .query("players")
-      .withIndex("by_tournament", (q) =>
-        q.eq("tournamentId", args.tournamentId),
-      )
-      .collect();
-
-    const maxPlayerNumber = existingPlayers.reduce((max, player) => {
-      return Math.max(max, player.playerNumber || 0);
-    }, 0);
-    const nextPlayerNumber = maxPlayerNumber + 1;
-
-    const playerId = await ctx.db.insert("players", {
-      tournamentId: args.tournamentId,
-      name: args.name,
-      phoneNumber: args.phoneNumber,
-      age: args.age,
-      photoUrl: args.photoUrl,
-      role: args.role,
-      battingBowlingHand: args.battingBowlingHand,
-      basePrice: args.basePrice,
-      jerseyNumber: args.jerseyNumber,
-      jerseyName: args.jerseyName,
-      playerNumber: nextPlayerNumber,
-      tshirtSize: args.tshirtSize,
-      auctionStatus: "pending",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    const playerId = await insertValidatedPlayer(ctx, tournament, args);
 
     // New pending player — refresh denormalized counts / min pending base price.
     await syncTournamentAuctionCounts(ctx, args.tournamentId);
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "create_player",
+      targetType: "player",
+      targetId: playerId,
+      newData: { name: args.name, basePrice: args.basePrice },
+      tournamentId: args.tournamentId,
+    });
 
     return playerId;
   },
@@ -102,7 +142,9 @@ export const create = mutation({
 
 /**
  * Bulk-import multiple players from a parsed Excel sheet.
- * All inserts run in parallel (Promise.all) since Convex handles concurrency safely.
+ * Every row is validated first (field rules + duplicates of an existing or
+ * earlier row by name + phone). If any row fails, nothing is inserted and the
+ * row errors are returned so the UI can list them.
  * Player numbers continue from the current max to avoid conflicts.
  */
 export const bulkImport = mutation({
@@ -120,6 +162,7 @@ export const bulkImport = mutation({
         phoneNumber: v.optional(v.string()),
         photoUrl: v.optional(v.string()),
         basePrice: v.optional(v.number()),
+        categoryId: v.optional(v.string()),
         jerseyNumber: v.optional(v.number()),
         jerseyName: v.optional(v.string()),
         tshirtSize: tshirtSizeValidator,
@@ -127,8 +170,9 @@ export const bulkImport = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const now = Date.now();
 
@@ -140,12 +184,54 @@ export const bulkImport = mutation({
       )
       .collect();
 
+    // Duplicate key: same name (case-insensitive) + same normalised phone.
+    const duplicateKey = (name: string, phone: string | undefined) =>
+      `${name.trim().toLowerCase()}|${phone ?? ""}`;
+    const seen = new Set(
+      existingPlayers.map((p) => {
+        // Legacy rows may hold an un-normalised phone; compare on digits.
+        const phone = normalizePhone(p.phoneNumber);
+        return duplicateKey(p.name, phone.ok ? phone.phone : p.phoneNumber);
+      }),
+    );
+
+    const errors: { row: number; field: string; message: string }[] = [];
+    const rows = args.players.map((player, row) => {
+      const result = validatePlayerFields(
+        player,
+        tournament.settings.basePurse,
+      );
+      errors.push(...result.errors.map((e) => ({ row, ...e })));
+      const categoryError = unknownCategoryError(player.categoryId, tournament);
+      if (categoryError) {
+        errors.push({ row, field: "categoryId", message: categoryError });
+      }
+
+      const key = duplicateKey(player.name, result.phoneNumber);
+      if (seen.has(key)) {
+        errors.push({
+          row,
+          field: "name",
+          message: `Duplicate player "${player.name.trim()}" (same name and phone)`,
+        });
+      }
+      seen.add(key);
+
+      return { ...player, phoneNumber: result.phoneNumber };
+    });
+
+    if (errors.length > 0) {
+      return { success: false as const, errors };
+    }
+    // All or nothing: a batch that would overflow the plan imports nobody.
+    assertPlayerCapacity(tournament, existingPlayers.length, rows.length);
+
     const maxPlayerNumber = existingPlayers.reduce((max, player) => {
       return Math.max(max, player.playerNumber || 0);
     }, 0);
 
     // Batch insert all players with incrementing player numbers
-    const insertPromises = args.players.map((player, index) =>
+    const insertPromises = rows.map((player, index) =>
       ctx.db.insert("players", {
         tournamentId: args.tournamentId,
         name: player.name,
@@ -155,6 +241,7 @@ export const bulkImport = mutation({
         role: player.role,
         battingBowlingHand: player.battingBowlingHand,
         basePrice: player.basePrice,
+        categoryId: player.categoryId,
         jerseyNumber: player.jerseyNumber,
         jerseyName: player.jerseyName,
         playerNumber: maxPlayerNumber + index + 1,
@@ -170,7 +257,17 @@ export const bulkImport = mutation({
     // Bulk pending insert — refresh denormalized counts once for the batch.
     await syncTournamentAuctionCounts(ctx, args.tournamentId);
 
-    return { count: playerIds.length, ids: playerIds };
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "bulk_import_players",
+      targetType: "tournament",
+      targetId: args.tournamentId,
+      newData: { count: playerIds.length },
+      tournamentId: args.tournamentId,
+    });
+
+    return { success: true as const, count: playerIds.length, ids: playerIds };
   },
 });
 
@@ -195,18 +292,10 @@ export const listByTournament = query({
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) return [];
 
-    // Check if the current user is an admin to determine PII visibility
-    const identity = await ctx.auth.getUserIdentity();
-    let isAdminUser = false;
-    if (identity?.email) {
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_email", (q) => q.eq("email", identity.email!))
-        .first();
-      isAdminUser = user?.role === "admin";
-    }
+    // Phone numbers (PII) are for this tournament's staff (or a super-admin).
+    const isAdminUser = await isTournamentStaff(ctx, args.tournamentId);
 
-    // Deactivated tournaments are hidden from non-admins even via direct links.
+    // Deactivated tournaments are hidden from everyone but its staff.
     if (tournament.isActive === false && !isAdminUser) return [];
 
     // Use the compound index when filtering by status to avoid a full-collection scan.
@@ -226,15 +315,18 @@ export const listByTournament = query({
           )
           .collect();
 
-    // Map players to resolve basePrice fallback and strip PII for non-admins
+    // Map players to resolve basePrice (player → category → tournament) and
+    // strip PII for non-admins. basePriceOverride is the player's own price,
+    // so edit forms don't pin the inherited value as an override.
     return players.map((p) => {
-      const basePrice = p.basePrice ?? tournament.settings?.basePrice ?? 100000;
+      const basePrice = effectiveBasePrice(p, tournament.settings);
+      const basePriceOverride = p.basePrice;
       if (isAdminUser) {
-        return { ...p, basePrice };
+        return { ...p, basePrice, basePriceOverride };
       }
       // Strip phone number for non-admin viewers
       const { phoneNumber: _stripped, ...publicFields } = p;
-      return { ...publicFields, basePrice };
+      return { ...publicFields, basePrice, basePriceOverride };
     });
   },
 });
@@ -251,17 +343,18 @@ export const update = mutation({
     battingBowlingHand: v.optional(
       v.union(v.literal("Right-handed"), v.literal("Left-handed")),
     ),
-    basePrice: v.optional(v.number()),
+    // null clears the override, so the category / tournament price applies.
+    basePrice: v.optional(v.union(v.number(), v.null())),
+    // null removes the player from their category.
+    categoryId: v.optional(v.union(v.string(), v.null())),
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
     tshirtSize: tshirtSizeValidator,
   },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
-
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
+    const admin = await requireTournamentRole(ctx, player.tournamentId, OWNER_ONLY);
 
     // Check if player is already sold
     if (player.auctionStatus === "sold") {
@@ -273,16 +366,58 @@ export const update = mutation({
       throw new Error("Cannot edit player currently in auction");
     }
 
-    const { id, ...updates } = args;
+    const tournament = await ctx.db.get(player.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+
+    // Validation (shared with create — convex/validation.ts)
+    const { errors, phoneNumber } = validatePlayerFields(
+      { ...args, basePrice: args.basePrice ?? undefined },
+      tournament.settings.basePurse,
+    );
+    if (errors.length > 0) throw new Error(errors[0].message);
+    const categoryError = unknownCategoryError(
+      args.categoryId ?? undefined,
+      tournament,
+    );
+    if (categoryError) throw new Error(categoryError);
+
+    const { id, basePrice, categoryId, ...rest } = args;
+    // null → clear the field (patching undefined removes it).
+    const updates = {
+      ...rest,
+      ...(basePrice !== undefined ? { basePrice: basePrice ?? undefined } : {}),
+      ...(categoryId !== undefined
+        ? { categoryId: categoryId ?? undefined }
+        : {}),
+    };
 
     await ctx.db.patch(id, {
       ...updates,
+      ...(args.phoneNumber !== undefined ? { phoneNumber } : {}),
       updatedAt: Date.now(),
     });
 
-    // basePrice may have changed on a pending player — refresh min pending base
-    // price (cheap no-op write when nothing count-relevant actually changed).
+    // basePrice or category may have changed on a pending player — refresh min
+    // pending base price (cheap no-op write when nothing count-relevant changed).
     await syncTournamentAuctionCounts(ctx, player.tournamentId);
+
+    // Phone numbers are PII — record that they changed, not their values.
+    const { phoneNumber: _phone, ...auditable } = updates;
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "update_player",
+      targetType: "player",
+      targetId: id,
+      previousData: Object.fromEntries(
+        Object.keys(auditable).map((k) => [k, player[k as keyof typeof player]]),
+      ),
+      newData: {
+        ...auditable,
+        ...(args.phoneNumber !== undefined ? { phoneNumberChanged: true } : {}),
+      },
+      tournamentId: player.tournamentId,
+    });
 
     return { success: true };
   },
@@ -292,11 +427,9 @@ export const update = mutation({
 export const deletePlayer = mutation({
   args: { id: v.id("players") },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
-
     const player = await ctx.db.get(args.id);
     if (!player) throw new Error("Player not found");
+    const admin = await requireTournamentRole(ctx, player.tournamentId, OWNER_ONLY);
 
     // Cannot delete sold players
     if (player.auctionStatus === "sold") {
@@ -334,6 +467,20 @@ export const deletePlayer = mutation({
     // Player removed from the pool — refresh denormalized counts.
     await syncTournamentAuctionCounts(ctx, player.tournamentId);
 
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "delete_player",
+      targetType: "player",
+      targetId: args.id,
+      previousData: {
+        name: player.name,
+        auctionStatus: player.auctionStatus,
+        playerNumber: player.playerNumber,
+      },
+      tournamentId: player.tournamentId,
+    });
+
     return { success: true };
   },
 });
@@ -348,8 +495,7 @@ export const deleteAllByTournament = mutation({
     includesSold: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const players = await ctx.db
       .query("players")
@@ -388,6 +534,19 @@ export const deleteAllByTournament = mutation({
 
     // Bulk removal — refresh denormalized counts once.
     await syncTournamentAuctionCounts(ctx, args.tournamentId);
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "delete_all_players",
+      targetType: "tournament",
+      targetId: args.tournamentId,
+      previousData: {
+        deletedCount: playersToDelete.length,
+        includesSold: args.includesSold ?? false,
+      },
+      tournamentId: args.tournamentId,
+    });
 
     return {
       success: true,

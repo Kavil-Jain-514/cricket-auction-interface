@@ -1,7 +1,17 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getCurrentUser, requireAdmin } from "./auth";
+import {
+  isTournamentStaff,
+  logAdminAction,
+  OWNER_ONLY,
+  requireTournamentRole,
+} from "./auth";
+import { assertTeamCapacity } from "./plans";
+import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { deleteTeamMembershipData } from "./members";
 import { Doc } from "./_generated/dataModel";
+import { toPublicPlayer } from "./projections";
+import { validateOwnerName, validateTeamName } from "./validation";
 
 /**
  * Denormalize captain display fields from a player doc so existing UI and
@@ -31,6 +41,18 @@ function deriveCaptainFields(player: Doc<"players">) {
   };
 }
 
+/** Team names are unique per tournament, ignoring case and outer spaces. */
+function isDuplicateTeamName(
+  teams: Doc<"teams">[],
+  name: string,
+  exceptId?: Doc<"teams">["_id"],
+): boolean {
+  const wanted = name.trim().toLowerCase();
+  return teams.some(
+    (t) => t._id !== exceptId && t.name.trim().toLowerCase() === wanted,
+  );
+}
+
 export const create = mutation({
   args: {
     tournamentId: v.id("tournaments"),
@@ -55,19 +77,12 @@ export const create = mutation({
     captainHand: v.optional(v.union(v.literal("Right"), v.literal("Left"))),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
+    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
-    // Validation
-    if (!args.name || args.name.trim().length < 2) {
-      throw new Error("Team name must be at least 2 characters");
-    }
-    if (args.name.trim().length > 30) {
-      throw new Error("Team name must be less than 30 characters");
-    }
-    if (!args.ownerName || args.ownerName.trim().length < 2) {
-      throw new Error("Owner name must be at least 2 characters");
-    }
+    // Validation (shared with update — convex/validation.ts)
+    const error =
+      validateTeamName(args.name) ?? validateOwnerName(args.ownerName);
+    if (error) throw new Error(error);
 
     // Get tournament to get base purse
     const tournament = await ctx.db.get(args.tournamentId);
@@ -81,13 +96,10 @@ export const create = mutation({
       )
       .collect();
 
-    if (
-      existingTeams.some(
-        (t) => t.name.toLowerCase() === args.name.toLowerCase(),
-      )
-    ) {
+    if (isDuplicateTeamName(existingTeams, args.name)) {
       throw new Error(`Team "${args.name}" already exists in this tournament`);
     }
+    assertTeamCapacity(tournament, existingTeams.length);
 
     // Captain chosen from players: validate and derive display fields
     let captainFields = {
@@ -129,6 +141,20 @@ export const create = mutation({
       updatedAt: Date.now(),
     });
 
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "create_team",
+      targetType: "team",
+      targetId: teamId,
+      newData: {
+        name: args.name,
+        ownerName: args.ownerName,
+        captainPlayerId: args.captainPlayerId,
+      },
+      tournamentId: args.tournamentId,
+    });
+
     return teamId;
   },
 });
@@ -139,10 +165,9 @@ export const listByTournament = query({
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) return [];
 
-    // Deactivated tournaments are hidden from non-admins even via direct links.
-    if (tournament.isActive === false) {
-      const user = await getCurrentUser(ctx);
-      if (user?.role !== "admin") return [];
+    // Deactivated tournaments are hidden from everyone but its staff.
+    if (tournament.isActive === false && !(await isTournamentStaff(ctx, args.tournamentId))) {
+      return [];
     }
 
     return await ctx.db
@@ -165,9 +190,12 @@ export const getWithPlayers = query({
       .withIndex("by_team", (q) => q.eq("teamId", args.id))
       .collect();
 
+    // Phone numbers are for this tournament's staff; strip them for everyone else.
+    const admin = await isTournamentStaff(ctx, team.tournamentId);
+
     return {
       ...team,
-      players,
+      players: admin ? players : players.map(toPublicPlayer),
     };
   },
 });
@@ -197,11 +225,9 @@ export const update = mutation({
     captainHand: v.optional(v.union(v.literal("Right"), v.literal("Left"))),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
-
     const team = await ctx.db.get(args.id);
     if (!team) throw new Error("Team not found");
+    const admin = await requireTournamentRole(ctx, team.tournamentId, OWNER_ONLY);
 
     // Check if tournament exists
     const tournament = await ctx.db.get(team.tournamentId);
@@ -212,11 +238,34 @@ export const update = mutation({
       throw new Error("Cannot edit team after tournament is completed");
     }
 
+    const fieldError =
+      (args.name !== undefined ? validateTeamName(args.name) : null) ??
+      (args.ownerName !== undefined ? validateOwnerName(args.ownerName) : null);
+    if (fieldError) throw new Error(fieldError);
+
     const { id, captainPlayerId, ...updates } = args;
     const patch: Partial<Doc<"teams">> = {
       ...updates,
       updatedAt: Date.now(),
     };
+
+    const otherTeams =
+      args.name !== undefined || captainPlayerId
+        ? await ctx.db
+            .query("teams")
+            .withIndex("by_tournament", (q) =>
+              q.eq("tournamentId", team.tournamentId),
+            )
+            .collect()
+        : [];
+
+    if (
+      args.name !== undefined &&
+      args.name.trim().toLowerCase() !== team.name.trim().toLowerCase() &&
+      isDuplicateTeamName(otherTeams, args.name, team._id)
+    ) {
+      throw new Error(`Team "${args.name}" already exists in this tournament`);
+    }
 
     if (captainPlayerId === null) {
       // Explicitly unlink the player; manual captain fields (if any) still apply
@@ -227,12 +276,6 @@ export const update = mutation({
       if (captain.tournamentId !== team.tournamentId) {
         throw new Error("Captain must be a player in this tournament");
       }
-      const otherTeams = await ctx.db
-        .query("teams")
-        .withIndex("by_tournament", (q) =>
-          q.eq("tournamentId", team.tournamentId),
-        )
-        .collect();
       if (
         otherTeams.some(
           (t) => t._id !== team._id && t.captainPlayerId === captainPlayerId,
@@ -248,6 +291,20 @@ export const update = mutation({
 
     await ctx.db.patch(id, patch);
 
+    const { updatedAt: _updatedAt, ...changed } = patch;
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "update_team",
+      targetType: "team",
+      targetId: id,
+      previousData: Object.fromEntries(
+        Object.keys(changed).map((k) => [k, team[k as keyof typeof team]]),
+      ),
+      newData: changed,
+      tournamentId: team.tournamentId,
+    });
+
     return { success: true };
   },
 });
@@ -255,11 +312,9 @@ export const update = mutation({
 export const deleteTeam = mutation({
   args: { id: v.id("teams") },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
-
     const team = await ctx.db.get(args.id);
     if (!team) throw new Error("Team not found");
+    const admin = await requireTournamentRole(ctx, team.tournamentId, OWNER_ONLY);
 
     // Check if tournament exists
     const tournament = await ctx.db.get(team.tournamentId);
@@ -274,16 +329,48 @@ export const deleteTeam = mutation({
     // holds the current leading bid, finalizePlayerSale would later fail
     // trying to resolve a winning team that no longer exists, and releasing
     // this team's sold players back to "pending" would desync live viewers'
-    // stats/team lists in real time. Require the auction be paused first.
-    const liveRooms = await ctx.db
+    // stats/team lists in real time. A paused auction still has a player on
+    // the block, so require the auction be stopped (waiting/completed) first.
+    const rooms = await ctx.db
       .query("auctionRooms")
       .withIndex("by_tournament", (q) => q.eq("tournamentId", team.tournamentId))
       .collect();
-    if (liveRooms.some((room) => room.status === "live")) {
+    if (rooms.some((room) => room.status === "live" || room.status === "paused")) {
       throw new Error(
-        "Cannot delete a team while the auction is live — pause or complete the auction first",
+        "Cannot delete a team while the auction is live or paused — complete or restart the auction first",
       );
     }
+
+    // A locked group draw is final; an unlocked one is reset so it can be
+    // re-drawn without a hole where this team was.
+    const draw = await ctx.db
+      .query("groupDraws")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", team.tournamentId))
+      .first();
+    if (draw && draw.assignments.some((a) => a.teamId === args.id)) {
+      if (draw.status === "locked") {
+        throw new Error(
+          "Group draw is locked — reset it before deleting a team",
+        );
+      }
+      await ctx.db.delete(draw._id);
+    }
+
+    // liveBids has no by_team index; scan each room's bids and drop this team's.
+    for (const room of rooms) {
+      const roomBids = await ctx.db
+        .query("liveBids")
+        .withIndex("by_room", (q) => q.eq("auctionRoomId", room._id))
+        .collect();
+      await Promise.all(
+        roomBids
+          .filter((bid) => bid.teamId === args.id)
+          .map((bid) => ctx.db.delete(bid._id)),
+      );
+    }
+
+    // Owners, invite links and queued raises all belong to the team.
+    await deleteTeamMembershipData(ctx, args.id);
 
     // Check if team has players - release them first
     const players = await ctx.db
@@ -304,6 +391,25 @@ export const deleteTeam = mutation({
     );
 
     await ctx.db.delete(args.id);
+
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "delete_team",
+      targetType: "team",
+      targetId: args.id,
+      previousData: {
+        name: team.name,
+        purseRemaining: team.purseRemaining,
+        purseSpent: team.purseSpent,
+        releasedPlayerIds: players.map((p) => p._id),
+      },
+      tournamentId: team.tournamentId,
+    });
+
+    // Released players went back to "pending" — refresh denormalized counts.
+    await syncTournamentAuctionCounts(ctx, team.tournamentId);
+
     return { success: true, releasedPlayers: players.length };
   },
 });

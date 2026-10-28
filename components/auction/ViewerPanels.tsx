@@ -8,6 +8,7 @@ import {
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { formatCurrency, getRoleDisplay } from '@/lib/utils';
+import { RuleStatusLine, type RuleStatus } from './RuleStatusLine';
 
 export type ViewerSheetType = 'sold' | 'unsold' | 'teams';
 
@@ -20,6 +21,8 @@ interface ViewerActionBarProps {
   teamsCount: number;
   active: ViewerSheetType | null;
   onOpen: (sheet: ViewerSheetType) => void;
+  /** Docked above the buttons, in the same fixed stack (the owner paddle). */
+  above?: React.ReactNode;
 }
 
 export function ViewerActionBar({
@@ -28,6 +31,7 @@ export function ViewerActionBar({
   teamsCount,
   active,
   onOpen,
+  above,
 }: ViewerActionBarProps) {
   const buttons: Array<{
     key: ViewerSheetType;
@@ -69,6 +73,7 @@ export function ViewerActionBar({
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 pointer-events-none px-3 pb-3 sm:pb-4 safe-bottom">
+      {above && <div className="max-w-2xl mx-auto mb-2 pointer-events-auto">{above}</div>}
       <div className="max-w-2xl mx-auto grid grid-cols-3 gap-2 sm:gap-3 pointer-events-auto rounded-2xl bg-slate-900/80 backdrop-blur-lg border border-slate-700 p-2 shadow-2xl">
         {buttons.map((b) => {
           const isActive = active === b.key;
@@ -203,6 +208,7 @@ export interface ViewerTeam {
   purseRemaining: number;
   purseSpent: number;
   playerCount?: number;
+  ruleStatus?: RuleStatus[];
 }
 
 export interface ViewerSquadPlayer {
@@ -417,6 +423,7 @@ function TeamsSheetContent({
                 <div className="text-xs text-slate-400">
                   {count}/{maxPlayersPerTeam} players
                 </div>
+                <RuleStatusLine status={team.ruleStatus} className="mt-1" />
               </div>
               <div className="text-right shrink-0">
                 <div className="flex items-center justify-end gap-1 text-green-400 font-bold text-sm sm:text-base">

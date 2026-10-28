@@ -26,6 +26,11 @@ export const fns = {
   finalizePlayerSale: anyApi.auctions.finalizePlayerSale,
   startNextPlayer: anyApi.auctions.startNextPlayer,
   restartCurrentPlayer: anyApi.auctions.restartCurrentPlayer,
+  // Owner bidding (owner-load.mjs)
+  raiseBid: anyApi.auctions.raiseBid,
+  getMyPaddle: anyApi.auctions.getMyPaddle,
+  getPendingBidRequests: anyApi.auctions.getPendingBidRequests,
+  acceptBidRequest: anyApi.auctions.acceptBidRequest,
 };
 
 /** Read + validate the environment shared by both scripts. */
@@ -107,6 +112,20 @@ export function makeWriter(cfg) {
   } else {
     client.setAuth(async () => cfg.adminJwt);
   }
+  return client;
+}
+
+/**
+ * A client acting as an existing user, via deploy-key impersonation. Used for
+ * team owners, who must already be linked to a team (claimed an invite).
+ */
+export function makeImpersonatedClient(url, adminKey, email) {
+  const client = new ConvexClient(url, { unsavedChangesWarning: false });
+  client.setAdminAuth(adminKey, {
+    subject: `harness-${email}`,
+    issuer: "https://convex.test",
+    email,
+  });
   return client;
 }
 

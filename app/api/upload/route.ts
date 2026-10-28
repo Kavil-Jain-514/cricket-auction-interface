@@ -1,6 +1,8 @@
 import { v2 as cloudinary } from "cloudinary";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@/convex/_generated/api";
 
 // Configure Cloudinary
 cloudinary.config({
@@ -16,13 +18,40 @@ function sanitizeFolder(folder: string): string {
   return `cricket-auction/${sanitized || "uploads"}`;
 }
 
+/**
+ * Uploads are for the super-admin and organisers (anyone on a tournament's
+ * staff). A Clerk session alone is not enough: we exchange it for a Convex
+ * token and ask the backend. Returns an error response, or null when allowed.
+ * A brand-new organiser adds their logo after creating the tournament.
+ */
+async function requireUploader(): Promise<NextResponse | null> {
+  const { userId, getToken } = await auth();
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const token = await getToken({ template: "convex" });
+  if (!token) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  convex.setAuth(token);
+  const me = await convex.query(api.auth.me, {});
+  if (me?.isAdmin) return null;
+  const mine = me ? await convex.query(api.tournaments.listMine, {}) : [];
+  if (mine.length === 0) {
+    return NextResponse.json(
+      { error: "Only tournament organisers can upload images" },
+      { status: 403 },
+    );
+  }
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    // Authentication check
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    // Authorization check — super-admin or tournament staff
+    const denied = await requireUploader();
+    if (denied) return denied;
 
     const formData = await request.formData();
     const file = formData.get("file") as File;
@@ -33,15 +62,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file type
-    const validTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "image/svg+xml",
-    ];
+    // SVG is excluded: it can carry script and is served from our Cloudinary.
+    const validTypes = ["image/jpeg", "image/png", "image/webp"];
     if (!validTypes.includes(file.type)) {
       return NextResponse.json(
-        { error: "Invalid file type. Allowed: JPG, PNG, WebP, SVG" },
+        { error: "Invalid file type. Allowed: JPG, PNG, WebP" },
         { status: 400 },
       );
     }
@@ -81,44 +106,6 @@ export async function POST(request: NextRequest) {
     console.error("Cloudinary upload error:", error);
     return NextResponse.json(
       { error: "Failed to upload image" },
-      { status: 500 },
-    );
-  }
-}
-
-// Delete an image from Cloudinary
-export async function DELETE(request: NextRequest) {
-  try {
-    // Authentication check
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { publicId } = await request.json();
-
-    if (!publicId) {
-      return NextResponse.json(
-        { error: "No public ID provided" },
-        { status: 400 },
-      );
-    }
-
-    // Validate publicId starts with our namespace to prevent deleting other assets
-    if (!publicId.startsWith("cricket-auction/")) {
-      return NextResponse.json(
-        { error: "Invalid public ID" },
-        { status: 400 },
-      );
-    }
-
-    await cloudinary.uploader.destroy(publicId);
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Cloudinary delete error:", error);
-    return NextResponse.json(
-      { error: "Failed to delete image" },
       { status: 500 },
     );
   }

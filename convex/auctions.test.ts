@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
+import { syncTournamentAuctionCounts } from "./auctionCounts";
 
 // Discover the Convex function modules for the test runtime (this file lives in
 // the convex/ root, so the glob resolves against the functions directory).
@@ -275,6 +276,220 @@ describe("placeBid — bid validation", () => {
   });
 });
 
+/** Insert a non-current player (e.g. a pending pool player or a sold squad member). */
+async function insertPlayer(
+  t: ReturnType<typeof convexTest>,
+  args: {
+    tournamentId: Id<"tournaments">;
+    auctionStatus: "pending" | "sold" | "unsold";
+    basePrice?: number;
+    teamId?: Id<"teams">;
+    soldPrice?: number;
+  },
+) {
+  return await t.run(async (ctx) => {
+    const now = Date.now();
+    return await ctx.db.insert("players", {
+      tournamentId: args.tournamentId,
+      name: "Pool Player",
+      age: 25,
+      role: "Bowler",
+      battingBowlingHand: "Right-handed",
+      basePrice: args.basePrice,
+      auctionStatus: args.auctionStatus,
+      teamId: args.teamId,
+      soldPrice: args.soldPrice,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+}
+
+describe("placeBid — squad and max-bid rules", () => {
+  test("rejects a bid from a team whose squad is already full", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t, {
+      maxPlayersPerTeam: 1,
+    });
+    await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "sold",
+      teamId: teamA,
+      soldPrice: 100_000,
+    });
+    await putPlayerInAuction(t, { tournamentId, roomId });
+
+    const res = await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    expect(res).toMatchObject({ success: false, reason: "Squad is full" });
+  });
+
+  test("a bid at the displayed maxAllowedBid is accepted; one increment above is rejected", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    // Purse 10L, 3-player squads, ₹5L player on the block, ₹1L player still pending.
+    // Future slots are reserved at the cheapest pending base price (₹1L), so
+    // max = 10L - 2 × 1L = 8L. (Reserving at the ₹5L current price would give 0.)
+    const { tournamentId, roomId, teamA } = await setup(t, {
+      basePurse: 1_000_000,
+      maxPlayersPerTeam: 3,
+      basePrice: 100_000,
+      minBidIncrement: 25_000,
+    });
+    await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "pending",
+      basePrice: 100_000,
+    });
+    const playerId = await putPlayerInAuction(t, {
+      tournamentId,
+      roomId,
+      basePrice: 500_000,
+    });
+    await t.run((ctx) => syncTournamentAuctionCounts(ctx, tournamentId));
+
+    const roster = await t.query(api.auctions.getAuctionRoster, {
+      tournamentId,
+      currentPlayerId: playerId,
+    });
+    const displayedMax = roster.teams.find((tm) => tm._id === teamA)!
+      .maxAllowedBid;
+    expect(displayedMax).toBe(800_000);
+
+    const over = await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: displayedMax + 25_000,
+    });
+    expect(over).toMatchObject({ success: false, maxAllowedBid: displayedMax });
+    expect(over.reason).toContain("Max allowed: ₹8.00L");
+
+    const atMax = await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: displayedMax,
+    });
+    expect(atMax).toMatchObject({ success: true });
+  });
+
+  test("rejects a team from another tournament", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, adminId } = await setup(t);
+    const playerId = await putPlayerInAuction(t, { tournamentId, roomId });
+    const foreignTeam = await t.run(async (ctx) => {
+      const now = Date.now();
+      const otherTournamentId = await ctx.db.insert("tournaments", {
+        name: "Other Cup",
+        createdBy: adminId,
+        status: "active",
+        settings: {
+          basePurse: 1_000_000,
+          minBidIncrement: 25_000,
+          bidTimerSeconds: 30,
+          maxPlayersPerTeam: 3,
+          basePrice: 100_000,
+        },
+        createdAt: now,
+        updatedAt: now,
+      });
+      return await ctx.db.insert("teams", {
+        tournamentId: otherTournamentId,
+        name: "Outsiders",
+        ownerName: "owner",
+        purseRemaining: 1_000_000,
+        purseSpent: 0,
+        colorPrimary: "#333333",
+        colorSecondary: "#444444",
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const res = await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: foreignTeam,
+      amount: 100_000,
+    });
+    expect(res).toMatchObject({ success: false });
+
+    await t.run(async (ctx) => {
+      const bids = await ctx.db
+        .query("liveBids")
+        .withIndex("by_player", (q) => q.eq("playerId", playerId))
+        .collect();
+      expect(bids).toHaveLength(0);
+    });
+  });
+});
+
+describe("admin corrections — squad reserve", () => {
+  test("updatePlayerStatus → sold reserves at the cheapest pending base price", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    // Tournament base ₹5L, but a ₹1L player is still pending. Selling to a
+    // 3-player squad at ₹8L leaves ₹2L for 2 slots: fine at ₹1L each, while the
+    // old tournament-base reserve (2 × ₹5L) would have refused it.
+    const { tournamentId, teamA } = await setup(t, {
+      basePurse: 1_000_000,
+      maxPlayersPerTeam: 3,
+      basePrice: 500_000,
+    });
+    await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "pending",
+      basePrice: 100_000,
+    });
+    const unsoldId = await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "unsold",
+    });
+    await t.run((ctx) => syncTournamentAuctionCounts(ctx, tournamentId));
+
+    await asAdmin.mutation(api.admin.updatePlayerStatus, {
+      playerId: unsoldId,
+      newStatus: "sold",
+      teamId: teamA,
+      soldPrice: 800_000,
+    });
+
+    await t.run(async (ctx) => {
+      const team = await ctx.db.get(teamA);
+      expect(team?.purseRemaining).toBe(200_000);
+      expect(team?.purseSpent).toBe(800_000);
+    });
+  });
+
+  test("updatePlayerStatus → sold refuses a team whose squad is full", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, teamA } = await setup(t, { maxPlayersPerTeam: 1 });
+    await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "sold",
+      teamId: teamA,
+      soldPrice: 100_000,
+    });
+    const unsoldId = await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "unsold",
+    });
+
+    await expect(
+      asAdmin.mutation(api.admin.updatePlayerStatus, {
+        playerId: unsoldId,
+        newStatus: "sold",
+        teamId: teamA,
+        soldPrice: 100_000,
+      }),
+    ).rejects.toThrow(/squad is full/i);
+  });
+});
+
 describe("finalizePlayerSale — purse settlement", () => {
   test("SOLD: deducts the winning bid from the team purse and assigns the player", async () => {
     const t = convexTest(schema, modules);
@@ -418,5 +633,330 @@ describe("startNextPlayer — guards", () => {
       expect(room?.currentPlayerId).toBe(playerId);
       expect(room?.bidTimerEndsAt).toBeGreaterThan(Date.now());
     });
+  });
+});
+
+describe("public viewer — no sign-in", () => {
+  test("every viewer query works with no identity and never returns a phone number", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t);
+    const soldId = await insertPlayer(t, {
+      tournamentId,
+      auctionStatus: "sold",
+      teamId: teamA,
+      soldPrice: 100_000,
+    });
+    const playerId = await putPlayerInAuction(t, { tournamentId, roomId });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(soldId, { phoneNumber: "+91-9000000001" });
+      await ctx.db.patch(playerId, { phoneNumber: "+91-9000000002" });
+    });
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    await asAdmin.mutation(api.auctions.finalizePlayerSale, { auctionRoomId: roomId });
+    const nextId = await putPlayerInAuction(t, { tournamentId, roomId });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(nextId, { phoneNumber: "+91-9000000003" });
+    });
+
+    // `t` without withIdentity is exactly a signed-out browser.
+    const live = await t.query(api.auctions.getLiveAuction, { auctionRoomId: roomId });
+    const roster = await t.query(api.auctions.getAuctionRoster, {
+      tournamentId,
+      currentPlayerId: live?.auctionRoom.currentPlayerId,
+    });
+    const sale = await t.query(api.auctions.getLatestSaleEvent, { auctionRoomId: roomId });
+    const history = await t.query(api.auctions.getAuctionHistory, { tournamentId });
+
+    expect(live?.auctionRoom.currentPlayerId).toBe(nextId);
+    expect(roster?.currentPlayer?._id).toBe(nextId);
+    expect(sale).toMatchObject({ sold: true, amount: 100_000 });
+    expect(history.sold).toHaveLength(2);
+
+    const payload = JSON.stringify({ live, roster, sale, history });
+    expect(payload).not.toContain("phoneNumber");
+    expect(payload).not.toContain("+91-900000000");
+  });
+
+  const SIGNED_IN_USER = { email: "viewer@test.com", subject: "user|viewer" };
+  const callers = [
+    { label: "an anonymous caller", identity: null },
+    { label: "a signed-in non-admin", identity: SIGNED_IN_USER },
+  ] as const;
+  const adminMutations = [
+    "placeBid",
+    "finalizePlayerSale",
+    "startNextPlayer",
+    "restartAuction",
+  ] as const;
+
+  for (const { label, identity } of callers) {
+    for (const name of adminMutations) {
+      test(`${name} rejects ${label} and changes nothing`, async () => {
+        const t = convexTest(schema, modules);
+        const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+        const { tournamentId, roomId, teamA } = await setup(t);
+        const playerId = await putPlayerInAuction(t, { tournamentId, roomId });
+        await insertPlayer(t, { tournamentId, auctionStatus: "pending" });
+        await asAdmin.mutation(api.auctions.placeBid, {
+          auctionRoomId: roomId,
+          teamId: teamA,
+          amount: 100_000,
+        });
+        if (identity) {
+          await t.run(async (ctx) => {
+            await ctx.db.insert("users", {
+              email: identity.email,
+              role: "user",
+              createdAt: Date.now(),
+            });
+          });
+        }
+        const caller = identity ? t.withIdentity(identity) : t;
+        const snapshot = () =>
+          t.run(async (ctx) => ({
+            room: await ctx.db.get(roomId),
+            teams: await ctx.db.query("teams").collect(),
+            players: await ctx.db.query("players").collect(),
+            bids: await ctx.db.query("liveBids").collect(),
+            events: await ctx.db.query("auctionEvents").collect(),
+          }));
+        const before = await snapshot();
+
+        const call =
+          name === "placeBid"
+            ? caller.mutation(api.auctions.placeBid, {
+                auctionRoomId: roomId,
+                teamId: teamA,
+                amount: 125_000,
+              })
+            : caller.mutation(api.auctions[name], { auctionRoomId: roomId });
+
+        await expect(call).rejects.toThrow(
+          identity ? "You don't have access to this tournament" : "Not authenticated",
+        );
+        expect(await snapshot()).toEqual(before);
+        expect(before.room?.currentPlayerId).toBe(playerId);
+      });
+    }
+  }
+});
+
+describe("audit trail — room controls", () => {
+  async function auditActions(t: ReturnType<typeof convexTest>) {
+    const logs = await t.run((ctx) => ctx.db.query("auditLogs").collect());
+    return logs.map((l) => l.action);
+  }
+
+  test("revertLastBid and restartCurrentPlayer write audit rows", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t);
+    await putPlayerInAuction(t, { tournamentId, roomId });
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+
+    await asAdmin.mutation(api.auctions.revertLastBid, {
+      auctionRoomId: roomId,
+    });
+    await asAdmin.mutation(api.auctions.restartCurrentPlayer, {
+      auctionRoomId: roomId,
+    });
+
+    const actions = await auditActions(t);
+    expect(actions).toContain("revert_last_bid");
+    expect(actions).toContain("restart_current_player");
+    // Individual bids are never audited.
+    expect(actions).not.toContain("place_bid");
+  });
+
+  test("pause, resume and restartAuction write audit rows", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { roomId } = await setup(t);
+
+    await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: roomId });
+    await asAdmin.mutation(api.auctions.resumeAuction, {
+      auctionRoomId: roomId,
+    });
+    await asAdmin.mutation(api.auctions.restartAuction, {
+      auctionRoomId: roomId,
+    });
+
+    expect(await auditActions(t)).toEqual(
+      expect.arrayContaining([
+        "pause_auction",
+        "resume_auction",
+        "restart_auction",
+      ]),
+    );
+  });
+});
+
+describe("finalizePlayerSale — defensive purse guard", () => {
+  test("refuses the sale when the winning team can no longer afford the bid", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t);
+    const playerId = await putPlayerInAuction(t, { tournamentId, roomId });
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 300_000,
+    });
+    // Purse drops below the standing bid after it was placed.
+    await t.run((ctx) =>
+      ctx.db.patch(teamA, { purseRemaining: 200_000, purseSpent: 800_000 }),
+    );
+
+    const res = await asAdmin.mutation(api.auctions.finalizePlayerSale, {
+      auctionRoomId: roomId,
+    });
+
+    expect(res).toMatchObject({ success: false });
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(teamA))?.purseRemaining).toBe(200_000);
+      expect((await ctx.db.get(playerId))?.auctionStatus).toBe("in_auction");
+    });
+  });
+});
+
+describe("bid timer — advisory countdown (X5)", () => {
+  test("a bid resets bidTimerEndsAt to now + bidTimerSeconds", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA, teamB } = await setup(t, {
+      bidTimerSeconds: 45,
+    });
+    await putPlayerInAuction(t, {
+      tournamentId,
+      roomId,
+      bidTimerEndsAt: Date.now() - 1_000, // already expired
+    });
+
+    const before = Date.now();
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    const after = Date.now();
+    const first = (await t.run((ctx) => ctx.db.get(roomId)))!.bidTimerEndsAt!;
+    expect(first).toBeGreaterThanOrEqual(before + 45_000);
+    expect(first).toBeLessThanOrEqual(after + 45_000);
+
+    await new Promise((r) => setTimeout(r, 5));
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamB,
+      amount: 125_000,
+    });
+    const second = (await t.run((ctx) => ctx.db.get(roomId)))!.bidTimerEndsAt!;
+    expect(second).toBeGreaterThan(first);
+  });
+
+  test("an absent bidTimerSeconds still runs the 30 s default", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t);
+    await t.run(async (ctx) => {
+      const tournament = (await ctx.db.get(tournamentId))!;
+      await ctx.db.patch(tournamentId, {
+        settings: { ...tournament.settings, bidTimerSeconds: undefined },
+      });
+    });
+    await putPlayerInAuction(t, { tournamentId, roomId });
+
+    const before = Date.now();
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    const endsAt = (await t.run((ctx) => ctx.db.get(roomId)))!.bidTimerEndsAt!;
+    expect(endsAt).toBeGreaterThanOrEqual(before + 30_000);
+    expect(endsAt).toBeLessThanOrEqual(Date.now() + 30_000);
+  });
+
+  test("timer 0 (off): a bid writes nothing to the room", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t, {
+      bidTimerSeconds: 0,
+    });
+    await putPlayerInAuction(t, { tournamentId, roomId });
+    const roomBefore = await t.run(async (ctx) => {
+      await ctx.db.patch(roomId, { bidTimerEndsAt: undefined });
+      return (await ctx.db.get(roomId))!;
+    });
+
+    await new Promise((r) => setTimeout(r, 5));
+    const res = await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    expect(res).toMatchObject({ success: true });
+
+    const roomAfter = (await t.run((ctx) => ctx.db.get(roomId)))!;
+    expect(roomAfter.bidTimerEndsAt).toBeUndefined();
+    expect(roomAfter.updatedAt).toBe(roomBefore.updatedAt);
+  });
+
+  test("timer 0 (off): start, pause/resume, restart and clear never set bidTimerEndsAt", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, roomId, teamA } = await setup(t, {
+      bidTimerSeconds: 0,
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("players", {
+        tournamentId,
+        name: "Rohit",
+        age: 33,
+        role: "Batter",
+        battingBowlingHand: "Right-handed",
+        auctionStatus: "pending",
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    const endsAt = async () =>
+      (await t.run((ctx) => ctx.db.get(roomId)))!.bidTimerEndsAt;
+
+    await asAdmin.mutation(api.auctions.startNextPlayer, {
+      auctionRoomId: roomId,
+    });
+    expect(await endsAt()).toBeUndefined();
+
+    await asAdmin.mutation(api.auctions.placeBid, {
+      auctionRoomId: roomId,
+      teamId: teamA,
+      amount: 100_000,
+    });
+    expect(await endsAt()).toBeUndefined();
+
+    await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: roomId });
+    await asAdmin.mutation(api.auctions.resumeAuction, { auctionRoomId: roomId });
+    expect(await endsAt()).toBeUndefined();
+
+    await asAdmin.mutation(api.auctions.restartCurrentPlayer, {
+      auctionRoomId: roomId,
+    });
+    expect(await endsAt()).toBeUndefined();
+
+    await asAdmin.mutation(api.admin.clearCurrentPlayerBids, {
+      auctionRoomId: roomId,
+      reason: "test",
+    });
+    expect(await endsAt()).toBeUndefined();
   });
 });

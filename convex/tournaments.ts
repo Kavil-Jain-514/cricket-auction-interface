@@ -1,6 +1,43 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getCurrentUser, logAdminAction, requireAdmin } from "./auth";
+import {
+  getCurrentUser,
+  getTournamentRole,
+  isTournamentStaff,
+  logAdminAction,
+  OWNER_ONLY,
+  requireTournamentRole,
+  requireUser,
+} from "./auth";
+import type { Doc, Id } from "./_generated/dataModel";
+import {
+  DEFAULT_BASE_PRICE,
+  DEFAULT_BID_TIMER_SECONDS,
+  teamPurseTotal,
+  validateBidTimerSeconds,
+} from "./bidRules";
+import {
+  categoryValidator,
+  incrementSlabValidator,
+  presentationOrderValidator,
+  squadRuleValidator,
+} from "./ruleValidators";
+import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { initialPlan } from "./plans";
+import {
+  normalizeFooterText,
+  validateCategories,
+  validateIncrementSlabs,
+  validateSettings,
+  validateSquadRules,
+  validateTournamentName,
+} from "./validation";
+
+// Who may bid (see schema.ts). Not a locked setting: the auctioneer can fall
+// back to "admin_only" mid-auction.
+const bidModeValidator = v.optional(
+  v.union(v.literal("admin_only"), v.literal("confirm"), v.literal("open")),
+);
 
 export const create = mutation({
   args: {
@@ -10,46 +47,36 @@ export const create = mutation({
     settings: v.object({
       basePurse: v.number(),
       minBidIncrement: v.number(),
-      // Bid timer is no longer configurable in the UI; kept optional for
-      // backward compatibility. Defaults to 30s server-side where needed.
+      // Advisory countdown: 0 = off, 10–120s. Absent = 30s (older clients).
       bidTimerSeconds: v.optional(v.number()),
       maxPlayersPerTeam: v.number(),
       basePrice: v.optional(v.number()),
+      footerText: v.optional(v.string()),
+      bidMode: bidModeValidator,
+      categories: v.optional(v.array(categoryValidator)),
+      incrementSlabs: v.optional(v.array(incrementSlabValidator)),
+      presentationOrder: presentationOrderValidator,
+      squadRules: v.optional(v.array(squadRuleValidator)),
+      registrationOpen: v.optional(v.boolean()),
+      registrationFee: v.optional(v.number()),
     }),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
+    // Any signed-in user may create a tournament; they become its owner.
+    await requireUser(ctx);
 
-    // Validation
-    if (!args.name || args.name.trim().length < 3) {
-      throw new Error("Tournament name must be at least 3 characters");
+    // Validation (shared with update — convex/validation.ts)
+    const error =
+      validateTournamentName(args.name) ?? validateSettings(args.settings);
+    if (error) throw new Error(error);
+
+    // Bid timer: 0 = off, else 10–120s. Omitted means the 30s default.
+    if (args.settings.bidTimerSeconds !== undefined) {
+      const timerError = validateBidTimerSeconds(args.settings.bidTimerSeconds);
+      if (timerError) throw new Error(timerError);
     }
-    if (args.name.trim().length > 50) {
-      throw new Error("Tournament name must be less than 50 characters");
-    }
-    if (args.settings.basePurse < 100000) {
-      throw new Error("Base purse must be at least ₹1 Lakh");
-    }
-    if (args.settings.basePurse > 1000000000) {
-      throw new Error("Base purse cannot exceed ₹100 Crore");
-    }
-    if (args.settings.minBidIncrement < 5000) {
-      throw new Error("Minimum bid increment must be at least ₹5,000");
-    }
-    if (args.settings.minBidIncrement > args.settings.basePurse / 10) {
-      throw new Error("Bid increment cannot exceed 10% of base purse");
-    }
-    // Bid timer is no longer set from the UI, but validate any value a client
-    // does send so a bad number can't corrupt bidTimerEndsAt math later.
-    if (
-      args.settings.bidTimerSeconds !== undefined &&
-      (!Number.isFinite(args.settings.bidTimerSeconds) ||
-        args.settings.bidTimerSeconds < 10 ||
-        args.settings.bidTimerSeconds > 120)
-    ) {
-      throw new Error("Bid timer must be between 10 and 120 seconds");
-    }
+    const rulesError = validateRuleSettings(args.settings);
+    if (rulesError) throw new Error(rulesError);
     // Get current user (implement auth first)
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
@@ -74,39 +101,28 @@ export const create = mutation({
       throw new Error("Failed to create user");
     }
 
+    const footer = normalizeFooterText(args.settings.footerText);
+    if (!footer.ok) throw new Error(footer.error);
+
     const tournamentId = await ctx.db.insert("tournaments", {
       name: args.name,
       description: args.description,
       logoUrl: args.logoUrl,
       createdBy: user._id,
       status: "draft",
-      settings: args.settings,
+      plan: initialPlan(),
+      settings: { ...args.settings, footerText: footer.text },
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+    await ctx.db.insert("tournamentStaff", {
+      tournamentId,
+      userId: user._id,
+      role: "owner",
+      createdAt: Date.now(),
+    });
 
     return tournamentId;
-  },
-});
-
-export const list = query({
-  handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return [];
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
-      .first();
-
-    // Return empty if user hasn't been created yet (will be created on first tournament)
-    if (!user) return [];
-
-    return await ctx.db
-      .query("tournaments")
-      .withIndex("by_creator", (q) => q.eq("createdBy", user._id))
-      .order("desc")
-      .collect();
   },
 });
 
@@ -119,11 +135,22 @@ export const listAll = query({
     if (args.limit !== undefined && args.limit <= 0) {
       throw new Error("limit must be a positive number");
     }
-    // Non-admins never see deactivated tournaments (isActive === false).
-    // Legacy tournaments with isActive === undefined stay visible.
+    // Deactivated tournaments (isActive === false) are visible only to their
+    // staff and the super-admin. Legacy isActive === undefined stays visible.
     const user = await getCurrentUser(ctx);
     const isAdmin = user?.role === "admin";
-    const visible = (t: { isActive?: boolean }) => isAdmin || t.isActive !== false;
+    const staffOf = new Set(
+      user && !isAdmin
+        ? (
+            await ctx.db
+              .query("tournamentStaff")
+              .withIndex("by_user", (q) => q.eq("userId", user._id))
+              .collect()
+          ).map((s) => s.tournamentId)
+        : [],
+    );
+    const visible = (t: { _id: Id<"tournaments">; isActive?: boolean }) =>
+      isAdmin || t.isActive !== false || staffOf.has(t._id);
 
     const tournamentsQuery = ctx.db.query("tournaments").order("desc");
     if (args.limit === undefined) {
@@ -145,15 +172,109 @@ export const getById = query({
     const tournament = await ctx.db.get(args.id);
     if (!tournament) return null;
 
-    // Deactivated tournaments are only reachable by admins.
-    if (tournament.isActive === false) {
-      const user = await getCurrentUser(ctx);
-      if (user?.role !== "admin") return null;
+    // Deactivated tournaments are only reachable by their staff.
+    if (tournament.isActive === false && !(await isTournamentStaff(ctx, args.id))) {
+      return null;
     }
 
     return tournament;
   },
 });
+
+/**
+ * The caller's access to a tournament, for showing or hiding controls:
+ * "super_admin", "owner", "auctioneer" or null. The server re-checks every
+ * action, so this is for UI only.
+ */
+export const myRole = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    return await getTournamentRole(ctx, args.tournamentId);
+  },
+});
+
+/** Tournaments the caller is on the staff of, newest first, with their role. */
+export const listMine = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return [];
+    const rows = await ctx.db
+      .query("tournamentStaff")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    const tournaments = await Promise.all(
+      rows.map(async (row) => {
+        const t = await ctx.db.get(row.tournamentId);
+        return t ? { ...t, myRole: row.role } : null;
+      }),
+    );
+    return tournaments
+      .filter((t): t is NonNullable<typeof t> => t !== null)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  },
+});
+
+type TournamentSettings = Doc<"tournaments">["settings"];
+
+/**
+ * True when a money or squad setting differs from what is stored. Absent
+ * optional values compare as their server-side defaults, so a client that
+ * resends the defaults does not trip the live-auction lock.
+ */
+function settingsChanged(
+  current: TournamentSettings,
+  next: TournamentSettings,
+): boolean {
+  return (
+    next.basePurse !== current.basePurse ||
+    next.minBidIncrement !== current.minBidIncrement ||
+    next.maxPlayersPerTeam !== current.maxPlayersPerTeam ||
+    (next.basePrice ?? DEFAULT_BASE_PRICE) !==
+      (current.basePrice ?? DEFAULT_BASE_PRICE) ||
+    (next.bidTimerSeconds !== undefined &&
+      next.bidTimerSeconds !==
+        (current.bidTimerSeconds ?? DEFAULT_BID_TIMER_SECONDS)) ||
+    (next.categories !== undefined &&
+      !sameJson(next.categories, current.categories ?? [])) ||
+    (next.incrementSlabs !== undefined &&
+      !sameJson(next.incrementSlabs, current.incrementSlabs ?? [])) ||
+    (next.presentationOrder !== undefined &&
+      next.presentationOrder !== (current.presentationOrder ?? "random")) ||
+    (next.squadRules !== undefined &&
+      !sameJson(next.squadRules, current.squadRules ?? []))
+  );
+}
+
+/** Order-sensitive structural equality for small settings arrays. */
+function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Categories, increment slabs and squad rules, checked against the new settings. */
+function validateRuleSettings(settings: {
+  basePurse: number;
+  maxPlayersPerTeam: number;
+  categories?: TournamentSettings["categories"];
+  incrementSlabs?: TournamentSettings["incrementSlabs"];
+  squadRules?: TournamentSettings["squadRules"];
+}): string | null {
+  return (
+    (settings.categories
+      ? validateCategories(settings.categories, settings.basePurse)
+      : null) ??
+    (settings.incrementSlabs
+      ? validateIncrementSlabs(settings.incrementSlabs, settings.basePurse)
+      : null) ??
+    (settings.squadRules
+      ? validateSquadRules(
+          settings.squadRules,
+          (settings.categories ?? []).map((c) => c.id),
+          settings.maxPlayersPerTeam,
+        )
+      : null)
+  );
+}
 
 export const update = mutation({
   args: {
@@ -173,29 +294,83 @@ export const update = mutation({
       v.object({
         basePurse: v.number(),
         minBidIncrement: v.number(),
-        // Optional: no longer set from the UI (see create).
+        // Optional: omitted keeps the stored value (see create).
         bidTimerSeconds: v.optional(v.number()),
         maxPlayersPerTeam: v.number(),
         basePrice: v.optional(v.number()),
+        // Not a locked setting: editable during a live auction.
+        footerText: v.optional(v.string()),
+        // Not a locked setting either (see bidModeValidator).
+        bidMode: bidModeValidator,
+        // Locked while live. Omitted keeps the stored value; [] clears it.
+        categories: v.optional(v.array(categoryValidator)),
+        incrementSlabs: v.optional(v.array(incrementSlabValidator)),
+        presentationOrder: presentationOrderValidator,
+        squadRules: v.optional(v.array(squadRuleValidator)),
+        // Not locked: registration can open or close at any time.
+        registrationOpen: v.optional(v.boolean()),
+        registrationFee: v.optional(v.number()),
       }),
     ),
   },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
-
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
+    const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     // Cannot edit completed tournaments
     if (tournament.status === "completed") {
       throw new Error("Cannot edit tournament after it is completed");
     }
 
-    // Merged settings we'll actually write (preserving the legacy bid timer).
-    let nextSettings = args.settings;
+    if (args.name !== undefined) {
+      const nameError = validateTournamentName(args.name);
+      if (nameError) throw new Error(nameError);
+    }
 
-    if (args.settings) {
+    // Merged settings we'll actually write (preserving the stored bid timer).
+    // Stays undefined when the caller sent settings identical to the stored
+    // ones, so name/description/logo edits work during a live auction.
+    let nextSettings: typeof args.settings = undefined;
+
+    // Footer text is presentation only — never locked. An omitted footerText
+    // keeps the stored one; an empty string clears it.
+    let footerText = tournament.settings.footerText;
+    if (args.settings?.footerText !== undefined) {
+      const footer = normalizeFooterText(args.settings.footerText);
+      if (!footer.ok) throw new Error(footer.error);
+      footerText = footer.text;
+      if (footerText !== tournament.settings.footerText) {
+        nextSettings = { ...tournament.settings, footerText };
+      }
+    }
+
+    // Bid mode is never locked either. An omitted bidMode keeps the stored one.
+    const bidMode = args.settings?.bidMode ?? tournament.settings.bidMode;
+    if (bidMode !== tournament.settings.bidMode) {
+      nextSettings = { ...(nextSettings ?? tournament.settings), bidMode };
+    }
+
+    // Nor are the public registration form settings.
+    const registrationOpen = args.settings?.registrationOpen ?? tournament.settings.registrationOpen;
+    const registrationFee = args.settings?.registrationFee ?? tournament.settings.registrationFee;
+    if (
+      registrationFee !== undefined &&
+      (!Number.isInteger(registrationFee) || registrationFee < 0 || registrationFee > 100_000)
+    ) {
+      throw new Error("Registration fee must be a whole number of rupees from 0 to 1,00,000");
+    }
+    if (
+      registrationOpen !== tournament.settings.registrationOpen ||
+      registrationFee !== tournament.settings.registrationFee
+    ) {
+      nextSettings = { ...(nextSettings ?? tournament.settings), registrationOpen, registrationFee };
+    }
+
+    if (args.settings && settingsChanged(tournament.settings, args.settings)) {
+      const settingsError = validateSettings(args.settings);
+      if (settingsError) throw new Error(settingsError);
+
       // Settings are locked once the auction is actually running (live/paused).
       // To change them, the admin must restart the auction (which returns the
       // room to "waiting"). This keeps every place that reads the settings
@@ -233,24 +408,84 @@ export const update = mutation({
         );
       }
 
-      // Bid timer is no longer set from the UI, but validate any value a client
-      // does send so a bad number can't corrupt bidTimerEndsAt math later.
-      if (
-        args.settings.bidTimerSeconds !== undefined &&
-        (!Number.isFinite(args.settings.bidTimerSeconds) ||
-          args.settings.bidTimerSeconds < 10 ||
-          args.settings.bidTimerSeconds > 120)
-      ) {
-        throw new Error("Bid timer must be between 10 and 120 seconds");
+      // Bid timer: 0 = off, else 10–120s (see create).
+      if (args.settings.bidTimerSeconds !== undefined) {
+        const timerError = validateBidTimerSeconds(
+          args.settings.bidTimerSeconds,
+        );
+        if (timerError) throw new Error(timerError);
       }
 
-      // Preserve the (hidden) bid timer if the caller didn't send one.
+      // Categories and slabs: omitted keeps the stored ones.
+      const categories =
+        args.settings.categories ?? tournament.settings.categories;
+      const incrementSlabs =
+        args.settings.incrementSlabs ?? tournament.settings.incrementSlabs;
+      const squadRules =
+        args.settings.squadRules ?? tournament.settings.squadRules;
+
+      // Removing a category a squad rule still uses gets a clearer message
+      // than the generic "rule refers to a category that doesn't exist".
+      const categoryIds = new Set((categories ?? []).map((c) => c.id));
+      const orphaned = (squadRules ?? []).find(
+        (r) => r.categoryId !== undefined && !categoryIds.has(r.categoryId),
+      );
+      const orphanedName = tournament.settings.categories?.find(
+        (c) => c.id === orphaned?.categoryId,
+      )?.name;
+      if (orphaned && orphanedName && !args.settings.squadRules) {
+        throw new Error(
+          `${orphanedName} is used by a squad rule. Remove the rule first.`,
+        );
+      }
+
+      const rulesError = validateRuleSettings({
+        basePurse: args.settings.basePurse,
+        maxPlayersPerTeam: args.settings.maxPlayersPerTeam,
+        categories,
+        incrementSlabs,
+        squadRules,
+      });
+      if (rulesError) throw new Error(rulesError);
+
+      // A category still assigned to players can't be removed: their base
+      // price would silently fall back to the tournament default.
+      const keptIds = new Set((categories ?? []).map((c) => c.id));
+      const removed = (tournament.settings.categories ?? []).filter(
+        (c) => !keptIds.has(c.id),
+      );
+      if (removed.length > 0) {
+        const players = await ctx.db
+          .query("players")
+          .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+          .collect();
+        for (const category of removed) {
+          const inUse = players.filter((p) => p.categoryId === category.id);
+          if (inUse.length > 0) {
+            throw new Error(
+              `${inUse.length} player${inUse.length === 1 ? " is" : "s are"} still in ${category.name}. Move them to another category first.`,
+            );
+          }
+        }
+      }
+
+      // Keep the stored bid timer if the caller didn't send one.
       nextSettings = {
         ...args.settings,
         bidTimerSeconds:
           args.settings.bidTimerSeconds ??
           tournament.settings.bidTimerSeconds ??
-          30,
+          DEFAULT_BID_TIMER_SECONDS,
+        footerText,
+        bidMode,
+        categories,
+        incrementSlabs,
+        presentationOrder:
+          args.settings.presentationOrder ??
+          tournament.settings.presentationOrder,
+        squadRules,
+        registrationOpen,
+        registrationFee,
       };
 
       // Base purse is denormalized onto each team's purse. When it changes,
@@ -266,7 +501,8 @@ export const update = mutation({
             ctx.db.patch(team._id, {
               purseRemaining: Math.max(
                 0,
-                args.settings!.basePurse - team.purseSpent,
+                teamPurseTotal(args.settings!.basePurse, team) -
+                  team.purseSpent,
               ),
               updatedAt: Date.now(),
             }),
@@ -283,6 +519,34 @@ export const update = mutation({
       updatedAt: Date.now(),
     });
 
+    // Base prices (tournament or category) feed minPendingBasePrice, the
+    // squad reserve. Cheap no-op when nothing count-relevant changed.
+    if (nextSettings) await syncTournamentAuctionCounts(ctx, id);
+
+    // Audit only what actually changed (a base purse change moves every
+    // team's purse, so it must be on record).
+    const before: Record<string, unknown> = { ...tournament.settings };
+    const after: Record<string, unknown> = { ...(nextSettings ?? tournament.settings) };
+    for (const key of ["name", "description", "logoUrl", "status"] as const) {
+      before[key] = tournament[key];
+      after[key] = rest[key] ?? tournament[key];
+    }
+    const changed = Object.keys({ ...before, ...after }).filter(
+      (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]),
+    );
+    if (changed.length > 0) {
+      await logAdminAction(ctx, {
+        userId: admin._id,
+        userEmail: admin.email,
+        action: "update_tournament",
+        targetType: "tournament",
+        targetId: id,
+        previousData: Object.fromEntries(changed.map((k) => [k, before[k]])),
+        newData: Object.fromEntries(changed.map((k) => [k, after[k]])),
+        tournamentId: id,
+      });
+    }
+
     return { success: true };
   },
 });
@@ -295,10 +559,9 @@ export const setActive = mutation({
     isActive: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
-
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
+    const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     const previous = tournament.isActive !== false; // legacy undefined = active
     if (previous === args.isActive) {
@@ -328,14 +591,12 @@ export const setActive = mutation({
 export const deleteTournament = mutation({
   args: { id: v.id("tournaments") },
   handler: async (ctx, args) => {
-    // Admin only
-    await requireAdmin(ctx);
-
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
+    const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     // Fetch all related data in parallel
-    const [teams, players, auctionRooms] = await Promise.all([
+    const [teams, players, auctionRooms, groupDraws] = await Promise.all([
       ctx.db
         .query("teams")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
@@ -346,6 +607,10 @@ export const deleteTournament = mutation({
         .collect(),
       ctx.db
         .query("auctionRooms")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("groupDraws")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
         .collect(),
     ]);
@@ -388,6 +653,22 @@ export const deleteTournament = mutation({
       }
     }
 
+    // Audit before deleting (the log row outlives the tournament).
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "delete_tournament",
+      targetType: "tournament",
+      targetId: args.id,
+      previousData: {
+        name: tournament.name,
+        teams: teams.length,
+        players: players.length,
+        auctionRooms: auctionRooms.length,
+      },
+      tournamentId: args.id,
+    });
+
     // Delete deepest children first so a mid-flight failure never leaves
     // dangling references pointing at already-deleted parents.
 
@@ -399,7 +680,8 @@ export const deleteTournament = mutation({
     await deleteInChunks(allEvents);
     await deleteInChunks(allLiveBids);
 
-    // 2. Mid-level: players, teams, auction rooms
+    // 2. Mid-level: group draws, players, teams, auction rooms
+    await deleteInChunks(groupDraws);
     await deleteInChunks(players);
     await deleteInChunks(teams);
     await deleteInChunks(auctionRooms);

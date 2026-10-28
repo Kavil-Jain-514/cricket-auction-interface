@@ -174,3 +174,51 @@ describe("teams captain from players", () => {
     expect(team!.captainName).toBe("Rohit");
   });
 });
+
+describe("deleteTeam — owner bidding cleanup", () => {
+  test("deleting a team removes its members, invites and bid requests", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId, playerId } = await setup(t);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+
+    const teamId = await asAdmin.mutation(api.teams.create, {
+      ...baseTeamArgs,
+      tournamentId,
+    });
+    const { token } = await asAdmin.mutation(api.members.createInvite, { teamId });
+    await t
+      .withIdentity({ email: "owner@test.com", subject: "owner|1" })
+      .mutation(api.members.claimInvite, { token });
+    await asAdmin.mutation(api.members.createInvite, { teamId });
+
+    await t.run(async (ctx) => {
+      const member = (await ctx.db.query("teamMembers").first())!;
+      const adminId = (await ctx.db.query("users").first())!._id;
+      const auctionRoomId = await ctx.db.insert("auctionRooms", {
+        tournamentId,
+        name: "Room 1",
+        status: "waiting",
+        createdBy: adminId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await ctx.db.insert("bidRequests", {
+        auctionRoomId,
+        playerId,
+        teamId,
+        userId: member.userId,
+        amount: 100_000,
+        status: "pending",
+        createdAt: Date.now(),
+      });
+    });
+
+    await asAdmin.mutation(api.teams.deleteTeam, { id: teamId });
+
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query("teamMembers").collect()).toHaveLength(0);
+      expect(await ctx.db.query("teamInvites").collect()).toHaveLength(0);
+      expect(await ctx.db.query("bidRequests").collect()).toHaveLength(0);
+    });
+  });
+});

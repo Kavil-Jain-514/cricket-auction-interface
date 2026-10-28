@@ -9,6 +9,8 @@ import { formatCurrency, getPlayerInitials, getRoles, getRoleDisplay } from '@/l
 import { motion } from 'framer-motion';
 import { PlayerAvatarCircle } from '@/components/ui/player-avatar';
 import { TeamLogo } from '@/components/ui/team-logo';
+import { useTournamentRole } from '@/hooks/useTournamentRole';
+import { PurseTools } from './PurseTools';
 
 interface TeamDetailsModalProps {
   teamId: Id<"teams">;
@@ -24,6 +26,8 @@ const roleColors: Record<string, string> = {
 
 export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
   const teamData = useQuery(api.teams.getWithPlayers, { id: teamId });
+  // Owners and auctioneers can use the purse tools.
+  const { canRunAuction } = useTournamentRole(teamData?.tournamentId);
 
   if (!teamData) {
     return (
@@ -269,6 +273,8 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
             </div>
           )}
         </div>
+
+        {canRunAuction && <PurseTools team={team} players={players} />}
 
         {/* Close Button */}
         <div className="mt-6 flex justify-end">

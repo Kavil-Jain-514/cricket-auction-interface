@@ -36,9 +36,9 @@ export function ImageUpload({
     if (!file) return;
 
     // Validate file type
-    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!validTypes.includes(file.type)) {
-      toast.error('Invalid file type. Please upload JPG, PNG, WebP, or SVG');
+      toast.error('Invalid file type. Please upload JPG, PNG or WebP');
       return;
     }
 
@@ -185,14 +185,14 @@ export function ImageUpload({
                 <span className="font-semibold text-blue-400">Click to upload</span>
                 {' '}or drag and drop
               </p>
-              <p className="text-xs text-slate-500 mt-1">PNG, JPG, WebP, SVG (max 5MB)</p>
+              <p className="text-xs text-slate-500 mt-1">PNG, JPG, WebP (max 5MB)</p>
             </>
           )}
         </div>
         
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/svg+xml"
+          accept="image/jpeg,image/png,image/webp"
           className="hidden"
           disabled={disabled || isUploading}
           onChange={handleFileSelect}

@@ -1,5 +1,13 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  categoryValidator,
+  incrementSlabValidator,
+  planTierValidator,
+  planValidator,
+  presentationOrderValidator,
+  squadRuleValidator,
+} from "./ruleValidators";
 
 export default defineSchema({
   // Users table with roles
@@ -44,8 +52,37 @@ export default defineSchema({
       bidTimerSeconds: v.optional(v.number()),
       maxPlayersPerTeam: v.number(),
       basePrice: v.optional(v.number()), // Default base price for players, if not provided it's 1,00,000 for legacy reasons
+      footerText: v.optional(v.string()), // Shown under the brand on the viewer page; absent = hidden
+      // Who may bid. Absent = "admin_only" (legacy behaviour). "confirm": owner
+      // raises queue as bidRequests for the auctioneer to accept. "open": valid
+      // owner raises go straight to liveBids. Not locked during a live auction.
+      bidMode: v.optional(
+        v.union(
+          v.literal("admin_only"),
+          v.literal("confirm"),
+          v.literal("open"),
+        ),
+      ),
+      // Player categories (e.g. Marquee, A, B, Uncapped). A player's base price
+      // falls back to its category's, then to `basePrice` above. Absent = none.
+      categories: v.optional(v.array(categoryValidator)),
+      // Price-band increments, ascending by fromAmount (e.g. 0:25k, 5L:50k).
+      // Absent or empty = `minBidIncrement` for every bid (legacy behaviour).
+      incrementSlabs: v.optional(v.array(incrementSlabValidator)),
+      // Main-round order. Absent = "random" (legacy). "by_category": lowest
+      // category order first, random within a category, uncategorised last.
+      presentationOrder: presentationOrderValidator,
+      // Squad composition, per category or role (e.g. max 2 Marquee, min 1
+      // Wicket Keeper). Enforced in applyBid; see squadRules.ts.
+      squadRules: v.optional(v.array(squadRuleValidator)),
+      // Public self-registration (/register/<id>). Not locked while live.
+      registrationOpen: v.optional(v.boolean()),
+      registrationFee: v.optional(v.number()), // rupees; absent or 0 = free
     }),
     logoUrl: v.optional(v.string()),
+    // Paid tier and its limits (convex/plans.ts). Set to Free on create;
+    // absent on tournaments from before plans, which stay unlimited.
+    plan: v.optional(planValidator),
     // Visibility flag (independent of the auction lifecycle `status` above).
     // When false, non-admin users can neither see the tournament in listings
     // nor open it. Absent on legacy tournaments — treated as active.
@@ -64,6 +101,10 @@ export default defineSchema({
         unsold: v.number(),
         inAuction: v.number(),
         minPendingBasePrice: v.optional(v.number()), // undefined when no pending players
+        // Cheapest pending base price per squad min rule (reserve for unmet minimums).
+        minPendingBasePriceByRule: v.optional(
+          v.array(v.object({ ruleId: v.string(), price: v.number() })),
+        ),
       }),
     ),
     createdAt: v.number(),
@@ -96,11 +137,131 @@ export default defineSchema({
     captainHand: v.optional(v.union(v.literal("Right"), v.literal("Left"))),
     purseRemaining: v.number(),
     purseSpent: v.number(),
+    // Signed total of admin purse adjustments (penalties, top-ups), each logged
+    // with a reason. Absent = 0. purseRemaining + purseSpent always equals
+    // settings.basePurse + purseAdjustment (see teamPurseTotal in bidRules.ts).
+    purseAdjustment: v.optional(v.number()),
     colorPrimary: v.string(), // Hex color for UI
     colorSecondary: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_tournament", ["tournamentId"]),
+
+  // Organiser access per tournament. The creator is its "owner"; owners can
+  // add "auctioneer"s, who run the auction on the day. users.role "admin" is
+  // the platform super-admin and passes every check (requireTournamentRole).
+  tournamentStaff: defineTable({
+    tournamentId: v.id("tournaments"),
+    userId: v.id("users"),
+    role: v.union(v.literal("owner"), v.literal("auctioneer")),
+    createdAt: v.number(),
+  })
+    .index("by_tournament", ["tournamentId"])
+    .index("by_user", ["userId"])
+    .index("by_tournament_user", ["tournamentId", "userId"]),
+
+  // Console action results by client requestId (convex/idempotency.ts), so a
+  // retried placeBid / acceptBidRequest / finalizePlayerSale applies once.
+  bidRequestsSeen: defineTable({
+    key: v.string(), // "<kind>:<requestId>"
+    auctionRoomId: v.id("auctionRooms"),
+    result: v.any(),
+    createdAt: v.number(),
+  })
+    .index("by_room_key", ["auctionRoomId", "key"])
+    .index("by_createdAt", ["createdAt"]),
+
+  // Self-registrations from the public form. "paid" means ready for review
+  // (fee paid, or no fee); approval creates the player.
+  registrations: defineTable({
+    tournamentId: v.id("tournaments"),
+    name: v.string(),
+    age: v.number(),
+    role: v.array(v.string()),
+    battingBowlingHand: v.union(v.literal("Right-handed"), v.literal("Left-handed")),
+    phoneNumber: v.string(), // normalised 10 digits
+    photoUrl: v.optional(v.string()),
+    jerseyNumber: v.optional(v.number()),
+    jerseyName: v.optional(v.string()),
+    tshirtSize: v.optional(
+      v.union(v.literal("XS"), v.literal("S"), v.literal("M"), v.literal("L"), v.literal("XL"), v.literal("XXL"), v.literal("3XL"), v.literal("4XL")),
+    ),
+    consentWhatsApp: v.boolean(),
+    status: v.union(v.literal("pending_payment"), v.literal("paid"), v.literal("approved"), v.literal("rejected")),
+    fee: v.number(), // rupees at submission
+    razorpayOrderId: v.optional(v.string()),
+    paymentRef: v.optional(v.string()),
+    rejectReason: v.optional(v.string()),
+    playerId: v.optional(v.id("players")),
+    createdAt: v.number(),
+    reviewedAt: v.optional(v.number()),
+  })
+    .index("by_tournament", ["tournamentId"])
+    .index("by_tournament_phone", ["tournamentId", "phoneNumber"])
+    .index("by_order", ["razorpayOrderId"]),
+
+  // Razorpay orders for plan upgrades. Recorded when the order is created;
+  // the signed webhook marks it paid and upgrades the plan (idempotent on
+  // paymentRef). No card data is ever stored.
+  paymentOrders: defineTable({
+    tournamentId: v.id("tournaments"),
+    tier: planTierValidator,
+    amount: v.number(), // paise
+    razorpayOrderId: v.string(),
+    status: v.union(v.literal("created"), v.literal("paid")),
+    paymentRef: v.optional(v.string()),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    paidAt: v.optional(v.number()),
+  })
+    .index("by_order", ["razorpayOrderId"])
+    .index("by_tournament", ["tournamentId"]),
+
+  // Team members — users linked to a team (owners bid from their own phones).
+  // A user belongs to at most one team per tournament (enforced by claimInvite).
+  teamMembers: defineTable({
+    teamId: v.id("teams"),
+    tournamentId: v.id("tournaments"),
+    userId: v.id("users"),
+    role: v.union(v.literal("owner"), v.literal("viewer")),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_team", ["teamId"]),
+
+  // One-time owner invite links. Only the SHA-256 of the token is stored.
+  teamInvites: defineTable({
+    teamId: v.id("teams"),
+    tournamentId: v.id("tournaments"),
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+    createdBy: v.id("users"),
+    usedBy: v.optional(v.id("users")),
+    usedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_team", ["teamId"]),
+
+  // Owner raises waiting for the auctioneer (bidMode "confirm"). At most one
+  // "pending" request per team and player; a newer raise supersedes the older.
+  bidRequests: defineTable({
+    auctionRoomId: v.id("auctionRooms"),
+    playerId: v.id("players"),
+    teamId: v.id("teams"),
+    userId: v.id("users"),
+    amount: v.number(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("rejected"),
+      v.literal("superseded"),
+    ),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_room_player_status", ["auctionRoomId", "playerId", "status"])
+    .index("by_team", ["teamId"]),
 
   // Players table
   players: defineTable({
@@ -132,7 +293,8 @@ export default defineSchema({
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
     playerNumber: v.optional(v.number()), // Auto-incremented player number starting from 1
-    basePrice: v.optional(v.number()), // Starting bid price, if undefined inherits from tournament
+    basePrice: v.optional(v.number()), // Starting bid price, if undefined inherits from the category, then the tournament
+    categoryId: v.optional(v.string()), // tournaments.settings.categories[].id
     soldPrice: v.optional(v.number()),
     teamId: v.optional(v.id("teams")), // null if unsold
     auctionStatus: v.union(
@@ -220,6 +382,9 @@ export default defineSchema({
     // Set when an unsold round completed without selling or final-unselling
     // anyone — the admin must choose how to proceed (infinite-loop guard).
     roundStalled: v.optional(v.boolean()),
+    // presentationOrder "by_category": the set (category id) being presented.
+    // Changing it is what announces "Now: <category> set" on every client.
+    currentSetId: v.optional(v.string()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -238,6 +403,9 @@ export default defineSchema({
     teamId: v.id("teams"),
     amount: v.number(),
     timestamp: v.number(),
+    // Who placed it. Optional: absent on bids from before owner bidding.
+    source: v.optional(v.union(v.literal("admin"), v.literal("owner"))),
+    userId: v.optional(v.id("users")),
   })
     // Get latest bid for a player (used in queries and finalization)
     .index("by_player", ["playerId", "timestamp"])
@@ -252,6 +420,8 @@ export default defineSchema({
     amount: v.number(),
     timestamp: v.number(),
     isFinal: v.boolean(), // True if this was the winning bid
+    source: v.optional(v.union(v.literal("admin"), v.literal("owner"))),
+    userId: v.optional(v.id("users")),
   })
     .index("by_auction_room", ["auctionRoomId"])
     .index("by_player", ["playerId"])

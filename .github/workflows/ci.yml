@@ -37,3 +37,45 @@ jobs:
 
       - name: Test
         run: npm test
+
+  lighthouse:
+    name: Lighthouse budgets (/, /features)
+    runs-on: ubuntu-latest
+    needs: build
+    # next build prerenders pages inside ClerkProvider, so it needs real keys.
+    # Add these as repository secrets (Settings -> Secrets -> Actions).
+    env:
+      NEXT_PUBLIC_CONVEX_URL: ${{ secrets.NEXT_PUBLIC_CONVEX_URL }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # Regression guards in lighthouserc.json, set from the step 20 measurements
+      # on Lighthouse's default slow-4G mobile profile: LCP <= 3.0 s (measured
+      # 2.8 s; target 2.0 s), CLS <= 0.05, TBT <= 200 ms (lab stand-in for INP),
+      # JS <= 140 KB (measured 135 KB; the Next 16 + React floor is ~130 KB,
+      # so the 120 KB target is out of reach for any App Router page).
+      - name: Lighthouse CI
+        run: npx --yes @lhci/cli@0.14.0 autorun
+
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-reports
+          path: .lighthouseci

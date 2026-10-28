@@ -14,7 +14,8 @@ page that reopens the room resyncs the full current state automatically.
 | | URL / action |
 |---|---|
 | Operator (admin) | `/auction/<ROOM_ID>` — signed in as an **admin** user |
-| Projector / spectators | same `/auction/<ROOM_ID>` — **no login needed** (viewer mode) |
+| Projector / spectators | same `/auction/<ROOM_ID>` — **no login needed** (viewer mode). Open it signed out or in a private window; the header shows **Viewer** and no operator buttons. |
+| Operator on a viewer screen | click **Sign in** in the viewer header — you return to the same room with controls once signed in as admin |
 | Convex dashboard | https://dashboard.convex.dev → this project |
 | Vercel dashboard | https://vercel.com → this project → Deployments |
 
@@ -67,9 +68,40 @@ The **frontend (Vercel)** and **backend (Convex)** deploy separately — check w
 - [ ] **Convex plan / quota (AUDIT P0-2, OPEN).** Confirm the production Convex plan tier and its monthly function-call + bandwidth limits have headroom for ~250 viewers × the full bid volume. A free-tier quota exhaustion mid-event stalls the auction. Upgrade if unsure.
 - [ ] Run the load harness against the **production** deployment (see `harness/README.md`) and confirm p95 < 500ms, p99 < 1200ms at 250 viewers.
 - [ ] Run the chaos harness; confirm 0 divergence, 0 duplicate acceptances.
-- [ ] One admin account confirmed working; one **backup device** loads the viewer page.
+- [ ] One admin account confirmed working; one **backup device** loads the viewer page **signed out** (private window) and shows live bids.
 - [ ] Venue wifi tested with ~10 phones on the room URL simultaneously.
 - [ ] Confirm `bidTimerSeconds` / `minBidIncrement` / `basePurse` in tournament settings.
+
+## Organisers, plans and payments (one-time setup)
+
+- **After deploying organiser isolation, run once:** `npx convex run staff:backfillTournamentOwners`
+  (makes every existing tournament's creator its owner; safe to re-run).
+- **Plans:** new tournaments start on Free (4 teams, 60 players). Club ₹999 (8/150), League ₹2,999 (12/250),
+  Pro ₹6,999 (20/500), per tournament; an upgrade pays only the difference. Tournaments created before plans
+  have no limits. Prices live in `convex/planTiers.ts`.
+- **Offline payment (bank transfer, comp):** as super-admin, open the tournament → plan card → *Grant*, with a
+  reason. It is audit-logged.
+- **Razorpay keys** (Dashboard → Settings → API Keys / Webhooks):
+  - Next.js env (Vercel): `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`. Without them the Upgrade button says
+    payments aren't set up.
+  - Convex env: `npx convex env set RAZORPAY_WEBHOOK_SECRET <secret>`.
+  - Webhook URL: `<NEXT_PUBLIC_CONVEX_SITE_URL>/razorpay/webhook`, event **order.paid** only.
+- **A paid plan didn't apply:** Convex logs show `Razorpay <order>: <reason>` (unknown order, amount mismatch,
+  already paid). Razorpay → Webhooks → resend is safe: replays are ignored.
+
+## Player registration (self sign-up)
+
+- Owner: Settings → General → *Open player registration*, optional fee. Share the form link from
+  Tournament → Registrations → *Copy form link* (`/register/<tournamentId>`).
+- Review under Registrations: *Ready* entries (paid, or free) can be approved one by one or with
+  *Approve all ready*; each becomes a pending player with the normal validation and plan limits. Possible
+  duplicates (same name + phone) are flagged. Reject needs a reason.
+- Photo uploads sign in Convex, so set these in the **Convex** env (not just Next.js):
+  `npx convex env set CLOUDINARY_CLOUD_NAME <name>`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
+  Without them the form still works, just without a photo.
+- Fees use the same Razorpay keys and the same webhook as plans; a fee payment carries `registrationId` in
+  its order notes.
+- Spam guards: a hidden honeypot field, and at most 3 sign-ups per phone number per tournament per day.
 
 ## Who to call
 

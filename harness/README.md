@@ -56,6 +56,46 @@ NUM_VIEWERS=30 node harness/chaos.mjs
 | bid write → update, p99 | < 1200 ms | `viewer-load.mjs` |
 | client divergence after chaos | 0 | `chaos.mjs` |
 | duplicate bid acceptance | 0 | `chaos.mjs` |
+| retried bid after a 5s admin socket drop | applied once, 0 divergence | `admin-reconnect.mjs` |
+
+## Owner bidding load (owner-load.mjs)
+
+12 team owners raising from their paddles while 250 viewers watch. Owners are
+impersonated with the deploy key, so `CONVEX_ADMIN_KEY` is required (a Clerk
+JWT cannot stand in for 12 different people).
+
+Before running:
+
+1. Set the tournament's **Who can bid** to `open` or `confirm` (settings modal).
+2. Link each owner to a team: create an invite from the team card and open the
+   `/join/<token>` link signed in as that owner.
+3. Start a player.
+
+```bash
+CONVEX_URL=https://<staging>.convex.cloud ROOM_ID=<room id> \
+CONVEX_ADMIN_KEY=<deploy key> ADMIN_EMAIL=<admin email> \
+OWNER_EMAILS=owner1@x.com,owner2@x.com,...,owner12@x.com \
+node harness/owner-load.mjs
+```
+
+| var | default | meaning |
+|---|---|---|
+| `OWNER_EMAILS` | required | comma-separated owner emails |
+| `DURATION_S` | 60 | how long owners keep raising |
+| `OWNER_RAISE_MS` | 600 | mean gap between one owner's raises (±50% jitter) |
+| `AUTO_ACCEPT_MS` | 300 | confirm mode: delay before the admin client accepts the highlighted raise |
+
+What it reports:
+
+- **open:** owner raise → viewer update (fan-out).
+- **confirm:** raise → auctioneer tray, then accept → viewer update.
+- Both modes: raise round-trip, plus a count of every outcome. Contention
+  rejections such as `Minimum bid is …` are expected, because owners race for
+  the same price.
+
+When no owner has headroom left, the script restarts the current player's bids,
+the same way `viewer-load.mjs` does. **This deletes the live bids of the player
+on the block.**
 
 ## Distributed / high-N measurement (dev-load.mjs, dev-viewers.mjs)
 
@@ -99,4 +139,17 @@ wait
 - **Chaos is stateful.** Without `CHAOS_ADVANCE` it only bids + restarts (leaves
   the player up). With it, players are consumed — run against a throwaway
   tournament and `restartAuction` afterward.
+```
+
+## Admin reconnect (admin-reconnect.mjs)
+
+Venue Wi-Fi drop on the **console**: each round sends a bid with a `requestId`,
+kills the admin socket immediately, waits `DROP_MS` (default 5000), reconnects
+and resends the same `requestId`. Passes when every round adds exactly one live
+bid and every viewer converges. Places real bids on the current player, so run
+it on staging.
+
+```bash
+CONVEX_URL=... ROOM_ID=... CONVEX_ADMIN_KEY=... ADMIN_EMAIL=... \
+ROUNDS=5 DROP_MS=5000 node harness/admin-reconnect.mjs
 ```
