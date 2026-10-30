@@ -15,6 +15,7 @@ import { TournamentSettingsModal } from '@/components/tournament/TournamentSetti
 import { ExportResultsButton } from '@/components/results/ExportResultsButton';
 import { ShareResultsButton } from '@/components/results/ShareResultsButton';
 import { PlanCard } from '@/components/plans/PlanCard';
+import { SnapshotsCard } from '@/components/tournament/SnapshotsCard';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
@@ -470,6 +471,13 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
         {canRunAuction && (
           <div className="mb-6 sm:mb-8 max-w-md">
             <PlanCard tournamentId={tournamentId} tournamentName={tournament.name} canUpgrade={canManage} isSuperAdmin={isSuperAdmin} />
+          </div>
+        )}
+
+        {/* Automatic snapshots; owners can rewind to one */}
+        {canManage && (
+          <div className="mb-6 sm:mb-8 max-w-md">
+            <SnapshotsCard tournamentId={tournamentId} tournamentName={tournament.name} />
           </div>
         )}
 
