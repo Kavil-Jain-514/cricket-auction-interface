@@ -235,7 +235,28 @@ export default defineSchema({
     razorpayOrderId: v.string(),
     status: v.union(v.literal("created"), v.literal("paid")),
     paymentRef: v.optional(v.string()),
+    // Paid, but no longer an upgrade when it arrived (a higher order was paid
+    // first), so the plan was left alone and the money must be refunded.
+    refundDue: v.optional(v.boolean()),
     createdBy: v.id("users"),
+    createdAt: v.number(),
+    paidAt: v.optional(v.number()),
+  })
+    .index("by_order", ["razorpayOrderId"])
+    .index("by_tournament", ["tournamentId"]),
+
+  // Every Razorpay order opened for a registration fee. A registrant can open
+  // checkout more than once; each order is kept so whichever one is paid is
+  // found. A payment that can't be applied (already paid, rejected) is kept
+  // with refundDue so it is never silently lost.
+  registrationOrders: defineTable({
+    registrationId: v.id("registrations"),
+    tournamentId: v.id("tournaments"),
+    razorpayOrderId: v.string(),
+    amount: v.number(), // paise
+    status: v.union(v.literal("created"), v.literal("paid")),
+    paymentRef: v.optional(v.string()),
+    refundDue: v.optional(v.boolean()),
     createdAt: v.number(),
     paidAt: v.optional(v.number()),
   })

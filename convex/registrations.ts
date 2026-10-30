@@ -138,10 +138,15 @@ export const submit = mutation({
   },
 });
 
+/** Checkouts a registrant may open; more than this is abuse, not a retry. */
+const MAX_ORDERS_PER_REGISTRATION = 10;
+
 /**
- * Attach the Razorpay order the registrant is paying (called by
+ * Record a Razorpay order the registrant is paying (called by
  * app/api/registrations/order). Public: the registrant has no account. Safe
  * because only the signed webhook can mark it paid, and only at this amount.
+ * Every order is kept (AUDIT 2026-10 P1-8): opening checkout twice and paying
+ * the first must still find the registration.
  */
 export const recordOrder = mutation({
   args: { registrationId: v.id("registrations"), razorpayOrderId: v.string(), amount: v.number() },
@@ -150,27 +155,97 @@ export const recordOrder = mutation({
     if (!registration) throw new Error("Registration not found");
     if (registration.status !== "pending_payment") throw new Error("Nothing to pay for this registration");
     if (args.amount !== registration.fee * 100) throw new Error(`Wrong amount: expected ${registration.fee * 100} paise`);
+    const existing = await ctx.db
+      .query("registrationOrders")
+      .withIndex("by_order", (q) => q.eq("razorpayOrderId", args.razorpayOrderId))
+      .first();
+    if (existing) throw new Error("That order is already recorded");
+    const orders = (
+      await ctx.db
+        .query("registrationOrders")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", registration.tournamentId))
+        .collect()
+    ).filter((o) => o.registrationId === registration._id);
+    if (orders.length >= MAX_ORDERS_PER_REGISTRATION) {
+      throw new Error("Too many payment attempts for this registration. Contact the organiser.");
+    }
+    await ctx.db.insert("registrationOrders", {
+      registrationId: registration._id,
+      tournamentId: registration.tournamentId,
+      razorpayOrderId: args.razorpayOrderId,
+      amount: args.amount,
+      status: "created",
+      createdAt: Date.now(),
+    });
+    // Latest order on the registration too, for older webhook lookups.
     await ctx.db.patch(args.registrationId, { razorpayOrderId: args.razorpayOrderId });
     return { success: true };
   },
 });
 
-/** Verified Razorpay order.paid for a registration fee. Idempotent. */
+/**
+ * Verified Razorpay order.paid for a registration fee. Idempotent per order.
+ * A payment the registration can no longer take (already paid through
+ * another checkout, or rejected) is recorded as refund due, never dropped.
+ */
 export const applyRegistrationPayment = internalMutation({
   args: { razorpayOrderId: v.string(), paymentId: v.string(), amount: v.number(), notesRegistrationId: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const registration = await ctx.db
-      .query("registrations")
+    const order = await ctx.db
+      .query("registrationOrders")
       .withIndex("by_order", (q) => q.eq("razorpayOrderId", args.razorpayOrderId))
       .first();
+    // Orders recorded before registrationOrders existed live on the registration.
+    const registration = order
+      ? await ctx.db.get(order.registrationId)
+      : await ctx.db
+          .query("registrations")
+          .withIndex("by_order", (q) => q.eq("razorpayOrderId", args.razorpayOrderId))
+          .first();
     if (!registration) return { applied: false, reason: "unknown order" };
-    if (registration.status !== "pending_payment") return { applied: false, reason: "already paid" };
     if (args.notesRegistrationId !== undefined && args.notesRegistrationId !== registration._id) {
       return { applied: false, reason: "registration mismatch" };
     }
     if (args.amount !== registration.fee * 100) return { applied: false, reason: "amount mismatch" };
+    if (order?.status === "paid" || registration.paymentRef === args.paymentId) {
+      return { applied: false, reason: "already paid" };
+    }
+
+    const now = Date.now();
+    if (registration.status !== "pending_payment") {
+      if (order) {
+        await ctx.db.patch(order._id, { status: "paid", paymentRef: args.paymentId, paidAt: now, refundDue: true });
+      }
+      return { applied: false, reason: `registration is ${registration.status}; refund due` };
+    }
     await ctx.db.patch(registration._id, { status: "paid", paymentRef: args.paymentId });
+    if (order) await ctx.db.patch(order._id, { status: "paid", paymentRef: args.paymentId, paidAt: now });
     return { applied: true };
+  },
+});
+
+/** Fee payments that could not be applied and must be refunded. Owners only. */
+export const listRefundsDue = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    const due = (
+      await ctx.db
+        .query("registrationOrders")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+        .collect()
+    ).filter((o) => o.refundDue);
+    return await Promise.all(
+      due.map(async (o) => ({
+        _id: o._id,
+        registrationId: o.registrationId,
+        name: (await ctx.db.get(o.registrationId))?.name ?? "(deleted registration)",
+        razorpayOrderId: o.razorpayOrderId,
+        paymentRef: o.paymentRef,
+        amount: o.amount,
+        paidAt: o.paidAt,
+      })),
+    );
   },
 });
 
