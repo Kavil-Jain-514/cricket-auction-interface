@@ -257,10 +257,10 @@ describe("category base-price fallback", () => {
     await putInAuction(t, roomId, current);
     await t.run((ctx) => syncTournamentAuctionCounts(ctx, tournamentId));
 
-    const roster = await t.query(api.auctions.getAuctionRoster, {
+    const roster = (await t.query(api.auctions.getAuctionRoster, {
       tournamentId,
       currentPlayerId: current,
-    });
+    }))!;
     expect(roster.currentPlayer?.basePrice).toBe(500_000);
     // Cheapest pending player is Set A (2L), not the tournament default (1L).
     expect(roster.minBasePrice).toBe(200_000);

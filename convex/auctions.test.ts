@@ -352,10 +352,10 @@ describe("placeBid — squad and max-bid rules", () => {
     });
     await t.run((ctx) => syncTournamentAuctionCounts(ctx, tournamentId));
 
-    const roster = await t.query(api.auctions.getAuctionRoster, {
+    const roster = (await t.query(api.auctions.getAuctionRoster, {
       tournamentId,
       currentPlayerId: playerId,
-    });
+    }))!;
     const displayedMax = roster.teams.find((tm) => tm._id === teamA)!
       .maxAllowedBid;
     expect(displayedMax).toBe(800_000);

@@ -97,10 +97,12 @@ export const createAuctionRoom = mutation({
       throw new Error("An auction room already exists for this tournament");
     }
 
+    const tournament = await ctx.db.get(args.tournamentId);
     const auctionRoomId = await ctx.db.insert("auctionRooms", {
       tournamentId: args.tournamentId,
       name: args.name,
       status: "waiting",
+      tournamentHidden: tournament?.isActive === false ? true : undefined,
       createdBy: user._id,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1452,8 +1454,21 @@ export const getLiveAuction = query({
   handler: async (ctx, args) => {
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) return null;
+    // Identity is read only for a deactivated tournament, so the normal
+    // result stays shared across every viewer (P1-12).
+    if (
+      auctionRoom.tournamentHidden &&
+      !(await getTournamentRole(ctx, auctionRoom.tournamentId))
+    ) {
+      return null;
+    }
 
-    let currentBidTeam = null;
+    let currentBidTeam: {
+      _id: Id<"teams">;
+      name: string;
+      logoUrl?: string;
+      colorPrimary: string;
+    } | null = null;
     let currentBidAmount: number | undefined = undefined;
     let currentBidTeamId: string | undefined = undefined;
     let recentBids: Array<{
@@ -1481,7 +1496,10 @@ export const getLiveAuction = query({
       if (bids.length > 0) {
         currentBidAmount = bids[0].amount;
         currentBidTeamId = bids[0].teamId;
-        currentBidTeam = await ctx.db.get(bids[0].teamId);
+        const team = await ctx.db.get(bids[0].teamId);
+        currentBidTeam = team
+          ? { _id: team._id, name: team.name, logoUrl: team.logoUrl, colorPrimary: team.colorPrimary }
+          : null;
       }
 
       recentBids = bids.map((b) => ({
@@ -1492,8 +1510,25 @@ export const getLiveAuction = query({
       }));
     }
 
+    // Only the fields clients read: never the unsold queue (~35 bytes per
+    // queued player, on every bid, for every viewer) or who created the room.
+    const room = {
+      _id: auctionRoom._id,
+      tournamentId: auctionRoom.tournamentId,
+      status: auctionRoom.status,
+      currentPlayerId: auctionRoom.currentPlayerId,
+      bidTimerEndsAt: auctionRoom.bidTimerEndsAt,
+      pausedTimeRemaining: auctionRoom.pausedTimeRemaining,
+      auctionPhase: auctionRoom.auctionPhase,
+      roundNumber: auctionRoom.roundNumber,
+      unsoldRoundTotal: auctionRoom.unsoldRoundTotal,
+      unsoldCursor: auctionRoom.unsoldCursor,
+      roundStalled: auctionRoom.roundStalled,
+      currentSetId: auctionRoom.currentSetId,
+    };
+
     return {
-      auctionRoom,
+      auctionRoom: room,
       // Latest live-bid amount only (undefined when no bids yet). The client
       // falls back to the current player's base price from `getAuctionRoster`.
       currentBidAmount,
@@ -1549,6 +1584,13 @@ export const getAuctionRoster = query({
           )
           .collect(),
       ]);
+    // Deactivated: staff only (identity is read only in this case).
+    if (
+      tournament?.isActive === false &&
+      !(await getTournamentRole(ctx, args.tournamentId))
+    ) {
+      return null;
+    }
 
     // Captains are pre-assigned and never auctioned — exclude them from every
     // count/list here (mirrors syncTournamentAuctionCounts on the write side).
@@ -1917,6 +1959,15 @@ export const getLatestSaleEvent = query({
     const player = data.playerId
       ? await ctx.db.get(data.playerId as Id<"players">)
       : null;
+    // Hidden check through the player's tournament, never the room doc
+    // (which changes on every bid).
+    const tournament = player ? await ctx.db.get(player.tournamentId) : null;
+    if (
+      tournament?.isActive === false &&
+      !(await getTournamentRole(ctx, tournament._id))
+    ) {
+      return null;
+    }
     const team =
       sold && data.teamId ? await ctx.db.get(data.teamId as Id<"teams">) : null;
 
@@ -1976,6 +2027,13 @@ export const getAuctionHistory = query({
         .collect(),
       ctx.db.get(args.tournamentId),
     ]);
+
+    if (
+      tournament?.isActive === false &&
+      !(await getTournamentRole(ctx, args.tournamentId))
+    ) {
+      return { sold: [], unsold: [] };
+    }
 
     const teamMap = new Map(teams.map((t) => [t._id, t]));
     const tournamentSettings = tournament?.settings ?? {};
@@ -2118,6 +2176,13 @@ export const getReconciliation = query({
 export const getAuctionRooms = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (
+      tournament?.isActive === false &&
+      !(await getTournamentRole(ctx, args.tournamentId))
+    ) {
+      return [];
+    }
     return await ctx.db
       .query("auctionRooms")
       .withIndex("by_tournament", (q) =>

@@ -446,6 +446,9 @@ export default defineSchema({
     // presentationOrder "by_category": the set (category id) being presented.
     // Changing it is what announces "Now: <category> set" on every client.
     currentSetId: v.optional(v.string()),
+    // Copy of !tournament.isActive (set by tournaments:setActive), so the hot
+    // query can hide a deactivated tournament without reading another doc.
+    tournamentHidden: v.optional(v.boolean()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),

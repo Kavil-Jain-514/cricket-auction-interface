@@ -760,7 +760,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     : 'Main Round';
   const stats = auctionData.stats;
   const progressTotal = isUnsoldRound
-    ? (auctionRoom.unsoldRoundTotal ?? auctionRoom.unsoldQueue?.length ?? 0)
+    ? (auctionRoom.unsoldRoundTotal ?? 0)
     : (stats?.total ?? 0);
   const progressCurrent = isUnsoldRound
     ? Math.min(progressTotal, Math.max(0, auctionRoom.unsoldCursor ?? 0))

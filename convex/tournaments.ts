@@ -574,6 +574,16 @@ export const setActive = mutation({
       isActive: args.isActive,
       updatedAt: Date.now(),
     });
+    // The hot viewer query reads only the room, so it carries the flag.
+    const rooms = await ctx.db
+      .query("auctionRooms")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+      .collect();
+    await Promise.all(
+      rooms.map((room) =>
+        ctx.db.patch(room._id, { tournamentHidden: args.isActive ? undefined : true }),
+      ),
+    );
 
     await logAdminAction(ctx, {
       userId: admin._id,
