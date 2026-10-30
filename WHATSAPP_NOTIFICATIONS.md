@@ -6,14 +6,25 @@ name, and sold price. Sent via the **Meta WhatsApp Cloud API**.
 
 ## How it works
 
-1. `convex/auctions.ts` → `finalizePlayerSale` commits the sale, then schedules
-   `internal.notifications.sendPlayerSoldWhatsApp` via `ctx.scheduler.runAfter(0, …)`.
-2. `convex/notifications.ts` sends the message through the **Meta Cloud API**
-   (`graph.facebook.com/.../messages`) using an **approved message template**.
+1. `convex/auctions.ts` → `finalizePlayerSale` commits the sale and, in the same
+   transaction, adds one row to the `notifications` outbox
+   (`enqueueSoldNotification`). Nothing is sent inside the sale.
+2. `convex/notifications.ts` → `processQueue` sends queued rows through the
+   **Meta Cloud API** (`graph.facebook.com/.../messages`) using an **approved
+   message template**, at most 10 a second.
 
-The send is **best-effort**: it runs *after* the sale commits, so if WhatsApp
-fails (bad number, Meta down, not configured) the auction is unaffected — it
-just logs a warning. Players with no phone number are silently skipped.
+- **One message per player and team.** Restarting the auction, or re-selling a
+  player to the same team, never messages them twice.
+- **Retries.** A failed send is retried after 30s, 60s, 2m and 4m; after 5
+  attempts the row is marked `failed` with the last error. Rows a crashed run left
+  in `sending` are picked up again after 5 minutes.
+- **Never affects the sale.** If WhatsApp fails (bad number, Meta down, not
+  configured), the auction is unaffected.
+- **Skipped:** players with no phone number, players who declined WhatsApp on the
+  registration form (`consentWhatsApp: false`), and every send when the env vars
+  are missing (`not_configured`) or `WHATSAPP_NOTIFICATIONS_ENABLED=false`.
+- Phone numbers are masked in logs (`+91•••••3210`).
+- Queue depth and the last failure: `notifications:queueStats` (super-admin).
 
 ## Why a template is required (important)
 

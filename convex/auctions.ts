@@ -1,7 +1,6 @@
 // convex/auctions.ts - Live auction mutations and queries
 import { v } from "convex/values";
 import { mutation, MutationCtx, query } from "./_generated/server";
-import { internal } from "./_generated/api";
 import { Id, Doc } from "./_generated/dataModel";
 import {
   getCurrentUser,
@@ -34,6 +33,7 @@ import { toPublicPlayer } from "./projections";
 import { nextPresentationSet } from "./presentation";
 import { withIdempotency } from "./idempotency";
 import { takeSnapshot } from "./snapshots";
+import { enqueueSoldNotification } from "./notifications";
 import { confirmsTournamentName } from "./validation";
 import {
   maxRuleViolation,
@@ -691,22 +691,14 @@ async function finalizePlayerSaleImpl(
       ...allLiveBids.map((bid) => ctx.db.delete(bid._id)),
     ]);
 
-    // Best-effort WhatsApp notification to the sold player. Scheduled AFTER
-    // the sale is committed so a messaging failure can never roll back the
-    // sale. No-ops gracefully if the player has no phone or Twilio is unset.
-    await ctx.scheduler.runAfter(
-      0,
-      internal.notifications.sendPlayerSoldWhatsApp,
-      {
-        playerName: player.name,
-        phoneNumber: player.phoneNumber,
-        tournamentName: tournament.name,
-        teamName: team.name,
-        ownerName: team.ownerName,
-        captainName: team.captainName,
-        soldPrice: winningBid.amount,
-      },
-    );
+    // WhatsApp to the sold player: only a row in the outbox here, sent by a
+    // separate worker, so messaging can never affect the sale (P1-14).
+    await enqueueSoldNotification(ctx, {
+      player,
+      team,
+      tournament,
+      soldPrice: winningBid.amount,
+    });
   } else {
     // PLAYER UNSOLD
     await Promise.all([

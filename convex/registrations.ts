@@ -320,6 +320,7 @@ async function approveOne(ctx: MutationCtx, registration: Doc<"registrations">, 
     jerseyNumber: registration.jerseyNumber,
     jerseyName: registration.jerseyName,
     tshirtSize: registration.tshirtSize,
+    consentWhatsApp: registration.consentWhatsApp,
   });
   await ctx.db.patch(registration._id, { status: "approved", playerId, reviewedAt: Date.now() });
   await logAdminAction(ctx, {

@@ -50,6 +50,7 @@ export type NewPlayerFields = {
   jerseyName?: string;
   phoneNumber?: string;
   tshirtSize?: Doc<"players">["tshirtSize"];
+  consentWhatsApp?: boolean;
 };
 
 /**
@@ -88,6 +89,7 @@ export async function insertValidatedPlayer(
     jerseyName: fields.jerseyName,
     playerNumber: nextPlayerNumber,
     tshirtSize: fields.tshirtSize,
+    consentWhatsApp: fields.consentWhatsApp,
     auctionStatus: "pending",
     createdAt: Date.now(),
     updatedAt: Date.now(),

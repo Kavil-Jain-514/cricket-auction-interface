@@ -245,6 +245,42 @@ export default defineSchema({
     .index("by_order", ["razorpayOrderId"])
     .index("by_tournament", ["tournamentId"]),
 
+  // WhatsApp outbox (convex/notifications.ts). One row per player and team,
+  // so a restart or a re-sale to the same team never messages twice. A
+  // worker sends, retries with backoff up to MAX_ATTEMPTS, and never touches
+  // the sale itself.
+  notifications: defineTable({
+    kind: v.literal("player_sold"),
+    dedupeKey: v.string(), // "sold:<playerId>:<teamId>"
+    tournamentId: v.id("tournaments"),
+    playerId: v.id("players"),
+    payload: v.object({
+      playerName: v.string(),
+      phoneNumber: v.string(),
+      tournamentName: v.string(),
+      teamName: v.string(),
+      ownerName: v.string(),
+      captainName: v.optional(v.string()),
+      soldPrice: v.number(),
+    }),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("sending"),
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("skipped"),
+    ),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    messageId: v.optional(v.string()),
+    createdAt: v.number(),
+    sentAt: v.optional(v.number()),
+  })
+    .index("by_dedupe", ["dedupeKey"])
+    .index("by_status_next", ["status", "nextAttemptAt"]),
+
   // Fixed-window counters for public entry points (convex/rateLimit.ts).
   rateLimits: defineTable({
     key: v.string(), // e.g. "register:<tournamentId>"
@@ -351,6 +387,9 @@ export default defineSchema({
     ),
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
+    // From the registration form. false = declined WhatsApp messages; absent
+    // = added by the organiser (who is responsible for consent).
+    consentWhatsApp: v.optional(v.boolean()),
     playerNumber: v.optional(v.number()), // Auto-incremented player number starting from 1
     basePrice: v.optional(v.number()), // Starting bid price, if undefined inherits from the category, then the tournament
     categoryId: v.optional(v.string()), // tournaments.settings.categories[].id
