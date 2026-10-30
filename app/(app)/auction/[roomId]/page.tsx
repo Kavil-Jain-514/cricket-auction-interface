@@ -180,6 +180,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const restartAuction = useMutation(api.auctions.restartAuction);
   const resolveStalledRound = useMutation(api.auctions.resolveStalledRound);
 
+  // The player and top bid this console is showing (optimistic bids included,
+  // since this client's mutations apply in order). Sent with every console
+  // action so a stale one is refused instead of landing on the next player.
+  const expectedState = useCallback(() => ({
+    expectedPlayerId: liveData?.auctionRoom.currentPlayerId,
+    expectedCurrentBid: liveData?.currentBidAmount ?? null,
+  }), [liveData]);
+
   const [bidding, setBidding] = useState<Id<"teams"> | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [customBidAmounts, setCustomBidAmounts] = useState<Record<string, number>>({});
@@ -240,7 +248,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     const playerPhotoUrl = auctionData?.currentPlayer?.photoUrl;
     try {
       // requestId: a retried finalize (dropped socket) settles only once.
-      const res = (await finalizePlayer({ auctionRoomId, requestId: newRequestId() })) as {
+      const res = (await finalizePlayer({ auctionRoomId, requestId: newRequestId(), ...expectedState() })) as {
         playerName?: string;
         teamName?: string | null;
         amount?: number;
@@ -276,7 +284,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to finalize"));
     }
-  }, [isConsole, showResult, finalizePlayer, auctionRoomId, auctionData]);
+  }, [isConsole, showResult, finalizePlayer, auctionRoomId, auctionData, expectedState]);
 
   // Advisory bid countdown, ticked locally from the hot query's
   // bidTimerEndsAt + serverTime. Never auto-finalises.
@@ -557,6 +565,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         amount,
         // One id per tap: a retry of this same bid can never land twice.
         requestId: newRequestId(),
+        ...expectedState(),
       });
 
       if (res && typeof res === 'object' && 'success' in res) {
@@ -567,7 +576,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to place bid"));
     }
-  }, [bidding, auctionData?.auctionRoom?.status, placeBid, auctionRoomId]);
+  }, [bidding, auctionData?.auctionRoom?.status, placeBid, auctionRoomId, expectedState]);
 
 
   const handleNextPlayer = useCallback(async () => {
@@ -601,6 +610,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   }, [startNext, auctionRoomId]);
 
   const handleRevertBid = useCallback(async () => {
+    const expected = expectedState();
     if (!(await confirm({
       title: "Revert the last bid?",
       description: "The most recent bid will be removed from this player.",
@@ -608,14 +618,19 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     }))) return;
 
     try {
-      await revertBid({ auctionRoomId });
+      const res = await revertBid({ auctionRoomId, ...expected });
+      if (!res.success) {
+        toast.error(res.reason);
+        return;
+      }
       toast.success("Last bid reverted successfully");
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to revert bid"));
     }
-  }, [revertBid, auctionRoomId, confirm]);
+  }, [revertBid, auctionRoomId, confirm, expectedState]);
 
   const handleFinalUnsold = useCallback(async () => {
+    const { expectedPlayerId } = expectedState();
     if (!(await confirm({
       title: "Mark player as FINAL UNSOLD?",
       description:
@@ -625,7 +640,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       return;
 
     try {
-      const res = await markFinalUnsold({ auctionRoomId });
+      const res = await markFinalUnsold({ auctionRoomId, expectedPlayerId });
       if (res.success === false) {
         toast.error(res.reason || "Could not mark player as final unsold");
       } else {
@@ -634,7 +649,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to mark player as final unsold"));
     }
-  }, [markFinalUnsold, auctionRoomId, confirm]);
+  }, [markFinalUnsold, auctionRoomId, confirm, expectedState]);
 
   // Resolve a stalled unsold round (infinite-loop guard). The backend clears
   // `roundStalled`, which reactively hides the modal on every client.
@@ -852,13 +867,18 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 {/* Restart Current Player */}
                 <Button
                   onClick={async () => {
+                    const { expectedPlayerId } = expectedState();
                     if (!(await confirm({
                       title: "Restart bidding for this player?",
                       description: "All bids placed on the current player will be cleared.",
                       confirmText: "Restart Bidding",
                     }))) return;
                     try {
-                      await restartCurrentPlayer({ auctionRoomId });
+                      const res = await restartCurrentPlayer({ auctionRoomId, expectedPlayerId });
+                      if (!res.success) {
+                        toast.error(res.reason);
+                        return;
+                      }
                       toast.success('Player bidding restarted!');
                     } catch (error) {
                       toast.error(getErrorMessage(error, 'Failed to restart player'));

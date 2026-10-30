@@ -4,6 +4,7 @@ import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { logAdminAction, requireTournamentRole, RUN_AUCTION } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { expectedStateArgs, expirePendingRaises, staleStateReason } from "./bidCore";
 import {
   bidTimerEndsAt,
   DEFAULT_BASE_PRICE,
@@ -442,6 +443,7 @@ export const clearCurrentPlayerBids = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
     reason: v.string(),
+    expectedPlayerId: expectedStateArgs.expectedPlayerId,
   },
   handler: async (ctx, args) => {
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
@@ -452,6 +454,10 @@ export const clearCurrentPlayerBids = mutation({
     if (!auctionRoom.currentPlayerId) {
       throw new Error("No player currently in auction");
     }
+    const stale = staleStateReason(auctionRoom, null, {
+      expectedPlayerId: args.expectedPlayerId,
+    });
+    if (stale) return { success: false as const, reason: stale };
 
     // Get all live bids for this player
     const bids = await ctx.db
@@ -467,6 +473,8 @@ export const clearCurrentPlayerBids = mutation({
       const chunk = bids.slice(i, i + CHUNK_SIZE);
       await Promise.all(chunk.map((bid) => ctx.db.delete(bid._id)));
     }
+
+    await expirePendingRaises(ctx, auctionRoom._id, auctionRoom.currentPlayerId, "Price moved");
 
     // Reset timer — liveBids table is now the source of truth; do not write legacy fields
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
@@ -490,7 +498,7 @@ export const clearCurrentPlayerBids = mutation({
       auctionRoomId: args.auctionRoomId,
     });
 
-    return { success: true, message: `Cleared ${bids.length} bids` };
+    return { success: true as const, message: `Cleared ${bids.length} bids` };
   },
 });
 

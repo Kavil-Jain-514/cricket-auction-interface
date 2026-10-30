@@ -20,6 +20,8 @@ export interface PaddleState {
   maxAllowedBid: number;
   ruleBlock: string | null;
   minNextBid: number | null;
+  /** Top live bid the paddle is showing; null = no bids yet. */
+  currentBid: number | null;
   minBidIncrement: number;
   incrementSlabs: IncrementSlab[];
   isLeading: boolean;
@@ -123,7 +125,14 @@ export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen, insights }: Ow
     if (blockedLabel || amount === null || sending) return;
     setSending(true);
     try {
-      const res = await raiseBid({ auctionRoomId, amount });
+      // The player and price this raise was priced from: if either moved,
+      // the server refuses it ("Price changed, current bid is …").
+      const res = await raiseBid({
+        auctionRoomId,
+        amount,
+        expectedPlayerId: (paddle.currentPlayerId ?? undefined) as Id<"players"> | undefined,
+        expectedCurrentBid: paddle.currentBid,
+      });
       if (!res.success) {
         showFlash('bad', res.reason);
       } else if ('pending' in res && res.pending) {

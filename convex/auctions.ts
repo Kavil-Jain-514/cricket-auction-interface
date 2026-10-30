@@ -1,6 +1,6 @@
 // convex/auctions.ts - Live auction mutations and queries
 import { v } from "convex/values";
-import { mutation, MutationCtx, query, QueryCtx } from "./_generated/server";
+import { mutation, MutationCtx, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id, Doc } from "./_generated/dataModel";
 import {
@@ -15,10 +15,15 @@ import { findOwnerMembership } from "./members";
 import {
   applyBid,
   BID_SPACING_MS,
+  expectedStateArgs,
+  type ExpectedState,
+  expirePendingRaises,
   latestLiveBid,
   loadBidContext,
   minNextBidFor,
+  pendingRequestsFor,
   playerBasePriceFor,
+  staleStateReason,
 } from "./bidCore";
 import {
   auctionCountsEqual,
@@ -277,6 +282,8 @@ export const placeBid = mutation({
     amount: v.number(),
     // Client-generated; a retry with the same id is a no-op (idempotency.ts).
     requestId: v.optional(v.string()),
+    // What the console saw when it bid (bidCore.ts staleStateReason).
+    ...expectedStateArgs,
   },
   handler: (ctx, args) =>
     withIdempotency(ctx, "placeBid", args.auctionRoomId, args.requestId, () => placeBidImpl(ctx, args)),
@@ -284,7 +291,7 @@ export const placeBid = mutation({
 
 async function placeBidImpl(
   ctx: MutationCtx,
-  args: { auctionRoomId: Id<"auctionRooms">; teamId: Id<"teams">; amount: number },
+  args: { auctionRoomId: Id<"auctionRooms">; teamId: Id<"teams">; amount: number } & ExpectedState,
 ) {
   // Only the tournament's staff can call bids from the console
   const auctionRoom = await ctx.db.get(args.auctionRoomId);
@@ -301,6 +308,8 @@ async function placeBidImpl(
     amount: args.amount,
     source: "admin",
     userId: admin._id,
+    expectedPlayerId: args.expectedPlayerId,
+    expectedCurrentBid: args.expectedCurrentBid,
   });
 }
 
@@ -318,6 +327,8 @@ export const raiseBid = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
     amount: v.optional(v.number()),
+    // What the paddle showed when the owner tapped (bidCore.ts staleStateReason).
+    ...expectedStateArgs,
   },
   handler: async (ctx, args) => {
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
@@ -354,6 +365,8 @@ export const raiseBid = mutation({
       amount: args.amount,
       source: "owner" as const,
       userId: user._id,
+      expectedPlayerId: args.expectedPlayerId,
+      expectedCurrentBid: args.expectedCurrentBid,
     };
     if (bidMode === "open") return await applyBid(ctx, bid);
 
@@ -381,6 +394,7 @@ export const raiseBid = mutation({
         .map((r) => ctx.db.patch(r._id, { status: "superseded" })),
     );
 
+    const latest = await latestLiveBid(ctx, playerId);
     const requestId = await ctx.db.insert("bidRequests", {
       auctionRoomId: auctionRoom._id,
       playerId,
@@ -388,6 +402,7 @@ export const raiseBid = mutation({
       userId: user._id,
       amount: check.amount,
       status: "pending",
+      basedOnBid: latest?.amount ?? null,
       createdAt: Date.now(),
     });
 
@@ -457,12 +472,15 @@ async function acceptBidRequestImpl(ctx: MutationCtx, args: { requestId: Id<"bid
   const team = await ctx.db.get(request.teamId);
   if (!team) throw new Error("Team not found");
 
+  // Only at the price the owner raised from (absent on legacy requests).
   const result = await applyBid(ctx, {
     room: auctionRoom,
     team,
     amount: request.amount,
     source: "owner",
     userId: request.userId,
+    expectedPlayerId: request.playerId,
+    expectedCurrentBid: request.basedOnBid,
   });
   if (!result.success) {
     await ctx.db.patch(request._id, {
@@ -472,16 +490,9 @@ async function acceptBidRequestImpl(ctx: MutationCtx, args: { requestId: Id<"bid
     return result;
   }
 
-  const others = await pendingRequestsFor(
-    ctx,
-    auctionRoom._id,
-    request.playerId,
-  );
+  // applyBid expired every pending raise on this player, this one included.
   await Promise.all([
-    ctx.db.patch(request._id, { status: "accepted" }),
-    ...others
-      .filter((r) => r._id !== request._id && r.amount <= request.amount)
-      .map((r) => ctx.db.patch(r._id, { status: "superseded" })),
+    ctx.db.patch(request._id, { status: "accepted", reason: undefined }),
     logAdminAction(ctx, {
       userId: admin._id,
       userEmail: admin.email,
@@ -546,24 +557,6 @@ export const rejectBidRequest = mutation({
   },
 });
 
-/** Pending owner raises for a player, newest first. */
-async function pendingRequestsFor(
-  ctx: QueryCtx,
-  auctionRoomId: Id<"auctionRooms">,
-  playerId: Id<"players">,
-) {
-  return await ctx.db
-    .query("bidRequests")
-    .withIndex("by_room_player_status", (q) =>
-      q
-        .eq("auctionRoomId", auctionRoomId)
-        .eq("playerId", playerId)
-        .eq("status", "pending"),
-    )
-    .order("desc")
-    .collect();
-}
-
 /**
  * Finalize the current player's auction — either SOLD or UNSOLD.
  * - SOLD: assigns player to team, deducts from purse, archives bid history.
@@ -575,6 +568,8 @@ export const finalizePlayerSale = mutation({
     auctionRoomId: v.id("auctionRooms"),
     // Client-generated; a retry with the same id is a no-op (idempotency.ts).
     requestId: v.optional(v.string()),
+    // The player and price the Sell was based on (bidCore.ts staleStateReason).
+    ...expectedStateArgs,
   },
   handler: (ctx, args) =>
     withIdempotency(ctx, "finalizePlayerSale", args.auctionRoomId, args.requestId, () =>
@@ -582,7 +577,10 @@ export const finalizePlayerSale = mutation({
     ),
 });
 
-async function finalizePlayerSaleImpl(ctx: MutationCtx, args: { auctionRoomId: Id<"auctionRooms"> }) {
+async function finalizePlayerSaleImpl(
+  ctx: MutationCtx,
+  args: { auctionRoomId: Id<"auctionRooms"> } & ExpectedState,
+) {
   const auctionRoom = await ctx.db.get(args.auctionRoomId);
   if (!auctionRoom) throw new Error("Auction room not found");
   const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
@@ -601,6 +599,10 @@ async function finalizePlayerSaleImpl(ctx: MutationCtx, args: { auctionRoomId: I
     .withIndex("by_player", (q) => q.eq("playerId", currentPlayerId))
     .order("desc")
     .first();
+
+  const stale = staleStateReason(auctionRoom, winningBid, args);
+  if (stale) return { success: false, reason: stale };
+  await expirePendingRaises(ctx, auctionRoom._id, currentPlayerId, "Player left the block");
 
   const player = await ctx.db.get(currentPlayerId);
   if (!player) throw new Error("Player not found");
@@ -762,6 +764,7 @@ async function finalizePlayerSaleImpl(ctx: MutationCtx, args: { auctionRoomId: I
 export const markPlayerFinalUnsold = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
+    expectedPlayerId: expectedStateArgs.expectedPlayerId,
   },
   handler: async (ctx, args) => {
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
@@ -776,6 +779,11 @@ export const markPlayerFinalUnsold = mutation({
     if (!currentPlayerId) {
       return { success: false, reason: "No player in auction" };
     }
+    const stale = staleStateReason(auctionRoom, null, {
+      expectedPlayerId: args.expectedPlayerId,
+    });
+    if (stale) return { success: false, reason: stale };
+    await expirePendingRaises(ctx, auctionRoom._id, currentPlayerId, "Player left the block");
 
     const player = await ctx.db.get(currentPlayerId);
     if (!player) throw new Error("Player not found");
@@ -1261,6 +1269,9 @@ export const resolveStalledRound = mutation({
 export const revertLastBid = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
+    // The bid being reverted is the one the console saw on top, so a double
+    // confirm or a second console can't remove a second bid (P1-1).
+    ...expectedStateArgs,
   },
   handler: async (ctx, args) => {
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
@@ -1279,11 +1290,15 @@ export const revertLastBid = mutation({
       .order("desc")
       .first();
 
+    const stale = staleStateReason(auctionRoom, latestBid, args);
+    if (stale) return { success: false as const, reason: stale };
+
     if (!latestBid) {
       throw new Error("No bids to revert");
     }
 
     await ctx.db.delete(latestBid._id);
+    await expirePendingRaises(ctx, auctionRoom._id, latestBid.playerId, "Price moved");
 
     await logAdminAction(ctx, {
       userId: admin._id,
@@ -1300,7 +1315,7 @@ export const revertLastBid = mutation({
       auctionRoomId: args.auctionRoomId,
     });
 
-    return { success: true };
+    return { success: true as const };
   },
 });
 
@@ -1311,6 +1326,7 @@ export const revertLastBid = mutation({
 export const restartCurrentPlayer = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
+    expectedPlayerId: expectedStateArgs.expectedPlayerId,
   },
   handler: async (ctx, args) => {
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
@@ -1320,6 +1336,10 @@ export const restartCurrentPlayer = mutation({
     if (!auctionRoom.currentPlayerId) {
       throw new Error("No player currently in auction");
     }
+    const stale = staleStateReason(auctionRoom, null, {
+      expectedPlayerId: args.expectedPlayerId,
+    });
+    if (stale) return { success: false as const, reason: stale };
 
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
@@ -1341,6 +1361,8 @@ export const restartCurrentPlayer = mutation({
         allBids.slice(i, i + CHUNK).map((bid) => ctx.db.delete(bid._id)),
       );
     }
+
+    await expirePendingRaises(ctx, auctionRoom._id, auctionRoom.currentPlayerId, "Price moved");
 
     // Reset the timer and record the event once all deletes are done.
     await Promise.all([
@@ -1369,7 +1391,7 @@ export const restartCurrentPlayer = mutation({
       }),
     ]);
 
-    return { success: true };
+    return { success: true as const };
   },
 });
 
@@ -1734,6 +1756,7 @@ export const getMyPaddle = query({
       // Squad rule stopping this team from taking the current player, if any.
       ruleBlock: bidCtx.squadRuleBlock,
       minNextBid: bidCtx.minNextBid,
+      currentBid: bidCtx.latestBid?.amount ?? null,
       minBidIncrement: tournament.settings.minBidIncrement,
       incrementSlabs: tournament.settings.incrementSlabs ?? [],
       isLeading: bidCtx.latestBid?.teamId === team._id,

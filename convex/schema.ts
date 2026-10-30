@@ -258,6 +258,10 @@ export default defineSchema({
       v.literal("superseded"),
     ),
     reason: v.optional(v.string()),
+    // Top live bid when the raise was made (null = none). A raise is only
+    // valid at that price; any later bid, revert or sale expires it.
+    // Absent on requests from before this field (accepted on amount alone).
+    basedOnBid: v.optional(v.union(v.number(), v.null())),
     createdAt: v.number(),
   })
     .index("by_room_player_status", ["auctionRoomId", "playerId", "status"])

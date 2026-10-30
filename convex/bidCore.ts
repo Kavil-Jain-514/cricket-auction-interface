@@ -4,12 +4,14 @@
 // go through applyBid, so an owner raise is held to exactly the admin rules.
 // getMyPaddle and getPendingBidRequests read the same limits through
 // loadBidContext / minNextBidFor, so what the UI shows is what is enforced.
+import { v } from "convex/values";
 import { MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import {
   bidTimerEndsAt,
   DEFAULT_BASE_PRICE,
   effectiveBasePrice,
+  formatRupees,
   isSquadFull,
   maxAllowedBid,
   nextMinimumBid,
@@ -38,6 +40,85 @@ export async function latestLiveBid(
     .withIndex("by_player", (q) => q.eq("playerId", playerId))
     .order("desc")
     .first();
+}
+
+// ── Expected state (AUDIT 2026-10 P0-1, P0-2) ────────────────────────────────
+// A console or paddle action says which player and which current bid it was
+// based on. Convex replays a mutation queued during a dropped socket, and two
+// consoles race the auto-loader, so without this a bid, Sell or revert meant
+// for one player can land on the next. Absent fields are not checked, so
+// legacy callers (harness/, older bundles) behave exactly as before.
+
+export interface ExpectedState {
+  /** The player the caller saw on the block. */
+  expectedPlayerId?: Id<"players">;
+  /** The top live bid amount the caller saw; null = no bids yet. */
+  expectedCurrentBid?: number | null;
+}
+
+export const expectedStateArgs = {
+  expectedPlayerId: v.optional(v.id("players")),
+  expectedCurrentBid: v.optional(v.union(v.number(), v.null())),
+};
+
+/** Why the room no longer matches what the caller saw, or null when it does. */
+export function staleStateReason(
+  room: Doc<"auctionRooms">,
+  latestBid: Doc<"liveBids"> | null,
+  expected: ExpectedState,
+): string | null {
+  if (
+    expected.expectedPlayerId !== undefined &&
+    room.currentPlayerId !== expected.expectedPlayerId
+  ) {
+    return room.currentPlayerId
+      ? "Player changed: a different player is up now"
+      : "No player in auction";
+  }
+  if (expected.expectedCurrentBid !== undefined) {
+    const current = latestBid?.amount ?? null;
+    if (current !== expected.expectedCurrentBid) {
+      return current === null
+        ? "Price changed, there are no bids now"
+        : `Price changed, current bid is ${formatRupees(current)}`;
+    }
+  }
+  return null;
+}
+
+/** Pending owner raises for a player, newest first. */
+export async function pendingRequestsFor(
+  ctx: QueryCtx,
+  auctionRoomId: Id<"auctionRooms">,
+  playerId: Id<"players">,
+) {
+  return await ctx.db
+    .query("bidRequests")
+    .withIndex("by_room_player_status", (q) =>
+      q
+        .eq("auctionRoomId", auctionRoomId)
+        .eq("playerId", playerId)
+        .eq("status", "pending"),
+    )
+    .order("desc")
+    .collect();
+}
+
+/**
+ * Supersede every pending raise on a player. Called whenever the price moves
+ * (a bid lands, a bid is reverted or cleared) or the player leaves the block:
+ * a raise is only valid at the price it was made from.
+ */
+export async function expirePendingRaises(
+  ctx: MutationCtx,
+  auctionRoomId: Id<"auctionRooms">,
+  playerId: Id<"players">,
+  reason: string,
+) {
+  const pending = await pendingRequestsFor(ctx, auctionRoomId, playerId);
+  await Promise.all(
+    pending.map((r) => ctx.db.patch(r._id, { status: "superseded", reason })),
+  );
 }
 
 /** Base price for a player: its own, else its category's, else the tournament's. */
@@ -156,7 +237,7 @@ export async function applyBid(
     source: BidSource;
     userId: Id<"users">;
     dryRun?: boolean;
-  },
+  } & ExpectedState,
 ): Promise<BidResult> {
   const { room, team } = args;
 
@@ -175,6 +256,15 @@ export async function applyBid(
   if (!room.currentPlayerId) {
     return { success: false, reason: "No player currently in auction" };
   }
+
+  // Checked before anything else about the bid: a stale bid is refused for
+  // being stale, never re-priced onto the current player.
+  const stale = staleStateReason(
+    room,
+    await latestLiveBid(ctx, room.currentPlayerId),
+    args,
+  );
+  if (stale) return { success: false, reason: stale };
 
   // NOTE: No server-side timer-expiry guard. This auction is auctioneer-paced —
   // a human calls each bid and finalizes manually — so a legitimately-called
@@ -274,6 +364,8 @@ export async function applyBid(
         ]
       : []),
   ]);
+  // The price moved, so every raise made at the old price is stale.
+  await expirePendingRaises(ctx, room._id, room.currentPlayerId, "Price moved");
 
   return { success: true, amount, teamId: team._id };
 }

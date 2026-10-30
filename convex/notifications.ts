@@ -11,6 +11,7 @@
 
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
+import { formatRupees } from "./bidRules";
 
 /**
  * Normalize a raw phone number into E.164 digits (no leading "+").
@@ -36,16 +37,7 @@ export function normalizePhone(
   return `${defaultCountryCode.replace(/\D/g, "")}${digits}`;
 }
 
-/** Format a rupee amount with Indian digit grouping, e.g. 150000 -> "₹1,50,000". */
-export function formatRupees(amount: number): string {
-  try {
-    return `₹${new Intl.NumberFormat("en-IN", {
-      maximumFractionDigits: 0,
-    }).format(amount)}`;
-  } catch {
-    return `₹${Math.round(amount)}`;
-  }
-}
+export { formatRupees };
 
 /**
  * Send the "player sold" WhatsApp notification via the Meta Cloud API.
