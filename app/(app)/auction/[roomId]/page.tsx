@@ -76,16 +76,6 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const liveData = useQuery(api.auctions.getLiveAuction, {
     auctionRoomId
   });
-  const rosterData = useQuery(
-    api.auctions.getAuctionRoster,
-    liveData
-      ? {
-          tournamentId: liveData.auctionRoom.tournamentId,
-          currentPlayerId: liveData.auctionRoom.currentPlayerId,
-        }
-      : 'skip'
-  );
-
   // Console vs viewer is per tournament: its owners and auctioneers (and the
   // super-admin) get the console; everyone else, including other organisers,
   // watches. The tournament id arrives with the hot query.
@@ -94,6 +84,19 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     canManage,
     isLoading: isRoleLoading,
   } = useTournamentRole(liveData?.auctionRoom.tournamentId);
+
+  // Viewers leave out the sold list (it grows with every sale and was most of
+  // this payload); they load it from getSoldPlayers only when it's shown.
+  const rosterData = useQuery(
+    api.auctions.getAuctionRoster,
+    liveData
+      ? {
+          tournamentId: liveData.auctionRoom.tournamentId,
+          currentPlayerId: liveData.auctionRoom.currentPlayerId,
+          ...(isConsole ? {} : { includeSoldPlayers: false }),
+        }
+      : 'skip'
+  );
 
   // Latest SOLD/UNSOLD event — authoritative trigger + data for the viewer
   // result popup (replaces the racy client-side ref reconstruction). Skipped
@@ -108,6 +111,17 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const paddle = useQuery(
     api.auctions.getMyPaddle,
     isSignedIn && !isConsole && !isRoleLoading ? { auctionRoomId } : 'skip',
+  );
+
+  // Viewer sold list: only for the teams sheet, the complete screen and owner
+  // insights (the console gets it with the roster).
+  const viewerSoldPlayers = useQuery(
+    api.auctions.getSoldPlayers,
+    !isConsole &&
+      liveData &&
+      (activeSheet === 'teams' || liveData.auctionRoom.status === 'completed' || paddle)
+      ? { tournamentId: liveData.auctionRoom.tournamentId }
+      : 'skip',
   );
 
   // Sold/unsold history — fetched lazily, only while a history sheet is open.
@@ -141,7 +155,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       serverTime: liveData.serverTime,
       teams: rosterData?.teams ?? [],
       tournament,
-      soldPlayers: rosterData?.soldPlayers ?? [],
+      soldPlayers: isConsole ? (rosterData?.soldPlayers ?? []) : (viewerSoldPlayers ?? []),
       minBasePrice: rosterData?.minBasePrice,
       stats: rosterData?.stats ?? {
         total: 0,
@@ -151,7 +165,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         inAuction: 0,
       },
     };
-  }, [liveData, rosterData]);
+  }, [liveData, rosterData, isConsole, viewerSoldPlayers]);
 
   // Optimistic: the console shows the bid the moment it's tapped. Convex drops
   // the guess when placeBid returns, so a rejected bid rolls back by itself.
@@ -1513,7 +1527,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       {!isConsole && (
         <>
           <ViewerActionBar
-            soldCount={soldPlayers?.length ?? 0}
+            soldCount={auctionData?.stats?.sold ?? 0}
             unsoldCount={auctionData?.stats?.unsold ?? 0}
             teamsCount={teams?.length ?? 0}
             active={activeSheet}
@@ -1524,7 +1538,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   auctionRoomId={auctionRoomId}
                   paddle={paddle}
                   biddingOpen={auctionRoom.status === 'live' && !!currentPlayer}
-                  insights={rosterData ? ownerInsights(rosterData, paddle.team._id) : null}
+                  insights={rosterData ? ownerInsights({ ...rosterData, soldPlayers }, paddle.team._id) : null}
                 />
               ) : undefined
             }
@@ -1538,7 +1552,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 : undefined
             }
             teams={teams ?? []}
-            soldPlayers={soldPlayers}
+            soldPlayers={viewerSoldPlayers}
             maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15}
             currentBidTeamId={currentBidTeam?._id}
           />

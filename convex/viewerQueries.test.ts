@@ -154,3 +154,60 @@ describe("deactivated tournaments (P1-12)", () => {
     expect(await t.query(api.auctions.getLiveAuction, { auctionRoomId: newRoom })).toBeNull();
   });
 });
+
+describe("viewer roster without the sold list (P1-11)", () => {
+  async function withSold(t: ReturnType<typeof convexTest>, count: number) {
+    const ids = await setup(t);
+    await t.run(async (ctx) => {
+      for (let i = 0; i < count; i++) {
+        await ctx.db.insert("players", {
+          tournamentId: ids.tournamentId,
+          name: `Sold Player Number ${i}`,
+          age: 25,
+          role: ["Batter", "Wicket Keeper"],
+          battingBowlingHand: "Right-handed",
+          auctionStatus: "sold",
+          teamId: ids.teamId,
+          soldPrice: 100_000,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+      await syncTournamentAuctionCounts(ctx, ids.tournamentId);
+    });
+    return ids;
+  }
+
+  test("viewers get counts but not every sold player, so each player change stays small", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId, playerId } = await withSold(t, 200);
+
+    const full = (await t.query(api.auctions.getAuctionRoster, { tournamentId, currentPlayerId: playerId }))!;
+    const viewer = (await t.query(api.auctions.getAuctionRoster, {
+      tournamentId,
+      currentPlayerId: playerId,
+      includeSoldPlayers: false,
+    }))!;
+
+    expect(full.soldPlayers).toHaveLength(200);
+    expect(viewer.soldPlayers).toEqual([]);
+    expect(viewer.stats).toEqual(full.stats);
+    expect(viewer.teams[0].playerCount).toBe(200);
+    expect(JSON.stringify(viewer).length).toBeLessThan(4_000);
+  });
+
+  test("getSoldPlayers returns the trimmed sold list, and nothing for a hidden tournament", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId, teamId } = await withSold(t, 3);
+
+    const sold = await t.query(api.auctions.getSoldPlayers, { tournamentId });
+    expect(sold).toHaveLength(3);
+    const allowed = ["_id", "categoryId", "name", "role", "soldPrice", "teamId"];
+    expect(Object.keys(sold[0]).every((k) => allowed.includes(k))).toBe(true);
+    expect(sold[0]).toMatchObject({ teamId, soldPrice: 100_000 });
+    expect(sold[0]).not.toHaveProperty("phoneNumber");
+
+    await t.withIdentity(ADMIN_IDENTITY).mutation(api.tournaments.setActive, { id: tournamentId, isActive: false });
+    expect(await t.query(api.auctions.getSoldPlayers, { tournamentId })).toEqual([]);
+  });
+});

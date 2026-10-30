@@ -1556,6 +1556,11 @@ export const getAuctionRoster = query({
   args: {
     tournamentId: v.id("tournaments"),
     currentPlayerId: v.optional(v.id("players")),
+    // Viewers pass false: the sold list grows with every sale and was most of
+    // this payload, re-sent to every viewer twice per player (P1-11). They
+    // read it from getSoldPlayers only while a sheet needs it. Counts and
+    // per-team numbers are unaffected. Absent = true (console, overlay).
+    includeSoldPlayers: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     // Read only what the fan-out truly needs: teams, the current player, the
@@ -1601,14 +1606,7 @@ export const getAuctionRoster = query({
     // Trim sold players to only the fields needed by the client (complete screen + purse map).
     const soldPlayers = soldPlayersRaw
       .filter((p) => !captainPlayerIds.has(p._id))
-      .map((p) => ({
-        _id: p._id,
-        name: p.name,
-        role: p.role,
-        categoryId: p.categoryId, // owner insights: fair-value bands by category
-        soldPrice: p.soldPrice,
-        teamId: p.teamId,
-      }));
+      .map(toSoldPlayerSummary);
 
     const maxPlayersPerTeam = tournament?.settings.maxPlayersPerTeam || 15;
     const tournamentSettings = tournament?.settings ?? {};
@@ -1757,7 +1755,7 @@ export const getAuctionRoster = query({
             settings: tournament.settings,
           }
         : null,
-      soldPlayers,
+      soldPlayers: args.includeSoldPlayers === false ? [] : soldPlayers,
       minBasePrice,
       stats: {
         total:
@@ -1771,6 +1769,52 @@ export const getAuctionRoster = query({
         inAuction: currentPlayer ? 1 : 0,
       },
     };
+  },
+});
+
+/** The sold-player fields clients use (squad sheets, complete screen, insights). */
+function toSoldPlayerSummary(p: Doc<"players">) {
+  return {
+    _id: p._id,
+    name: p.name,
+    role: p.role,
+    categoryId: p.categoryId, // owner insights: fair-value bands by category
+    soldPrice: p.soldPrice,
+    teamId: p.teamId,
+  };
+}
+
+/**
+ * Sold players for the viewer's teams sheet, complete screen and owner
+ * insights. Subscribed only while one of those is showing, so it stays out of
+ * the always-on viewer payload (P1-11). Identity-free unless the tournament
+ * is deactivated.
+ */
+export const getSoldPlayers = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) return [];
+    if (
+      tournament.isActive === false &&
+      !(await getTournamentRole(ctx, args.tournamentId))
+    ) {
+      return [];
+    }
+    const [sold, teams] = await Promise.all([
+      ctx.db
+        .query("players")
+        .withIndex("by_tournament_status", (q) =>
+          q.eq("tournamentId", args.tournamentId).eq("auctionStatus", "sold"),
+        )
+        .collect(),
+      ctx.db
+        .query("teams")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+        .collect(),
+    ]);
+    const captainIds = new Set(teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])));
+    return sold.filter((p) => !captainIds.has(p._id)).map(toSoldPlayerSummary);
   },
 });
 
