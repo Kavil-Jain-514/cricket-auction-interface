@@ -13,6 +13,7 @@ import {
   effectiveBasePrice,
   formatRupees,
   isSquadFull,
+  isWholeRupees,
   maxAllowedBid,
   nextMinimumBid,
   reserveBasePrice,
@@ -247,6 +248,9 @@ export async function applyBid(
     !(Number.isFinite(args.amount) && args.amount > 0)
   ) {
     return { success: false, reason: "Bid amount must be positive" };
+  }
+  if (args.amount !== undefined && !isWholeRupees(args.amount)) {
+    return { success: false, reason: "Bid must be a whole number of rupees" };
   }
 
   if (room.status !== "live") {

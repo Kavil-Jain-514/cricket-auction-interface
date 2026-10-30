@@ -6,6 +6,14 @@
 
 export const DEFAULT_BASE_PRICE = 100000;
 
+/**
+ * Every amount is a whole number of rupees (AUDIT 2026-10 P1-3). Rules out
+ * fractions, NaN and Infinity, which would otherwise leak into the purses.
+ */
+export function isWholeRupees(amount: number): boolean {
+  return Number.isInteger(amount);
+}
+
 /** Format a rupee amount with Indian digit grouping, e.g. 150000 -> "₹1,50,000". */
 export function formatRupees(amount: number): string {
   try {

@@ -9,6 +9,7 @@ import {
   bidTimerEndsAt,
   DEFAULT_BASE_PRICE,
   isSquadFull,
+  isWholeRupees,
   maxAllowedBid,
   reserveBasePrice,
   teamPurseTotal,
@@ -18,6 +19,17 @@ import type { Doc, Id } from "./_generated/dataModel";
 // Helper: format purse amount for error messages
 function formatPurse(amount: number): string {
   return `₹${(amount / 100000).toFixed(2)}L`;
+}
+
+/**
+ * A sold price set by hand must be a positive whole number of rupees: a
+ * negative price would credit the team and NaN would poison the purse
+ * (AUDIT 2026-10 P1-2).
+ */
+function assertSoldPrice(price: number) {
+  if (!isWholeRupees(price) || price <= 0) {
+    throw new Error("Sold price must be a whole number of rupees above zero");
+  }
 }
 
 /**
@@ -216,6 +228,7 @@ export const reassignPlayer = mutation({
     const oldTeamId = player.teamId;
     const oldSoldPrice = player.soldPrice || 0;
     const newSoldPrice = args.newSoldPrice ?? oldSoldPrice;
+    assertSoldPrice(newSoldPrice);
     const tournament = await ctx.db.get(player.tournamentId);
 
     // Get old team if exists
@@ -296,6 +309,7 @@ export const updateSoldPrice = mutation({
     const admin = await requireTournamentRole(ctx, player.tournamentId, RUN_AUCTION);
 
     await assertCorrectable(ctx, player);
+    assertSoldPrice(args.newSoldPrice);
 
     if (player.auctionStatus !== "sold" || !player.teamId) {
       throw new Error("Player is not sold to any team");
@@ -369,8 +383,9 @@ export const updatePlayerStatus = mutation({
     if (args.newStatus === "sold") {
       if (!args.teamId)
         throw new Error("Team ID required when marking as sold");
-      if (!args.soldPrice)
+      if (args.soldPrice === undefined)
         throw new Error("Sold price required when marking as sold");
+      assertSoldPrice(args.soldPrice);
 
       const newTeam = await ctx.db.get(args.teamId);
       if (!newTeam) throw new Error("Team not found");
