@@ -33,6 +33,7 @@ import { toPublicPlayer } from "./projections";
 import { nextPresentationSet } from "./presentation";
 import { withIdempotency } from "./idempotency";
 import { takeSnapshot } from "./snapshots";
+import { goLive } from "./auctionLifecycle";
 import { enqueueSoldNotification } from "./notifications";
 import { confirmsTournamentName } from "./validation";
 import {
@@ -120,7 +121,7 @@ export const startAuction = mutation({
   handler: async (ctx, args) => {
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) throw new Error("Auction room not found");
-    await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
 
     if (auctionRoom.status === "live") {
       return { success: true, message: "Auction already live" };
@@ -130,31 +131,11 @@ export const startAuction = mutation({
       throw new Error("Auction has already completed");
     }
 
-    const now = Date.now();
-    await Promise.all([
-      ctx.db.patch(args.auctionRoomId, {
-        status: "live",
-        updatedAt: now,
-        // Fresh start: the main round, no unsold-round state yet.
-        auctionPhase: "main",
-        roundNumber: 1,
-        unsoldRoundTotal: undefined,
-        unsoldQueue: undefined,
-        unsoldCursor: undefined,
-        roundStalled: undefined,
-      }),
-      // Ensure tournament status is 'active' so viewers can access the auction
-      ctx.db.patch(auctionRoom.tournamentId, {
-        status: "active",
-        updatedAt: now,
-      }),
-      ctx.db.insert("auctionEvents", {
-        auctionRoomId: args.auctionRoomId,
-        type: "auction_started",
-        data: {},
-        timestamp: now,
-      }),
-    ]);
+    // The state the auction starts from, so the day can always be rewound.
+    if (auctionRoom.status === "waiting") {
+      await takeSnapshot(ctx, auctionRoom.tournamentId, "before start_auction", admin._id);
+    }
+    await goLive(ctx, auctionRoom);
 
     return { success: true };
   },
@@ -693,12 +674,15 @@ async function finalizePlayerSaleImpl(
 
     // WhatsApp to the sold player: only a row in the outbox here, sent by a
     // separate worker, so messaging can never affect the sale (P1-14).
-    await enqueueSoldNotification(ctx, {
-      player,
-      team,
-      tournament,
-      soldPrice: winningBid.amount,
-    });
+    // Never during a rehearsal: those sales are rewound.
+    if (!auctionRoom.rehearsal) {
+      await enqueueSoldNotification(ctx, {
+        player,
+        team,
+        tournament,
+        soldPrice: winningBid.amount,
+      });
+    }
   } else {
     // PLAYER UNSOLD
     await Promise.all([
@@ -1517,6 +1501,7 @@ export const getLiveAuction = query({
       unsoldCursor: auctionRoom.unsoldCursor,
       roundStalled: auctionRoom.roundStalled,
       currentSetId: auctionRoom.currentSetId,
+      rehearsal: auctionRoom.rehearsal,
     };
 
     return {

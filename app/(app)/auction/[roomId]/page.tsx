@@ -194,6 +194,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const resumeAuction = useMutation(api.auctions.resumeAuction);
   const restartAuction = useMutation(api.auctions.restartAuction);
   const resolveStalledRound = useMutation(api.auctions.resolveStalledRound);
+  const startRehearsal = useMutation(api.snapshots.startRehearsal);
+  const endRehearsal = useMutation(api.snapshots.endRehearsal);
 
   // Keep the projector / console screen on while the auction is running.
   const roomStatus = liveData?.auctionRoom.status;
@@ -791,6 +793,14 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     <div className={`${isConsole ? 'min-h-screen' : 'h-[100dvh] flex flex-col'} bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden`}>
       {/* Reconnecting indicator — surfaces silent socket drops (P1-1) */}
       <ConnectionStatus showLive={isConsole} />
+      {auctionRoom.rehearsal && (
+        <div
+          role="status"
+          className="fixed top-0 inset-x-0 z-[90] bg-sky-600/95 py-1 text-center text-xs font-bold uppercase tracking-widest text-white"
+        >
+          Rehearsal · nothing here is kept
+        </div>
+      )}
 
       {/* Cricket Stadium Background Effects */}
       <div className="fixed inset-0 pointer-events-none">
@@ -935,6 +945,53 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   >
                     <Play className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
                     <span className="hidden sm:inline">Start</span>
+                  </Button>
+                )}
+
+                {/* Rehearsal: a practice run that is rewound afterwards (owners) */}
+                {auctionRoom.status === 'waiting' && canManage && (
+                  <Button
+                    onClick={async () => {
+                      if (!(await confirm({
+                        title: 'Start a rehearsal?',
+                        description: 'Run the auction for practice. No WhatsApp messages are sent, and End rehearsal puts every player, purse and bid back exactly as it is now.',
+                        confirmText: 'Start rehearsal',
+                        variant: 'default',
+                      }))) return;
+                      try {
+                        await startRehearsal({ auctionRoomId });
+                        toast.success('Rehearsal started');
+                      } catch (error) {
+                        toast.error(getErrorMessage(error, 'Failed to start the rehearsal'));
+                      }
+                    }}
+                    variant="outline"
+                    size="lg"
+                    className="border-sky-500/50 text-sky-300 hover:bg-sky-500/10 h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
+                  >
+                    Rehearsal
+                  </Button>
+                )}
+                {auctionRoom.rehearsal && canManage && (
+                  <Button
+                    onClick={async () => {
+                      if (!(await confirm({
+                        title: 'End the rehearsal?',
+                        description: 'Every player, purse and bid goes back to how it was before the rehearsal started.',
+                        confirmText: 'End rehearsal',
+                      }))) return;
+                      try {
+                        await endRehearsal({ auctionRoomId });
+                        toast.success('Rehearsal ended and reset');
+                      } catch (error) {
+                        toast.error(getErrorMessage(error, 'Failed to end the rehearsal'));
+                      }
+                    }}
+                    variant="outline"
+                    size="lg"
+                    className="border-sky-500/50 text-sky-300 hover:bg-sky-500/10 h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
+                  >
+                    End rehearsal
                   </Button>
                 )}
 

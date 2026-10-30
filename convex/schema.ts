@@ -488,6 +488,10 @@ export default defineSchema({
     // Copy of !tournament.isActive (set by tournaments:setActive), so the hot
     // query can hide a deactivated tournament without reading another doc.
     tournamentHidden: v.optional(v.boolean()),
+    // Rehearsal mode (snapshots:startRehearsal): a practice run that
+    // endRehearsal rewinds to rehearsalSnapshotId. No WhatsApp is sent.
+    rehearsal: v.optional(v.boolean()),
+    rehearsalSnapshotId: v.optional(v.id("tournamentSnapshots")),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
