@@ -21,6 +21,7 @@ import {
   internalQuery,
   query,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { requireAdmin } from "./auth";
 import { formatRupees } from "./bidRules";
@@ -251,24 +252,29 @@ export const processQueue = internalAction({
   },
 });
 
+/** Outbox depth and the last failure (shared with ops:liveOverview). */
+export async function notificationStats(ctx: QueryCtx) {
+  const count = async (status: Doc<"notifications">["status"]) =>
+    (
+      await ctx.db
+        .query("notifications")
+        .withIndex("by_status_next", (q) => q.eq("status", status))
+        .take(1000)
+    ).length;
+  const [queued, sending, failed] = await Promise.all([count("queued"), count("sending"), count("failed")]);
+  const lastFailure = await ctx.db
+    .query("notifications")
+    .withIndex("by_status_next", (q) => q.eq("status", "failed"))
+    .order("desc")
+    .first();
+  return { queued, sending, failed, lastError: lastFailure?.lastError ?? null };
+}
+
 /** Outbox depth and failures for the live-ops panel. Super-admin only. */
 export const queueStats = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
-    const count = async (status: Doc<"notifications">["status"]) =>
-      (
-        await ctx.db
-          .query("notifications")
-          .withIndex("by_status_next", (q) => q.eq("status", status))
-          .take(1000)
-      ).length;
-    const [queued, sending, failed] = await Promise.all([count("queued"), count("sending"), count("failed")]);
-    const lastFailure = await ctx.db
-      .query("notifications")
-      .withIndex("by_status_next", (q) => q.eq("status", "failed"))
-      .order("desc")
-      .first();
-    return { queued, sending, failed, lastError: lastFailure?.lastError ?? null };
+    return await notificationStats(ctx);
   },
 });

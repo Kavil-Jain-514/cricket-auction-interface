@@ -10,4 +10,7 @@ crons.daily("purge old console request ids", { hourUTC: 21, minuteUTC: 0 }, inte
 // Rate-limit windows only matter for a minute.
 crons.daily("purge old rate-limit windows", { hourUTC: 21, minuteUTC: 10 }, internal.rateLimit.purgeOldWindows, {});
 
+// Live-ops panel history: 30 days of webhooks and client errors.
+crons.daily("purge old ops records", { hourUTC: 21, minuteUTC: 20 }, internal.ops.purgeOld, {});
+
 export default crons;

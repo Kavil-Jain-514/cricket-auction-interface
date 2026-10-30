@@ -195,7 +195,24 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const restartAuction = useMutation(api.auctions.restartAuction);
   const resolveStalledRound = useMutation(api.auctions.resolveStalledRound);
   const startRehearsal = useMutation(api.snapshots.startRehearsal);
+  const heartbeat = useMutation(api.ops.heartbeat);
+  const reportClientError = useMutation(api.ops.reportClientError);
+  // Exceptions (not rule refusals) go to the super-admin live-ops panel.
+  const reportError = useCallback((fn: string, error: unknown) => {
+    void reportClientError({ auctionRoomId, fn, message: getErrorMessage(error, 'Unknown error') }).catch(() => {});
+  }, [reportClientError, auctionRoomId]);
   const endRehearsal = useMutation(api.snapshots.endRehearsal);
+
+  // Consoles and owner paddles tell the live-ops panel they are connected
+  // (viewers never do: too many writes at 2,500 viewers).
+  const sendsHeartbeat = isConsole || Boolean(paddle);
+  useEffect(() => {
+    if (!sendsHeartbeat) return;
+    const beat = () => void heartbeat({ auctionRoomId }).catch(() => {});
+    beat();
+    const id = setInterval(beat, 30_000);
+    return () => clearInterval(id);
+  }, [sendsHeartbeat, heartbeat, auctionRoomId]);
 
   // Keep the projector / console screen on while the auction is running.
   const roomStatus = liveData?.auctionRoom.status;
@@ -303,9 +320,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       });
       setShowResult(true);
     } catch (error) {
+      reportError('auctions:finalizePlayerSale', error);
       toast.error(getErrorMessage(error, "Failed to finalize"));
     }
-  }, [isConsole, showResult, finalizePlayer, auctionRoomId, auctionData, expectedState]);
+  }, [isConsole, showResult, finalizePlayer, auctionRoomId, auctionData, expectedState, reportError]);
 
   // Advisory bid countdown, ticked locally from the hot query's
   // bidTimerEndsAt + serverTime. Never auto-finalises.
@@ -595,9 +613,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         }
       }
     } catch (error) {
+      reportError('auctions:placeBid', error);
       toast.error(getErrorMessage(error, "Failed to place bid"));
     }
-  }, [bidding, auctionData?.auctionRoom?.status, placeBid, auctionRoomId, expectedState]);
+  }, [bidding, auctionData?.auctionRoom?.status, placeBid, auctionRoomId, expectedState, reportError]);
 
 
   const handleNextPlayer = useCallback(async () => {
@@ -624,11 +643,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         toast.success("Auction completed! All players have been auctioned.");
       }
     } catch (error) {
+      reportError('auctions:startNextPlayer', error);
       toast.error(getErrorMessage(error, "Failed to load next player"));
     } finally {
       loadingNextRef.current = false;
     }
-  }, [startNext, auctionRoomId]);
+  }, [startNext, auctionRoomId, reportError]);
 
   const handleRevertBid = useCallback(async () => {
     const expected = expectedState();

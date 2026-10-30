@@ -281,6 +281,36 @@ export default defineSchema({
     .index("by_dedupe", ["dedupeKey"])
     .index("by_status_next", ["status", "nextAttemptAt"]),
 
+  // ── Live-ops panel (convex/ops.ts) ─────────────────────────────────────────
+  // Who has a console or owner paddle open, from a 30 s heartbeat. Viewers
+  // never write here (D2: too many writes at 2,500 viewers).
+  presence: defineTable({
+    userId: v.id("users"),
+    auctionRoomId: v.id("auctionRooms"),
+    tournamentId: v.id("tournaments"),
+    role: v.union(v.literal("console"), v.literal("owner")),
+    lastSeen: v.number(),
+  })
+    .index("by_room", ["auctionRoomId", "lastSeen"])
+    .index("by_user_room", ["userId", "auctionRoomId"]),
+
+  // Mutation exceptions seen by consoles and owner paddles (not rule refusals).
+  clientErrors: defineTable({
+    userId: v.id("users"),
+    auctionRoomId: v.id("auctionRooms"),
+    fn: v.string(),
+    message: v.string(),
+    at: v.number(),
+  }).index("by_at", ["at"]),
+
+  // Every Razorpay webhook received, with what happened to it.
+  webhookEvents: defineTable({
+    event: v.string(),
+    orderId: v.optional(v.string()),
+    outcome: v.string(),
+    receivedAt: v.number(),
+  }).index("by_receivedAt", ["receivedAt"]),
+
   // Fixed-window counters for public entry points (convex/rateLimit.ts).
   rateLimits: defineTable({
     key: v.string(), // e.g. "register:<tournamentId>"

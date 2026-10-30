@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ShieldAlert, Users, ScrollText } from 'lucide-react';
+import { Activity, ShieldAlert, Users, ScrollText } from 'lucide-react';
 import { Navbar } from '@/components/layout/Navbar';
 import { useUserRole } from '@/hooks/useUserRole';
 
 const TABS = [
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/audit', label: 'Audit log', icon: ScrollText },
+  { href: '/admin/live', label: 'Live ops', icon: Activity },
 ];
 
 /**
