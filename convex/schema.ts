@@ -171,6 +171,31 @@ export default defineSchema({
     .index("by_room_key", ["auctionRoomId", "key"])
     .index("by_createdAt", ["createdAt"]),
 
+  // Point-in-time copies of a tournament's auction state, taken automatically
+  // before auction start and before every destructive action
+  // (convex/snapshots.ts). Rows live in snapshotChunks so a large roster never
+  // hits the 1 MiB document limit. Kept after the tournament is deleted.
+  tournamentSnapshots: defineTable({
+    tournamentId: v.id("tournaments"),
+    tournamentName: v.string(),
+    reason: v.string(), // e.g. "before restart_auction"
+    createdBy: v.optional(v.id("users")),
+    counts: v.object({
+      players: v.number(),
+      teams: v.number(),
+      bids: v.number(),
+      events: v.number(),
+    }),
+    createdAt: v.number(),
+  }).index("by_tournament", ["tournamentId", "createdAt"]),
+
+  snapshotChunks: defineTable({
+    snapshotId: v.id("tournamentSnapshots"),
+    table: v.string(),
+    index: v.number(),
+    rows: v.array(v.any()),
+  }).index("by_snapshot", ["snapshotId", "table", "index"]),
+
   // Self-registrations from the public form. "paid" means ready for review
   // (fee paid, or no fee); approval creates the player.
   registrations: defineTable({
@@ -210,7 +235,103 @@ export default defineSchema({
     razorpayOrderId: v.string(),
     status: v.union(v.literal("created"), v.literal("paid")),
     paymentRef: v.optional(v.string()),
+    // Paid, but no longer an upgrade when it arrived (a higher order was paid
+    // first), so the plan was left alone and the money must be refunded.
+    refundDue: v.optional(v.boolean()),
     createdBy: v.id("users"),
+    createdAt: v.number(),
+    paidAt: v.optional(v.number()),
+  })
+    .index("by_order", ["razorpayOrderId"])
+    .index("by_tournament", ["tournamentId"]),
+
+  // WhatsApp outbox (convex/notifications.ts). One row per player and team,
+  // so a restart or a re-sale to the same team never messages twice. A
+  // worker sends, retries with backoff up to MAX_ATTEMPTS, and never touches
+  // the sale itself.
+  notifications: defineTable({
+    kind: v.literal("player_sold"),
+    dedupeKey: v.string(), // "sold:<playerId>:<teamId>"
+    tournamentId: v.id("tournaments"),
+    playerId: v.id("players"),
+    payload: v.object({
+      playerName: v.string(),
+      phoneNumber: v.string(),
+      tournamentName: v.string(),
+      teamName: v.string(),
+      ownerName: v.string(),
+      captainName: v.optional(v.string()),
+      soldPrice: v.number(),
+    }),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("sending"),
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("skipped"),
+    ),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    messageId: v.optional(v.string()),
+    createdAt: v.number(),
+    sentAt: v.optional(v.number()),
+  })
+    .index("by_dedupe", ["dedupeKey"])
+    .index("by_status_next", ["status", "nextAttemptAt"]),
+
+  // ── Live-ops panel (convex/ops.ts) ─────────────────────────────────────────
+  // Who has a console or owner paddle open, from a 30 s heartbeat. Viewers
+  // never write here (D2: too many writes at 2,500 viewers).
+  presence: defineTable({
+    userId: v.id("users"),
+    auctionRoomId: v.id("auctionRooms"),
+    tournamentId: v.id("tournaments"),
+    role: v.union(v.literal("console"), v.literal("owner")),
+    lastSeen: v.number(),
+  })
+    .index("by_room", ["auctionRoomId", "lastSeen"])
+    .index("by_user_room", ["userId", "auctionRoomId"]),
+
+  // Mutation exceptions seen by consoles and owner paddles (not rule refusals).
+  clientErrors: defineTable({
+    userId: v.id("users"),
+    auctionRoomId: v.id("auctionRooms"),
+    fn: v.string(),
+    message: v.string(),
+    at: v.number(),
+  }).index("by_at", ["at"]),
+
+  // Every Razorpay webhook received, with what happened to it.
+  webhookEvents: defineTable({
+    event: v.string(),
+    orderId: v.optional(v.string()),
+    outcome: v.string(),
+    receivedAt: v.number(),
+  }).index("by_receivedAt", ["receivedAt"]),
+
+  // Fixed-window counters for public entry points (convex/rateLimit.ts).
+  rateLimits: defineTable({
+    key: v.string(), // e.g. "register:<tournamentId>"
+    windowStart: v.number(),
+    count: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_windowStart", ["windowStart"]),
+
+  // Every Razorpay order opened for a registration fee. A registrant can open
+  // checkout more than once; each order is kept so whichever one is paid is
+  // found. A payment that can't be applied (already paid, rejected) is kept
+  // with refundDue so it is never silently lost.
+  registrationOrders: defineTable({
+    registrationId: v.id("registrations"),
+    tournamentId: v.id("tournaments"),
+    razorpayOrderId: v.string(),
+    amount: v.number(), // paise
+    status: v.union(v.literal("created"), v.literal("paid")),
+    paymentRef: v.optional(v.string()),
+    refundDue: v.optional(v.boolean()),
     createdAt: v.number(),
     paidAt: v.optional(v.number()),
   })
@@ -258,6 +379,10 @@ export default defineSchema({
       v.literal("superseded"),
     ),
     reason: v.optional(v.string()),
+    // Top live bid when the raise was made (null = none). A raise is only
+    // valid at that price; any later bid, revert or sale expires it.
+    // Absent on requests from before this field (accepted on amount alone).
+    basedOnBid: v.optional(v.union(v.number(), v.null())),
     createdAt: v.number(),
   })
     .index("by_room_player_status", ["auctionRoomId", "playerId", "status"])
@@ -292,6 +417,9 @@ export default defineSchema({
     ),
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
+    // From the registration form. false = declined WhatsApp messages; absent
+    // = added by the organiser (who is responsible for consent).
+    consentWhatsApp: v.optional(v.boolean()),
     playerNumber: v.optional(v.number()), // Auto-incremented player number starting from 1
     basePrice: v.optional(v.number()), // Starting bid price, if undefined inherits from the category, then the tournament
     categoryId: v.optional(v.string()), // tournaments.settings.categories[].id
@@ -322,7 +450,9 @@ export default defineSchema({
     .index("by_team", ["teamId"])
     .index("by_status", ["auctionStatus"])
     // Compound index: Find players by tournament + status (for startNextPlayer)
-    .index("by_tournament_status", ["tournamentId", "auctionStatus"]),
+    .index("by_tournament_status", ["tournamentId", "auctionStatus"])
+    // Duplicate check on the public registration form, without a full scan.
+    .index("by_tournament_phone", ["tournamentId", "phoneNumber"]),
 
   // Group Draws - random allotment of teams into groups (one per tournament).
   // Assignments are computed server-side in a single mutation and persisted
@@ -385,6 +515,13 @@ export default defineSchema({
     // presentationOrder "by_category": the set (category id) being presented.
     // Changing it is what announces "Now: <category> set" on every client.
     currentSetId: v.optional(v.string()),
+    // Copy of !tournament.isActive (set by tournaments:setActive), so the hot
+    // query can hide a deactivated tournament without reading another doc.
+    tournamentHidden: v.optional(v.boolean()),
+    // Rehearsal mode (snapshots:startRehearsal): a practice run that
+    // endRehearsal rewinds to rehearsalSnapshotId. No WhatsApp is sent.
+    rehearsal: v.optional(v.boolean()),
+    rehearsalSnapshotId: v.optional(v.id("tournamentSnapshots")),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),

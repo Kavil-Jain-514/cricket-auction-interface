@@ -6,6 +6,11 @@ import { renderToString } from "react-dom/server";
 // session. Convex hooks are stubbed; Clerk is NOT mocked or provided, so any
 // Clerk hook use would throw here.
 const queryResults = new Map<string, unknown>();
+const connection = { kind: "live" as "live" | "reconnecting" };
+vi.mock("@/lib/useConnectionView", () => ({
+  useConnectionView: () =>
+    connection.kind === "live" ? { kind: "live" } : { kind: "reconnecting", secondsStale: 5, offerReload: false },
+}));
 vi.mock("convex/react", () => ({
   useQuery: (ref: unknown, args: unknown) => {
     if (args === "skip") return undefined;
@@ -133,5 +138,22 @@ describe("OverlayStage — layouts", () => {
       <OverlayStage {...stageView} countdown={{ ...stageView.countdown, enabled: false }} />,
     );
     expect(html).not.toContain('role="timer"');
+  });
+});
+
+describe("BroadcastOverlay — connection (AUDIT 2026-10 P1-13)", () => {
+  test("hides the card while disconnected instead of streaming a frozen price", () => {
+    setData();
+    connection.kind = "reconnecting";
+    try {
+      const html = renderToString(
+        <BroadcastOverlay roomId="room1" mode="full" theme="dark" safe={false} />,
+      );
+      expect(html).toContain("data-broadcast-overlay");
+      expect(html).not.toContain("data-purse-strip");
+      expect(html).not.toContain("Hosted by Sunrise CC");
+    } finally {
+      connection.kind = "live";
+    }
   });
 });

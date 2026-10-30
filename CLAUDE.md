@@ -44,6 +44,13 @@ npx tsc --noEmit     # typecheck
   It must also call `logAdminAction` (`convex/auth.ts`).
 - **Error shape.** In auction mutations, expected rule failures return `{ success: false, reason }`. Only
   not-found cases throw.
+- **Expected state on console actions.** Bid, sell, final-unsold, revert, re-bid and owner raises take
+  `expectedPlayerId` / `expectedCurrentBid` (`staleStateReason` in `convex/bidCore.ts`). Clients must always send
+  what they showed; a new console action needs the same guard.
+- **Whole rupees.** Every amount is a whole number of rupees (`isWholeRupees`, `convex/bidRules.ts`); Razorpay
+  amounts are paise.
+- **Destructive actions** (restart, delete, restore) refuse while live, need the typed tournament name, and call
+  `takeSnapshot` (`convex/snapshots.ts`) first.
 
 ## Testing rules
 

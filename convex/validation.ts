@@ -3,6 +3,12 @@
 // players). Pure functions only — no ctx — so they are unit-testable and the
 // create and update paths can never drift apart. Each returns an error message,
 // or null when the value is fine.
+import { isWholeRupees } from "./bidRules";
+
+/** True when `typed` is the tournament's name (trimmed, any case). */
+export function confirmsTournamentName(typed: string, name: string): boolean {
+  return typed.trim().toLowerCase() === name.trim().toLowerCase();
+}
 
 export const MIN_BASE_PURSE = 100_000; // ₹1 Lakh
 export const MAX_BASE_PURSE = 1_000_000_000; // ₹100 Crore
@@ -34,6 +40,16 @@ export function validateSettings(settings: {
   basePrice?: number;
 }): string | null {
   const { basePurse, minBidIncrement, maxPlayersPerTeam, basePrice } = settings;
+
+  for (const [label, amount] of [
+    ["Base purse", basePurse],
+    ["Minimum bid increment", minBidIncrement],
+    ["Base price", basePrice],
+  ] as const) {
+    if (amount !== undefined && Number.isFinite(amount) && !isWholeRupees(amount)) {
+      return `${label} must be a whole number of rupees`;
+    }
+  }
 
   if (
     !Number.isFinite(basePurse) ||
@@ -154,6 +170,12 @@ export function validatePlayerFields(
   }
   if (
     fields.basePrice !== undefined &&
+    Number.isFinite(fields.basePrice) &&
+    !isWholeRupees(fields.basePrice)
+  ) {
+    push("basePrice", "Base price must be a whole number of rupees");
+  } else if (
+    fields.basePrice !== undefined &&
     (!Number.isFinite(fields.basePrice) ||
       fields.basePrice <= 0 ||
       fields.basePrice > tournamentBasePurse)
@@ -202,6 +224,9 @@ export function validateCategories(
     }
     ids.add(c.id);
     names.add(name.toLowerCase());
+    if (Number.isFinite(c.basePrice) && !isWholeRupees(c.basePrice)) {
+      return `${name}: base price must be a whole number of rupees`;
+    }
     if (
       !Number.isFinite(c.basePrice) ||
       c.basePrice <= 0 ||
@@ -230,6 +255,12 @@ export function validateIncrementSlabs(
   }
   let previous = -1;
   for (const slab of slabs) {
+    if (
+      (Number.isFinite(slab.fromAmount) && !isWholeRupees(slab.fromAmount)) ||
+      (Number.isFinite(slab.increment) && !isWholeRupees(slab.increment))
+    ) {
+      return "Slab amounts must be whole numbers of rupees";
+    }
     if (!Number.isFinite(slab.fromAmount) || slab.fromAmount < 0) {
       return "Slab thresholds must be ₹0 or more";
     }

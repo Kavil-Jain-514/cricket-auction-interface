@@ -255,3 +255,101 @@ describe("tournaments.update — registration settings", () => {
     ).rejects.toThrow(/fee/);
   });
 });
+
+describe("several orders for one registration (AUDIT 2026-10 P1-8)", () => {
+  test("paying the first of two checkouts still marks the registration paid", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { registrationFee: 300 });
+    const res = await t.mutation(api.registrations.submit, { tournamentId, ...entry() });
+    const registrationId = res.registrationId as Id<"registrations">;
+    await t.mutation(api.registrations.recordOrder, { registrationId, razorpayOrderId: "o1", amount: 30_000 });
+    await t.mutation(api.registrations.recordOrder, { registrationId, razorpayOrderId: "o2", amount: 30_000 });
+
+    await paid(t, "o1", "pay_1", 30_000, registrationId);
+
+    expect((await registrations(t))[0]).toMatchObject({ status: "paid", paymentRef: "pay_1" });
+  });
+
+  test("a second payment, or one after a rejection, is kept as refund due", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { registrationFee: 300 });
+    const a = await t.mutation(api.registrations.submit, { tournamentId, ...entry() });
+    const b = await t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: "Second", phoneNumber: "9876500000" }) });
+    const regA = a.registrationId as Id<"registrations">;
+    const regB = b.registrationId as Id<"registrations">;
+    for (const [registrationId, order] of [[regA, "o1"], [regA, "o2"], [regB, "o3"]] as const) {
+      await t.mutation(api.registrations.recordOrder, { registrationId, razorpayOrderId: order, amount: 30_000 });
+    }
+    await t.withIdentity(OWNER).mutation(api.registrations.reject, { registrationId: regB, reason: "Team full" });
+
+    await paid(t, "o1", "pay_1", 30_000, regA);
+    await paid(t, "o2", "pay_2", 30_000, regA);
+    await paid(t, "o3", "pay_3", 30_000, regB);
+
+    const due = await t.withIdentity(OWNER).query(api.registrations.listRefundsDue, { tournamentId });
+    expect(due.map((d) => d.paymentRef).sort()).toEqual(["pay_2", "pay_3"]);
+    expect((await registrations(t)).find((r) => r._id === regA)).toMatchObject({ status: "paid", paymentRef: "pay_1" });
+    await expect(t.withIdentity(OTHER).query(api.registrations.listRefundsDue, { tournamentId })).rejects.toThrow(/access/);
+  });
+});
+
+describe("abuse limits on the public form (AUDIT 2026-10 P1-9)", () => {
+  test("submissions are rate-limited per tournament, whatever the phone", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    for (let i = 0; i < 30; i++) {
+      await t.mutation(api.registrations.submit, {
+        tournamentId,
+        ...entry({ name: `Player ${i}`, phoneNumber: `98765${String(i).padStart(5, "0")}` }),
+      });
+    }
+
+    await expect(
+      t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: "One More", phoneNumber: "9111111111" }) }),
+    ).rejects.toThrow(/Too many registrations right now/);
+    expect(await registrations(t)).toHaveLength(30);
+  });
+
+  test("a duplicate of an existing player is still caught by name and phone", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await t.run((ctx) =>
+      ctx.db.insert("players", {
+        tournamentId,
+        name: "Ravi Kumar",
+        phoneNumber: "9876543210",
+        age: 24,
+        role: ["Bowler"],
+        battingBowlingHand: "Right-handed",
+        auctionStatus: "pending",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry() })).rejects.toThrow(/already registered/);
+  });
+
+  test("photo upload signatures are rate-limited per tournament", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    Object.assign(process.env, { CLOUDINARY_CLOUD_NAME: "c", CLOUDINARY_API_KEY: "k", CLOUDINARY_API_SECRET: "s" });
+    try {
+      for (let i = 0; i < 60; i++) await t.action(api.registrations.getUploadSignature, { tournamentId });
+      await expect(t.action(api.registrations.getUploadSignature, { tournamentId })).rejects.toThrow(/Too many uploads/);
+    } finally {
+      delete process.env.CLOUDINARY_CLOUD_NAME;
+      delete process.env.CLOUDINARY_API_KEY;
+      delete process.env.CLOUDINARY_API_SECRET;
+    }
+  });
+
+  test("getPaymentInfo says how many checkouts are left, so the order route can refuse early", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { registrationFee: 300 });
+    const res = await t.mutation(api.registrations.submit, { tournamentId, ...entry() });
+    const registrationId = res.registrationId as Id<"registrations">;
+    await t.mutation(api.registrations.recordOrder, { registrationId, razorpayOrderId: "o1", amount: 30_000 });
+
+    expect(await t.query(api.registrations.getPaymentInfo, { registrationId })).toMatchObject({ ordersLeft: 9 });
+  });
+});

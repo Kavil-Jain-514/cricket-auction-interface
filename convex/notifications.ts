@@ -6,11 +6,25 @@
 // send a "template" message with numbered body parameters rather than free-form
 // text. See the setup steps in WHATSAPP_NOTIFICATIONS.md.
 //
-// This runs as an internalAction scheduled AFTER the sale is committed, so a
-// failure here never rolls back the sale — it is best-effort and only logs.
+// Outbox (AUDIT 2026-10 P1-14): finalizePlayerSale only inserts a row
+// (enqueueSoldNotification) in its own transaction, so a messaging problem
+// can never touch the sale. processQueue sends at most BATCH_SIZE a second,
+// retries with backoff up to MAX_ATTEMPTS, and reclaims rows a crashed run
+// left in "sending". Phone numbers are masked in logs.
 
 import { v } from "convex/values";
-import { internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
+import { requireAdmin } from "./auth";
+import { formatRupees } from "./bidRules";
 
 /**
  * Normalize a raw phone number into E.164 digits (no leading "+").
@@ -36,132 +50,231 @@ export function normalizePhone(
   return `${defaultCountryCode.replace(/\D/g, "")}${digits}`;
 }
 
-/** Format a rupee amount with Indian digit grouping, e.g. 150000 -> "₹1,50,000". */
-export function formatRupees(amount: number): string {
+export { formatRupees };
+
+const MAX_ATTEMPTS = 5;
+const BATCH_SIZE = 10; // per second: far below Meta's per-number throughput
+const RETRY_BASE_MS = 30_000; // 30s, 60s, 2m, 4m
+const STUCK_SENDING_MS = 5 * 60_000;
+
+type SoldPayload = Doc<"notifications">["payload"];
+
+/** "+91•••••3210": enough to tell numbers apart in logs, no more. */
+function maskPhone(e164: string): string {
+  return `+${e164.slice(0, 2)}•••••${e164.slice(-4)}`;
+}
+
+/**
+ * Queue the "player sold" message. Called inside finalizePlayerSale; only
+ * writes a row and schedules the worker. No-ops for no phone, a player who
+ * declined on the registration form, or a message already queued for this
+ * player and team.
+ */
+export async function enqueueSoldNotification(
+  ctx: MutationCtx,
+  args: {
+    player: Doc<"players">;
+    team: Doc<"teams">;
+    tournament: Doc<"tournaments">;
+    soldPrice: number;
+  },
+): Promise<Id<"notifications"> | null> {
+  const { player, team, tournament } = args;
+  if (!player.phoneNumber?.trim() || player.consentWhatsApp === false) return null;
+  const dedupeKey = `sold:${player._id}:${team._id}`;
+  const existing = await ctx.db
+    .query("notifications")
+    .withIndex("by_dedupe", (q) => q.eq("dedupeKey", dedupeKey))
+    .first();
+  if (existing) return null;
+
+  const now = Date.now();
+  const id = await ctx.db.insert("notifications", {
+    kind: "player_sold",
+    dedupeKey,
+    tournamentId: tournament._id,
+    playerId: player._id,
+    payload: {
+      playerName: player.name,
+      phoneNumber: player.phoneNumber,
+      tournamentName: tournament.name,
+      teamName: team.name,
+      ownerName: team.ownerName,
+      captainName: team.captainName,
+      soldPrice: args.soldPrice,
+    },
+    status: "queued",
+    attempts: 0,
+    nextAttemptAt: now,
+    createdAt: now,
+  });
+  await ctx.scheduler.runAfter(0, internal.notifications.processQueue, {});
+  return id;
+}
+
+/** Claim up to BATCH_SIZE due rows (and any stuck in "sending"). */
+export const claimDue = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const due = await ctx.db
+      .query("notifications")
+      .withIndex("by_status_next", (q) => q.eq("status", "queued").lte("nextAttemptAt", now))
+      .take(BATCH_SIZE);
+    const stuck = (
+      await ctx.db
+        .query("notifications")
+        .withIndex("by_status_next", (q) => q.eq("status", "sending"))
+        .take(BATCH_SIZE)
+    ).filter((n) => (n.claimedAt ?? 0) < now - STUCK_SENDING_MS);
+    const claimed = [...due, ...stuck].slice(0, BATCH_SIZE);
+    await Promise.all(
+      claimed.map((n) => ctx.db.patch(n._id, { status: "sending", claimedAt: now, attempts: n.attempts + 1 })),
+    );
+    return claimed.map((n) => ({ _id: n._id, payload: n.payload }));
+  },
+});
+
+/** Earliest retry still queued, or null when the outbox is drained. */
+export const nextDueAt = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const next = await ctx.db
+      .query("notifications")
+      .withIndex("by_status_next", (q) => q.eq("status", "queued"))
+      .first();
+    return next?.nextAttemptAt ?? null;
+  },
+});
+
+/** Store one send's outcome: sent, skipped, retry later, or failed for good. */
+export const recordResult = internalMutation({
+  args: {
+    id: v.id("notifications"),
+    outcome: v.union(v.literal("sent"), v.literal("skipped"), v.literal("error")),
+    detail: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.id);
+    if (!row) return;
+    const now = Date.now();
+    if (args.outcome === "sent") {
+      await ctx.db.patch(row._id, { status: "sent", sentAt: now, messageId: args.detail, lastError: undefined });
+    } else if (args.outcome === "skipped") {
+      await ctx.db.patch(row._id, { status: "skipped", lastError: args.detail });
+    } else if (row.attempts >= MAX_ATTEMPTS) {
+      await ctx.db.patch(row._id, { status: "failed", lastError: args.detail });
+    } else {
+      await ctx.db.patch(row._id, {
+        status: "queued",
+        lastError: args.detail,
+        nextAttemptAt: now + RETRY_BASE_MS * 2 ** (row.attempts - 1),
+      });
+    }
+  },
+});
+
+/** Send one template message. Never throws. */
+async function sendSoldTemplate(
+  payload: SoldPayload,
+): Promise<{ outcome: "sent" | "skipped" | "error"; detail?: string }> {
+  if (process.env.WHATSAPP_NOTIFICATIONS_ENABLED === "false") {
+    return { outcome: "skipped", detail: "notifications_disabled" };
+  }
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!phoneNumberId || !accessToken) return { outcome: "skipped", detail: "not_configured" };
+  const templateName = process.env.WHATSAPP_TEMPLATE_NAME ?? "player_sold";
+  const templateLang = process.env.WHATSAPP_TEMPLATE_LANG ?? "en";
+  const graphVersion = process.env.WHATSAPP_GRAPH_VERSION ?? "v21.0";
+  const e164 = normalizePhone(payload.phoneNumber, process.env.WHATSAPP_DEFAULT_COUNTRY_CODE ?? "91");
+  if (!e164) return { outcome: "skipped", detail: "invalid_phone" };
+
+  // Ordered body parameters — must match {{1}}..{{6}} in the approved template.
+  const bodyParams = [
+    payload.playerName,
+    payload.tournamentName,
+    payload.teamName,
+    payload.ownerName,
+    payload.captainName?.trim() || "—",
+    formatRupees(payload.soldPrice),
+  ].map((text) => ({ type: "text" as const, text }));
+
   try {
-    return `₹${new Intl.NumberFormat("en-IN", {
-      maximumFractionDigits: 0,
-    }).format(amount)}`;
-  } catch {
-    return `₹${Math.round(amount)}`;
+    const res = await fetch(`https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: e164,
+        type: "template",
+        template: { name: templateName, language: { code: templateLang }, components: [{ type: "body", parameters: bodyParams }] },
+      }),
+    });
+    if (!res.ok) {
+      const text = (await res.text()).slice(0, 300);
+      console.error(`[whatsapp] Meta error ${res.status} for ${maskPhone(e164)}: ${text}`);
+      return { outcome: "error", detail: `meta_${res.status}: ${text}` };
+    }
+    const data = (await res.json()) as { messages?: Array<{ id?: string }> };
+    return { outcome: "sent", detail: data.messages?.[0]?.id };
+  } catch (err) {
+    console.error(`[whatsapp] Network error for ${maskPhone(e164)}:`, err);
+    return { outcome: "error", detail: `network_error: ${String(err).slice(0, 200)}` };
   }
 }
 
 /**
- * Send the "player sold" WhatsApp notification via the Meta Cloud API.
- *
- * Template body parameter order (must match your approved WhatsApp template):
- *   {{1}} playerName
- *   {{2}} tournamentName
- *   {{3}} teamName
- *   {{4}} ownerName
- *   {{5}} captainName
- *   {{6}} soldPrice (pre-formatted, e.g. "₹1,50,000")
+ * Drain the outbox: one batch per run, then reschedule itself for the next
+ * batch (1s later) or the earliest retry. Runs for every enqueue, so several
+ * may overlap; claimDue hands each row to exactly one of them.
  */
-export const sendPlayerSoldWhatsApp = internalAction({
-  args: {
-    playerName: v.string(),
-    phoneNumber: v.optional(v.string()),
-    tournamentName: v.string(),
-    teamName: v.string(),
-    ownerName: v.string(),
-    captainName: v.optional(v.string()),
-    soldPrice: v.number(),
-  },
-  handler: async (_ctx, args) => {
-    // Feature flag — set WHATSAPP_NOTIFICATIONS_ENABLED="false" to mute sends
-    // (e.g. in dev) without removing the wiring.
-    if (process.env.WHATSAPP_NOTIFICATIONS_ENABLED === "false") {
-      return { sent: false, reason: "notifications_disabled" };
+export const processQueue = internalAction({
+  args: {},
+  // Explicit types: this action calls back into its own module through
+  // `internal`, which would otherwise make the generated API types circular.
+  handler: async (ctx): Promise<{ processed: number }> => {
+    const claimed: Array<{ _id: Id<"notifications">; payload: SoldPayload }> =
+      await ctx.runMutation(internal.notifications.claimDue, {});
+    for (const row of claimed) {
+      const result = await sendSoldTemplate(row.payload);
+      await ctx.runMutation(internal.notifications.recordResult, { id: row._id, ...result });
     }
-
-    if (!args.phoneNumber || args.phoneNumber.trim() === "") {
-      console.warn(
-        `[whatsapp] Skipping "${args.playerName}" — no phone number on record.`,
-      );
-      return { sent: false, reason: "no_phone_number" };
-    }
-
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    const templateName = process.env.WHATSAPP_TEMPLATE_NAME ?? "player_sold";
-    const templateLang = process.env.WHATSAPP_TEMPLATE_LANG ?? "en";
-    const graphVersion = process.env.WHATSAPP_GRAPH_VERSION ?? "v21.0";
-    const defaultCountryCode =
-      process.env.WHATSAPP_DEFAULT_COUNTRY_CODE ?? "91";
-
-    if (!phoneNumberId || !accessToken) {
-      console.error(
-        "[whatsapp] Missing Meta env vars (WHATSAPP_PHONE_NUMBER_ID, " +
-          "WHATSAPP_ACCESS_TOKEN). Skipping send.",
-      );
-      return { sent: false, reason: "not_configured" };
-    }
-
-    const e164 = normalizePhone(args.phoneNumber, defaultCountryCode);
-    if (!e164) {
-      console.warn(
-        `[whatsapp] Skipping "${args.playerName}" — unparseable phone "${args.phoneNumber}".`,
-      );
-      return { sent: false, reason: "invalid_phone" };
-    }
-
-    // Ordered body parameters — must match {{1}}..{{6}} in the approved template.
-    const bodyParams = [
-      args.playerName,
-      args.tournamentName,
-      args.teamName,
-      args.ownerName,
-      args.captainName?.trim() || "—",
-      formatRupees(args.soldPrice),
-    ].map((text) => ({ type: "text" as const, text }));
-
-    const payload = {
-      messaging_product: "whatsapp",
-      to: e164,
-      type: "template",
-      template: {
-        name: templateName,
-        language: { code: templateLang },
-        components: [{ type: "body", parameters: bodyParams }],
-      },
-    };
-
-    try {
-      const res = await fetch(
-        `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        },
-      );
-
-      if (!res.ok) {
-        const text = await res.text();
-        console.error(
-          `[whatsapp] Meta error ${res.status} for "${args.playerName}" (+${e164}): ${text}`,
-        );
-        return { sent: false, reason: `meta_${res.status}` };
+    if (claimed.length === BATCH_SIZE) {
+      await ctx.scheduler.runAfter(1000, internal.notifications.processQueue, {});
+    } else {
+      const next: number | null = await ctx.runQuery(internal.notifications.nextDueAt, {});
+      if (next !== null) {
+        await ctx.scheduler.runAfter(Math.max(0, next - Date.now()), internal.notifications.processQueue, {});
       }
-
-      const data = (await res.json()) as {
-        messages?: Array<{ id?: string }>;
-      };
-      const messageId = data.messages?.[0]?.id;
-      console.log(
-        `[whatsapp] Sent sold notification to "${args.playerName}" (+${e164}), id=${messageId}`,
-      );
-      return { sent: true, id: messageId };
-    } catch (err) {
-      console.error(
-        `[whatsapp] Network error sending to "${args.playerName}" (+${e164}):`,
-        err,
-      );
-      return { sent: false, reason: "network_error" };
     }
+    return { processed: claimed.length };
+  },
+});
+
+/** Outbox depth and the last failure (shared with ops:liveOverview). */
+export async function notificationStats(ctx: QueryCtx) {
+  const count = async (status: Doc<"notifications">["status"]) =>
+    (
+      await ctx.db
+        .query("notifications")
+        .withIndex("by_status_next", (q) => q.eq("status", status))
+        .take(1000)
+    ).length;
+  const [queued, sending, failed] = await Promise.all([count("queued"), count("sending"), count("failed")]);
+  const lastFailure = await ctx.db
+    .query("notifications")
+    .withIndex("by_status_next", (q) => q.eq("status", "failed"))
+    .order("desc")
+    .first();
+  return { queued, sending, failed, lastError: lastFailure?.lastError ?? null };
+}
+
+/** Outbox depth and failures for the live-ops panel. Super-admin only. */
+export const queueStats = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    return await notificationStats(ctx);
   },
 });

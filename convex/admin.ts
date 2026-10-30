@@ -4,10 +4,12 @@ import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { logAdminAction, requireTournamentRole, RUN_AUCTION } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { expectedStateArgs, expirePendingRaises, staleStateReason } from "./bidCore";
 import {
   bidTimerEndsAt,
   DEFAULT_BASE_PRICE,
   isSquadFull,
+  isWholeRupees,
   maxAllowedBid,
   reserveBasePrice,
   teamPurseTotal,
@@ -17,6 +19,17 @@ import type { Doc, Id } from "./_generated/dataModel";
 // Helper: format purse amount for error messages
 function formatPurse(amount: number): string {
   return `₹${(amount / 100000).toFixed(2)}L`;
+}
+
+/**
+ * A sold price set by hand must be a positive whole number of rupees: a
+ * negative price would credit the team and NaN would poison the purse
+ * (AUDIT 2026-10 P1-2).
+ */
+function assertSoldPrice(price: number) {
+  if (!isWholeRupees(price) || price <= 0) {
+    throw new Error("Sold price must be a whole number of rupees above zero");
+  }
 }
 
 /**
@@ -215,6 +228,7 @@ export const reassignPlayer = mutation({
     const oldTeamId = player.teamId;
     const oldSoldPrice = player.soldPrice || 0;
     const newSoldPrice = args.newSoldPrice ?? oldSoldPrice;
+    assertSoldPrice(newSoldPrice);
     const tournament = await ctx.db.get(player.tournamentId);
 
     // Get old team if exists
@@ -295,6 +309,7 @@ export const updateSoldPrice = mutation({
     const admin = await requireTournamentRole(ctx, player.tournamentId, RUN_AUCTION);
 
     await assertCorrectable(ctx, player);
+    assertSoldPrice(args.newSoldPrice);
 
     if (player.auctionStatus !== "sold" || !player.teamId) {
       throw new Error("Player is not sold to any team");
@@ -368,8 +383,9 @@ export const updatePlayerStatus = mutation({
     if (args.newStatus === "sold") {
       if (!args.teamId)
         throw new Error("Team ID required when marking as sold");
-      if (!args.soldPrice)
+      if (args.soldPrice === undefined)
         throw new Error("Sold price required when marking as sold");
+      assertSoldPrice(args.soldPrice);
 
       const newTeam = await ctx.db.get(args.teamId);
       if (!newTeam) throw new Error("Team not found");
@@ -442,6 +458,7 @@ export const clearCurrentPlayerBids = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
     reason: v.string(),
+    expectedPlayerId: expectedStateArgs.expectedPlayerId,
   },
   handler: async (ctx, args) => {
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
@@ -452,6 +469,10 @@ export const clearCurrentPlayerBids = mutation({
     if (!auctionRoom.currentPlayerId) {
       throw new Error("No player currently in auction");
     }
+    const stale = staleStateReason(auctionRoom, null, {
+      expectedPlayerId: args.expectedPlayerId,
+    });
+    if (stale) return { success: false as const, reason: stale };
 
     // Get all live bids for this player
     const bids = await ctx.db
@@ -467,6 +488,8 @@ export const clearCurrentPlayerBids = mutation({
       const chunk = bids.slice(i, i + CHUNK_SIZE);
       await Promise.all(chunk.map((bid) => ctx.db.delete(bid._id)));
     }
+
+    await expirePendingRaises(ctx, auctionRoom._id, auctionRoom.currentPlayerId, "Price moved");
 
     // Reset timer — liveBids table is now the source of truth; do not write legacy fields
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
@@ -490,7 +513,7 @@ export const clearCurrentPlayerBids = mutation({
       auctionRoomId: args.auctionRoomId,
     });
 
-    return { success: true, message: `Cleared ${bids.length} bids` };
+    return { success: true as const, message: `Cleared ${bids.length} bids` };
   },
 });
 

@@ -352,10 +352,10 @@ describe("placeBid — squad and max-bid rules", () => {
     });
     await t.run((ctx) => syncTournamentAuctionCounts(ctx, tournamentId));
 
-    const roster = await t.query(api.auctions.getAuctionRoster, {
+    const roster = (await t.query(api.auctions.getAuctionRoster, {
       tournamentId,
       currentPlayerId: playerId,
-    });
+    }))!;
     const displayedMax = roster.teams.find((tm) => tm._id === teamA)!
       .maxAllowedBid;
     expect(displayedMax).toBe(800_000);
@@ -734,7 +734,9 @@ describe("public viewer — no sign-in", () => {
                 teamId: teamA,
                 amount: 125_000,
               })
-            : caller.mutation(api.auctions[name], { auctionRoomId: roomId });
+            : name === "restartAuction"
+              ? caller.mutation(api.auctions.restartAuction, { auctionRoomId: roomId, confirmName: "Test Cup" })
+              : caller.mutation(api.auctions[name], { auctionRoomId: roomId });
 
         await expect(call).rejects.toThrow(
           identity ? "You don't have access to this tournament" : "Not authenticated",
@@ -786,8 +788,10 @@ describe("audit trail — room controls", () => {
     await asAdmin.mutation(api.auctions.resumeAuction, {
       auctionRoomId: roomId,
     });
+    await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: roomId });
     await asAdmin.mutation(api.auctions.restartAuction, {
       auctionRoomId: roomId,
+      confirmName: "Test Cup",
     });
 
     expect(await auditActions(t)).toEqual(

@@ -6,7 +6,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation } from "./_generated/server";
 import { logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
-import { PLAN_TIERS, upgradePrice } from "./planTiers";
+import { PLAN_ORDER, PLAN_TIERS, upgradePrice } from "./planTiers";
 import { planTierValidator } from "./ruleValidators";
 
 /** Record a Razorpay order the owner is about to pay. Owners only. */
@@ -73,12 +73,31 @@ export const applyRazorpayPayment = internalMutation({
     if (!tournament) return { applied: false, reason: "tournament deleted" };
 
     const now = Date.now();
+    const buyer = await ctx.db.get(order.createdBy);
+
+    // A higher plan was paid for first: never downgrade. Record the payment
+    // and flag it for a refund (AUDIT 2026-10 P1-7).
+    const currentTier = tournament.plan?.tier;
+    if (currentTier && PLAN_ORDER.indexOf(order.tier) <= PLAN_ORDER.indexOf(currentTier)) {
+      await ctx.db.patch(order._id, { status: "paid", paymentRef: args.paymentId, paidAt: now, refundDue: true });
+      await logAdminAction(ctx, {
+        userId: order.createdBy,
+        userEmail: buyer?.email ?? "unknown",
+        action: "plan_payment_refund_due",
+        targetType: "tournament",
+        targetId: order.tournamentId,
+        previousData: { plan: tournament.plan },
+        newData: { orderTier: order.tier, razorpayOrderId: args.razorpayOrderId, amount: args.amount },
+        tournamentId: order.tournamentId,
+      });
+      return { applied: false, reason: "not an upgrade any more; refund due" };
+    }
+
     const { maxTeams, maxPlayers } = PLAN_TIERS[order.tier];
     const plan = { tier: order.tier, maxTeams, maxPlayers, paidAt: now, paymentRef: args.paymentId };
     await ctx.db.patch(order._id, { status: "paid", paymentRef: args.paymentId, paidAt: now });
     await ctx.db.patch(order.tournamentId, { plan, updatedAt: now });
 
-    const buyer = await ctx.db.get(order.createdBy);
     await logAdminAction(ctx, {
       userId: order.createdBy,
       userEmail: buyer?.email ?? "unknown",

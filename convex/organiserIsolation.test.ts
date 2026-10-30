@@ -116,8 +116,12 @@ async function seed(t: T) {
       tournamentId: tA, name: "Applicant", age: 20, role: ["Batter"], battingBowlingHand: "Right-handed",
       phoneNumber: "9000000009", consentWhatsApp: false, status: "paid", fee: 0, createdAt: now,
     });
+    const snapshotA = await ctx.db.insert("tournamentSnapshots", {
+      tournamentId: tA, tournamentName: "A Cup", reason: "before start_auction", createdBy: orgA,
+      counts: { players: 0, teams: 0, bids: 0, events: 0 }, createdAt: now,
+    });
     await syncTournamentAuctionCounts(ctx, tA);
-    return { registration, orgA, orgB, auctioneerA, tA, tB, teamA1, teamA2, pending, sold, onBlock, roomA, request, member, invite, staffAuctioneer };
+    return { snapshotA, registration, orgA, orgB, auctioneerA, tA, tB, teamA1, teamA2, pending, sold, onBlock, roomA, request, member, invite, staffAuctioneer };
   });
 }
 
@@ -147,7 +151,7 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "auctions:resolveStalledRound": (as, fx) => as.mutation(api.auctions.resolveStalledRound, { auctionRoomId: fx.roomA, action: "end" }),
   "auctions:revertLastBid": (as, fx) => as.mutation(api.auctions.revertLastBid, { auctionRoomId: fx.roomA }),
   "auctions:restartCurrentPlayer": (as, fx) => as.mutation(api.auctions.restartCurrentPlayer, { auctionRoomId: fx.roomA }),
-  "auctions:restartAuction": (as, fx) => as.mutation(api.auctions.restartAuction, { auctionRoomId: fx.roomA }),
+  "auctions:restartAuction": (as, fx) => as.mutation(api.auctions.restartAuction, { auctionRoomId: fx.roomA, confirmName: "A Cup" }),
   "groupDraws:runDraw": (as, fx) => as.mutation(api.groupDraws.runDraw, { tournamentId: fx.tA, numGroups: 2 }),
   "groupDraws:lockDraw": (as, fx) => as.mutation(api.groupDraws.lockDraw, { tournamentId: fx.tA }),
   "groupDraws:resetDraw": (as, fx) => as.mutation(api.groupDraws.resetDraw, { tournamentId: fx.tA }),
@@ -172,7 +176,10 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "teams:deleteTeam": (as, fx) => as.mutation(api.teams.deleteTeam, { id: fx.teamA2 }),
   "tournaments:update": (as, fx) => as.mutation(api.tournaments.update, { id: fx.tA, name: "Hijacked" }),
   "tournaments:setActive": (as, fx) => as.mutation(api.tournaments.setActive, { id: fx.tA, isActive: false }),
-  "tournaments:deleteTournament": (as, fx) => as.mutation(api.tournaments.deleteTournament, { id: fx.tA }),
+  "tournaments:deleteTournament": (as, fx) => as.mutation(api.tournaments.deleteTournament, { id: fx.tA, confirmName: "A Cup" }),
+  "snapshots:restoreSnapshot": (as, fx) => as.mutation(api.snapshots.restoreSnapshot, { snapshotId: fx.snapshotA, confirmName: "A Cup" }),
+  "snapshots:startRehearsal": (as, fx) => as.mutation(api.snapshots.startRehearsal, { auctionRoomId: fx.roomA }),
+  "snapshots:endRehearsal": (as, fx) => as.mutation(api.snapshots.endRehearsal, { auctionRoomId: fx.roomA }),
 };
 
 /** Public mutations that are deliberately not tournament-staff-scoped. */
@@ -181,6 +188,8 @@ const NOT_STAFF_SCOPED: Record<string, string> = {
   "auth:setUserRole": "global, super-admin only (tested below)",
   "auctions:raiseBid": "team owners bidding from their paddle; checked by team membership",
   "members:claimInvite": "claimed with a one-time invite token",
+  "ops:heartbeat": "the caller's own presence; ignored unless staff or a team owner (tested in ops.test.ts)",
+  "ops:reportClientError": "the caller's own error report; ignored unless staff or a team owner (tested in ops.test.ts)",
   "plans:grantPlan": "super-admin only (tested in plans.test.ts)",
   "registrations:submit": "public registration form (anonymous; tested in registrations.test.ts)",
   "registrations:recordOrder": "anonymous registrant's fee order; only the signed webhook marks it paid",
@@ -259,6 +268,9 @@ describe("auctioneer role", () => {
     "auctions:createAuctionRoom",
     "members:createInvite",
     "groupDraws:runDraw",
+    "snapshots:restoreSnapshot",
+    "snapshots:startRehearsal",
+    "snapshots:endRehearsal",
   ])("can't use owner-only %s", async (name) => {
     const t = convexTest(schema, modules);
     const fx = await seed(t);

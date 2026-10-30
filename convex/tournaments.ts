@@ -24,7 +24,9 @@ import {
 } from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { initialPlan } from "./plans";
+import { takeSnapshot } from "./snapshots";
 import {
+  confirmsTournamentName,
   normalizeFooterText,
   validateCategories,
   validateIncrementSlabs,
@@ -572,6 +574,16 @@ export const setActive = mutation({
       isActive: args.isActive,
       updatedAt: Date.now(),
     });
+    // The hot viewer query reads only the room, so it carries the flag.
+    const rooms = await ctx.db
+      .query("auctionRooms")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+      .collect();
+    await Promise.all(
+      rooms.map((room) =>
+        ctx.db.patch(room._id, { tournamentHidden: args.isActive ? undefined : true }),
+      ),
+    );
 
     await logAdminAction(ctx, {
       userId: admin._id,
@@ -588,15 +600,21 @@ export const setActive = mutation({
   },
 });
 
+/**
+ * Delete a tournament and everything under it. Never while its auction is
+ * live or paused, only with the tournament name typed, and always after a
+ * snapshot (AUDIT 2026-10 P1-5). Payment records stay: paymentOrders and any
+ * registration with a payment reference.
+ */
 export const deleteTournament = mutation({
-  args: { id: v.id("tournaments") },
+  args: { id: v.id("tournaments"), confirmName: v.string() },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
     const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     // Fetch all related data in parallel
-    const [teams, players, auctionRooms, groupDraws] = await Promise.all([
+    const [teams, players, auctionRooms, groupDraws, staff, registrations, registrationOrders] = await Promise.all([
       ctx.db
         .query("teams")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
@@ -613,7 +631,27 @@ export const deleteTournament = mutation({
         .query("groupDraws")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
         .collect(),
+      ctx.db
+        .query("tournamentStaff")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("registrations")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("registrationOrders")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
     ]);
+
+    if (auctionRooms.some((r) => r.status === "live" || r.status === "paused")) {
+      throw new Error("Can't delete a tournament while the auction is running. Restart or finish it first.");
+    }
+    if (!confirmsTournamentName(args.confirmName, tournament.name)) {
+      throw new Error(`Type the tournament name (${tournament.name}) to confirm the delete`);
+    }
+    const snapshotId = await takeSnapshot(ctx, args.id, "before delete_tournament", admin._id);
 
     // Fetch bids and events for all auction rooms in a single parallel batch
     // (avoids a sequential loop of round-trips per room).
@@ -636,6 +674,22 @@ export const deleteTournament = mutation({
             .query("liveBids")
             .withIndex("by_room", (q) => q.eq("auctionRoomId", room._id))
             .collect(),
+          ctx.db
+            .query("bidRequests")
+            .withIndex("by_room_player_status", (q) => q.eq("auctionRoomId", room._id))
+            .collect(),
+          ctx.db
+            .query("bidRequestsSeen")
+            .withIndex("by_room_key", (q) => q.eq("auctionRoomId", room._id))
+            .collect(),
+        ]),
+      ),
+    );
+    const teamRelated = await Promise.all(
+      teams.map((team) =>
+        Promise.all([
+          ctx.db.query("teamMembers").withIndex("by_team", (q) => q.eq("teamId", team._id)).collect(),
+          ctx.db.query("teamInvites").withIndex("by_team", (q) => q.eq("teamId", team._id)).collect(),
         ]),
       ),
     );
@@ -666,6 +720,7 @@ export const deleteTournament = mutation({
         players: players.length,
         auctionRooms: auctionRooms.length,
       },
+      newData: { snapshotId },
       tournamentId: args.id,
     });
 
@@ -679,6 +734,13 @@ export const deleteTournament = mutation({
     await deleteInChunks(allBids);
     await deleteInChunks(allEvents);
     await deleteInChunks(allLiveBids);
+    await deleteInChunks(roomRelated.flatMap(([, , , requests]) => requests));
+    await deleteInChunks(roomRelated.flatMap(([, , , , seen]) => seen));
+    await deleteInChunks(teamRelated.flatMap(([members, invites]) => [...members, ...invites]));
+    await deleteInChunks(staff);
+    // Keep registrations that carry a payment reference (refund trail).
+    await deleteInChunks(registrations.filter((r) => !r.paymentRef));
+    await deleteInChunks(registrationOrders.filter((o) => o.status !== "paid"));
 
     // 2. Mid-level: group draws, players, teams, auction rooms
     await deleteInChunks(groupDraws);

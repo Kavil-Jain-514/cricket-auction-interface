@@ -10,6 +10,7 @@
 
 import type * as admin from "../admin.js";
 import type * as auctionCounts from "../auctionCounts.js";
+import type * as auctionLifecycle from "../auctionLifecycle.js";
 import type * as auctions from "../auctions.js";
 import type * as auth from "../auth.js";
 import type * as bidCore from "../bidCore.js";
@@ -21,16 +22,19 @@ import type * as http from "../http.js";
 import type * as idempotency from "../idempotency.js";
 import type * as members from "../members.js";
 import type * as notifications from "../notifications.js";
+import type * as ops from "../ops.js";
 import type * as payments from "../payments.js";
 import type * as planTiers from "../planTiers.js";
 import type * as plans from "../plans.js";
 import type * as players from "../players.js";
 import type * as presentation from "../presentation.js";
 import type * as projections from "../projections.js";
+import type * as rateLimit from "../rateLimit.js";
 import type * as razorpaySignature from "../razorpaySignature.js";
 import type * as registrations from "../registrations.js";
 import type * as results from "../results.js";
 import type * as ruleValidators from "../ruleValidators.js";
+import type * as snapshots from "../snapshots.js";
 import type * as squadRules from "../squadRules.js";
 import type * as staff from "../staff.js";
 import type * as teams from "../teams.js";
@@ -46,6 +50,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   auctionCounts: typeof auctionCounts;
+  auctionLifecycle: typeof auctionLifecycle;
   auctions: typeof auctions;
   auth: typeof auth;
   bidCore: typeof bidCore;
@@ -57,16 +62,19 @@ declare const fullApi: ApiFromModules<{
   idempotency: typeof idempotency;
   members: typeof members;
   notifications: typeof notifications;
+  ops: typeof ops;
   payments: typeof payments;
   planTiers: typeof planTiers;
   plans: typeof plans;
   players: typeof players;
   presentation: typeof presentation;
   projections: typeof projections;
+  rateLimit: typeof rateLimit;
   razorpaySignature: typeof razorpaySignature;
   registrations: typeof registrations;
   results: typeof results;
   ruleValidators: typeof ruleValidators;
+  snapshots: typeof snapshots;
   squadRules: typeof squadRules;
   staff: typeof staff;
   teams: typeof teams;

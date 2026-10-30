@@ -152,3 +152,27 @@ describe("Razorpay webhook", () => {
     expect((await postWebhook(t, body, await hmacHex(SECRET, body))).status).toBe(500);
   });
 });
+
+describe("out-of-order plan payments (AUDIT 2026-10 P1-7)", () => {
+  test("paying an older, lower order after a higher one never downgrades the plan", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const asOrg = t.withIdentity(ORG);
+    await asOrg.mutation(api.payments.recordOrder, { tournamentId, tier: "club", razorpayOrderId: "o_club", amount: 99_900 });
+    await asOrg.mutation(api.payments.recordOrder, { tournamentId, tier: "league", razorpayOrderId: "o_league", amount: 299_900 });
+
+    expect((await postWebhook(t, paidEvent("o_league", "pay_l", 299_900, tournamentId, "league"))).status).toBe(200);
+    expect((await postWebhook(t, paidEvent("o_club", "pay_c", 99_900, tournamentId, "club"))).status).toBe(200);
+
+    const state = await t.run(async (ctx) => ({
+      tournament: await ctx.db.get(tournamentId),
+      orders: await ctx.db.query("paymentOrders").collect(),
+    }));
+    expect(state.tournament?.plan?.tier).toBe("league");
+    expect(state.orders.find((o) => o.razorpayOrderId === "o_club")).toMatchObject({
+      status: "paid",
+      paymentRef: "pay_c",
+      refundDue: true,
+    });
+  });
+});

@@ -22,6 +22,10 @@ export async function POST(request: NextRequest) {
   const info = await convex.query(api.registrations.getPaymentInfo, { registrationId }).catch(() => null);
   if (!info) return NextResponse.json({ error: "Registration not found" }, { status: 404 });
   if (info.status !== "pending_payment") return NextResponse.json({ error: "Nothing to pay" }, { status: 400 });
+  // Refuse before creating a Razorpay order nobody can record (P1-9).
+  if (info.ordersLeft === 0) {
+    return NextResponse.json({ error: "Too many payment attempts. Contact the organiser." }, { status: 429 });
+  }
 
   const amount = info.fee * 100;
   const razorpay = await fetch("https://api.razorpay.com/v1/orders", {

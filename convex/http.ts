@@ -15,13 +15,17 @@ http.route({
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     if (!secret) {
       console.error("RAZORPAY_WEBHOOK_SECRET is not set; refusing webhook");
+      await ctx.runMutation(internal.ops.recordWebhook, { event: "unknown", outcome: "not configured" });
       return new Response("Webhook not configured", { status: 500 });
     }
 
     // Verify against the raw body exactly as sent, before parsing anything.
     const rawBody = await request.text();
     const ok = await verifyRazorpaySignature(rawBody, request.headers.get("X-Razorpay-Signature"), secret);
-    if (!ok) return new Response("Invalid signature", { status: 401 });
+    if (!ok) {
+      await ctx.runMutation(internal.ops.recordWebhook, { event: "unknown", outcome: "invalid signature" });
+      return new Response("Invalid signature", { status: 401 });
+    }
 
     const event = JSON.parse(rawBody) as {
       event?: string;
@@ -31,6 +35,7 @@ http.route({
       };
     };
     if (event.event !== "order.paid") {
+      await ctx.runMutation(internal.ops.recordWebhook, { event: event.event ?? "unknown", outcome: "ignored event" });
       return Response.json({ ignored: event.event ?? "unknown" });
     }
 
@@ -38,6 +43,7 @@ http.route({
     const order = event.payload?.order?.entity;
     const razorpayOrderId = order?.id ?? payment?.order_id;
     if (!payment?.id || payment.amount === undefined || !razorpayOrderId) {
+      await ctx.runMutation(internal.ops.recordWebhook, { event: event.event, outcome: "incomplete payload" });
       return Response.json({ ignored: "incomplete payload" });
     }
 
@@ -59,6 +65,11 @@ http.route({
           notesTournamentId: order?.notes?.tournamentId,
         });
     if (!result.applied) console.warn(`Razorpay ${razorpayOrderId}: ${result.reason}`);
+    await ctx.runMutation(internal.ops.recordWebhook, {
+      event: event.event,
+      orderId: razorpayOrderId,
+      outcome: result.applied ? "applied" : `not applied: ${result.reason}`,
+    });
     return Response.json(result);
   }),
 });

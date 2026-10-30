@@ -185,13 +185,16 @@ export const getWithPlayers = query({
     const team = await ctx.db.get(args.id);
     if (!team) return null;
 
+    // Phone numbers are for this tournament's staff; strip them for everyone else.
+    const admin = await isTournamentStaff(ctx, team.tournamentId);
+    // Deactivated tournaments are hidden from everyone but its staff.
+    const tournament = await ctx.db.get(team.tournamentId);
+    if (tournament?.isActive === false && !admin) return null;
+
     const players = await ctx.db
       .query("players")
       .withIndex("by_team", (q) => q.eq("teamId", args.id))
       .collect();
-
-    // Phone numbers are for this tournament's staff; strip them for everyone else.
-    const admin = await isTournamentStaff(ctx, team.tournamentId);
 
     return {
       ...team,

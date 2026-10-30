@@ -34,6 +34,11 @@ export interface ConfirmOptions {
   confirmText?: string;
   cancelText?: string;
   variant?: ConfirmVariant;
+  /**
+   * For irreversible actions: Confirm stays disabled until this text is typed
+   * (trimmed, any case). The server re-checks it; this is the visible gate.
+   */
+  requireTypedText?: string;
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>;
@@ -50,6 +55,7 @@ export function useConfirm(): ConfirmFn {
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [options, setOptions] = useState<ConfirmOptions | null>(null);
+  const [typed, setTyped] = useState("");
   const resolverRef = useRef<((value: boolean) => void) | null>(null);
 
   const confirm = useCallback<ConfirmFn>((opts) => {
@@ -57,6 +63,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     // replacing it — otherwise that caller's `await confirm(...)` would hang
     // forever, and its resolver would be silently overwritten.
     resolverRef.current?.(false);
+    setTyped("");
     setOptions(opts);
     return new Promise<boolean>((resolve) => {
       resolverRef.current = resolve;
@@ -86,6 +93,9 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   }, [options, close]);
 
   const isDanger = options?.variant !== "default"; // default to danger styling
+  const typedOk =
+    !options?.requireTypedText ||
+    typed.trim().toLowerCase() === options.requireTypedText.trim().toLowerCase();
 
   return (
     <ConfirmContext.Provider value={confirm}>
@@ -129,6 +139,19 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
+            {options.requireTypedText && (
+              <label className="block mt-4 text-sm text-slate-300">
+                Type <span className="font-semibold text-white">{options.requireTypedText}</span> to confirm
+                <input
+                  autoFocus
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-red-500"
+                  aria-label={`Type ${options.requireTypedText} to confirm`}
+                />
+              </label>
+            )}
+
             <div className="flex gap-3 mt-6">
               <Button
                 variant="outline"
@@ -138,11 +161,12 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                 {options.cancelText || "Cancel"}
               </Button>
               <Button
-                autoFocus
+                autoFocus={!options.requireTypedText}
+                disabled={!typedOk}
                 className={`flex-1 ${
                   isDanger ? "bg-red-600 hover:bg-red-700 text-white" : ""
                 }`}
-                onClick={() => close(true)}
+                onClick={() => typedOk && close(true)}
               >
                 {options.confirmText || "Confirm"}
               </Button>

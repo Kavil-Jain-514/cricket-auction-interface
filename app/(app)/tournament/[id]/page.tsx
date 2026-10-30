@@ -15,6 +15,7 @@ import { TournamentSettingsModal } from '@/components/tournament/TournamentSetti
 import { ExportResultsButton } from '@/components/results/ExportResultsButton';
 import { ShareResultsButton } from '@/components/results/ShareResultsButton';
 import { PlanCard } from '@/components/plans/PlanCard';
+import { SnapshotsCard } from '@/components/tournament/SnapshotsCard';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
@@ -120,20 +121,19 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   };
 
   const handleDelete = async () => {
-    const liveWarning = tournament?.status === 'active'
-      ? 'This auction is currently LIVE — viewers may be watching right now.\n\n'
-      : '';
+    const tournamentName = tournament?.name ?? '';
     if (!(await confirm({
-      title: `Delete "${tournament?.name}"?`,
-      description: `${liveWarning}This will permanently delete all teams, players, and auction data. This action cannot be undone.`,
+      title: `Delete "${tournamentName}"?`,
+      description: 'This will permanently delete all teams, players, and auction data. A snapshot is saved first. A running auction must be restarted or finished before the tournament can be deleted.',
       confirmText: 'Delete Tournament',
+      requireTypedText: tournamentName,
     }))) {
       return;
     }
 
     setDeleting(true);
     try {
-      await deleteTournament({ id: tournamentId });
+      await deleteTournament({ id: tournamentId, confirmName: tournamentName });
       toast.success('Tournament deleted successfully');
       router.push('/dashboard');
     } catch (error) {
@@ -172,18 +172,24 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
       return;
     }
 
+    const activeRoom = auctionRooms[0];
+    if (activeRoom.status === 'live') {
+      toast.error('Pause the auction before restarting it');
+      return;
+    }
+    const tournamentName = tournament?.name ?? '';
     if (!(await confirm({
       title: 'Restart auction?',
-      description: 'This will reset all player sales, team purses, and auction history. This action cannot be undone.',
+      description: 'This will reset all player sales, team purses, and auction history. A snapshot is saved first.',
       confirmText: 'Restart Auction',
+      requireTypedText: tournamentName,
     }))) {
       return;
     }
 
     setRestarting(true);
     try {
-      const activeRoom = auctionRooms[0];
-      await restartAuction({ auctionRoomId: activeRoom._id });
+      await restartAuction({ auctionRoomId: activeRoom._id, confirmName: tournamentName });
       toast.success('Auction restarted successfully! All players and teams have been reset.');
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to restart auction'));
@@ -465,6 +471,13 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
         {canRunAuction && (
           <div className="mb-6 sm:mb-8 max-w-md">
             <PlanCard tournamentId={tournamentId} tournamentName={tournament.name} canUpgrade={canManage} isSuperAdmin={isSuperAdmin} />
+          </div>
+        )}
+
+        {/* Automatic snapshots; owners can rewind to one */}
+        {canManage && (
+          <div className="mb-6 sm:mb-8 max-w-md">
+            <SnapshotsCard tournamentId={tournamentId} tournamentName={tournament.name} />
           </div>
         )}
 
