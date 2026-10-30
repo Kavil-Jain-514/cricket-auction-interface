@@ -181,7 +181,8 @@ describe("startNextPlayer — by_category sets", () => {
     await presentAndPass(asAdmin, roomId);
     expect((await t.run((ctx) => ctx.db.get(roomId)))?.currentSetId).toBe("marquee");
 
-    await asAdmin.mutation(api.auctions.restartAuction, { auctionRoomId: roomId });
+    await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: roomId });
+    await asAdmin.mutation(api.auctions.restartAuction, { auctionRoomId: roomId, confirmName: "Sets Cup" });
     expect((await t.run((ctx) => ctx.db.get(roomId)))?.currentSetId).toBeUndefined();
   });
 });

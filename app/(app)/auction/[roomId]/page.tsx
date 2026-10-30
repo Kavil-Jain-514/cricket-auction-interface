@@ -960,13 +960,19 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 {canManage && (
                 <Button
                   onClick={async () => {
+                    if (auctionRoom.status === 'live') {
+                      toast.error('Pause the auction before restarting it');
+                      return;
+                    }
+                    const tournamentName = auctionData.tournament?.name ?? '';
                     if (!(await confirm({
                       title: "Restart the entire auction?",
-                      description: "This will reset ALL players, team purses, and bid history. This action cannot be undone.",
+                      description: "This will reset ALL players, team purses, and bid history. A snapshot is saved first.",
                       confirmText: "Restart Auction",
+                      requireTypedText: tournamentName,
                     }))) return;
                     try {
-                      await restartAuction({ auctionRoomId });
+                      await restartAuction({ auctionRoomId, confirmName: tournamentName });
                       toast.success('Auction has been reset!');
                     } catch (error) {
                       toast.error(getErrorMessage(error, 'Failed to restart auction'));

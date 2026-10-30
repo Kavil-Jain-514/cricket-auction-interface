@@ -734,7 +734,9 @@ describe("public viewer — no sign-in", () => {
                 teamId: teamA,
                 amount: 125_000,
               })
-            : caller.mutation(api.auctions[name], { auctionRoomId: roomId });
+            : name === "restartAuction"
+              ? caller.mutation(api.auctions.restartAuction, { auctionRoomId: roomId, confirmName: "Test Cup" })
+              : caller.mutation(api.auctions[name], { auctionRoomId: roomId });
 
         await expect(call).rejects.toThrow(
           identity ? "You don't have access to this tournament" : "Not authenticated",
@@ -786,8 +788,10 @@ describe("audit trail — room controls", () => {
     await asAdmin.mutation(api.auctions.resumeAuction, {
       auctionRoomId: roomId,
     });
+    await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: roomId });
     await asAdmin.mutation(api.auctions.restartAuction, {
       auctionRoomId: roomId,
+      confirmName: "Test Cup",
     });
 
     expect(await auditActions(t)).toEqual(

@@ -172,18 +172,24 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
       return;
     }
 
+    const activeRoom = auctionRooms[0];
+    if (activeRoom.status === 'live') {
+      toast.error('Pause the auction before restarting it');
+      return;
+    }
+    const tournamentName = tournament?.name ?? '';
     if (!(await confirm({
       title: 'Restart auction?',
-      description: 'This will reset all player sales, team purses, and auction history. This action cannot be undone.',
+      description: 'This will reset all player sales, team purses, and auction history. A snapshot is saved first.',
       confirmText: 'Restart Auction',
+      requireTypedText: tournamentName,
     }))) {
       return;
     }
 
     setRestarting(true);
     try {
-      const activeRoom = auctionRooms[0];
-      await restartAuction({ auctionRoomId: activeRoom._id });
+      await restartAuction({ auctionRoomId: activeRoom._id, confirmName: tournamentName });
       toast.success('Auction restarted successfully! All players and teams have been reset.');
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to restart auction'));

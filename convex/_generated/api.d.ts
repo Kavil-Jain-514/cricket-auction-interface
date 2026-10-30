@@ -31,6 +31,7 @@ import type * as razorpaySignature from "../razorpaySignature.js";
 import type * as registrations from "../registrations.js";
 import type * as results from "../results.js";
 import type * as ruleValidators from "../ruleValidators.js";
+import type * as snapshots from "../snapshots.js";
 import type * as squadRules from "../squadRules.js";
 import type * as staff from "../staff.js";
 import type * as teams from "../teams.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   registrations: typeof registrations;
   results: typeof results;
   ruleValidators: typeof ruleValidators;
+  snapshots: typeof snapshots;
   squadRules: typeof squadRules;
   staff: typeof staff;
   teams: typeof teams;

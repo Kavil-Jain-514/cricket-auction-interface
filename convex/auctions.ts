@@ -33,6 +33,7 @@ import {
 import { toPublicPlayer } from "./projections";
 import { nextPresentationSet } from "./presentation";
 import { withIdempotency } from "./idempotency";
+import { takeSnapshot } from "./snapshots";
 import {
   maxRuleViolation,
   minRuleShortfall,
@@ -2087,10 +2088,21 @@ export const getAuctionRooms = query({
   },
 });
 
-// Restart auction - reset all players, teams, and auction state (Admin only)
+/** True when `typed` is the tournament's name (trimmed, any case). */
+export function confirmsTournamentName(typed: string, name: string): boolean {
+  return typed.trim().toLowerCase() === name.trim().toLowerCase();
+}
+
+/**
+ * Restart auction - reset all players, teams, and auction state (owners only).
+ * Never while the room is live (pause first), only with the tournament name
+ * typed, and always after a snapshot of everything it is about to wipe
+ * (AUDIT 2026-10 P0-3).
+ */
 export const restartAuction = mutation({
   args: {
     auctionRoomId: v.id("auctionRooms"),
+    confirmName: v.string(),
   },
   handler: async (ctx, args) => {
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
@@ -2099,6 +2111,19 @@ export const restartAuction = mutation({
 
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
+
+    if (auctionRoom.status === "live") {
+      throw new Error("Pause the auction before restarting it");
+    }
+    if (!confirmsTournamentName(args.confirmName, tournament.name)) {
+      throw new Error(`Type the tournament name (${tournament.name}) to confirm the restart`);
+    }
+    const snapshotId = await takeSnapshot(
+      ctx,
+      auctionRoom.tournamentId,
+      "before restart_auction",
+      admin._id,
+    );
 
     const now = Date.now();
     const basePurse = tournament.settings.basePurse;
@@ -2218,6 +2243,7 @@ export const restartAuction = mutation({
           purseSpent: t.purseSpent,
         })),
       },
+      newData: { snapshotId },
       tournamentId: auctionRoom.tournamentId,
       auctionRoomId: args.auctionRoomId,
     });

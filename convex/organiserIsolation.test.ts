@@ -147,7 +147,7 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "auctions:resolveStalledRound": (as, fx) => as.mutation(api.auctions.resolveStalledRound, { auctionRoomId: fx.roomA, action: "end" }),
   "auctions:revertLastBid": (as, fx) => as.mutation(api.auctions.revertLastBid, { auctionRoomId: fx.roomA }),
   "auctions:restartCurrentPlayer": (as, fx) => as.mutation(api.auctions.restartCurrentPlayer, { auctionRoomId: fx.roomA }),
-  "auctions:restartAuction": (as, fx) => as.mutation(api.auctions.restartAuction, { auctionRoomId: fx.roomA }),
+  "auctions:restartAuction": (as, fx) => as.mutation(api.auctions.restartAuction, { auctionRoomId: fx.roomA, confirmName: "A Cup" }),
   "groupDraws:runDraw": (as, fx) => as.mutation(api.groupDraws.runDraw, { tournamentId: fx.tA, numGroups: 2 }),
   "groupDraws:lockDraw": (as, fx) => as.mutation(api.groupDraws.lockDraw, { tournamentId: fx.tA }),
   "groupDraws:resetDraw": (as, fx) => as.mutation(api.groupDraws.resetDraw, { tournamentId: fx.tA }),

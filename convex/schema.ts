@@ -171,6 +171,31 @@ export default defineSchema({
     .index("by_room_key", ["auctionRoomId", "key"])
     .index("by_createdAt", ["createdAt"]),
 
+  // Point-in-time copies of a tournament's auction state, taken automatically
+  // before auction start and before every destructive action
+  // (convex/snapshots.ts). Rows live in snapshotChunks so a large roster never
+  // hits the 1 MiB document limit. Kept after the tournament is deleted.
+  tournamentSnapshots: defineTable({
+    tournamentId: v.id("tournaments"),
+    tournamentName: v.string(),
+    reason: v.string(), // e.g. "before restart_auction"
+    createdBy: v.optional(v.id("users")),
+    counts: v.object({
+      players: v.number(),
+      teams: v.number(),
+      bids: v.number(),
+      events: v.number(),
+    }),
+    createdAt: v.number(),
+  }).index("by_tournament", ["tournamentId", "createdAt"]),
+
+  snapshotChunks: defineTable({
+    snapshotId: v.id("tournamentSnapshots"),
+    table: v.string(),
+    index: v.number(),
+    rows: v.array(v.any()),
+  }).index("by_snapshot", ["snapshotId", "table", "index"]),
+
   // Self-registrations from the public form. "paid" means ready for review
   // (fee paid, or no fee); approval creates the player.
   registrations: defineTable({
