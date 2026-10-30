@@ -245,6 +245,15 @@ export default defineSchema({
     .index("by_order", ["razorpayOrderId"])
     .index("by_tournament", ["tournamentId"]),
 
+  // Fixed-window counters for public entry points (convex/rateLimit.ts).
+  rateLimits: defineTable({
+    key: v.string(), // e.g. "register:<tournamentId>"
+    windowStart: v.number(),
+    count: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_windowStart", ["windowStart"]),
+
   // Every Razorpay order opened for a registration fee. A registrant can open
   // checkout more than once; each order is kept so whichever one is paid is
   // found. A payment that can't be applied (already paid, rejected) is kept
@@ -372,7 +381,9 @@ export default defineSchema({
     .index("by_team", ["teamId"])
     .index("by_status", ["auctionStatus"])
     // Compound index: Find players by tournament + status (for startNextPlayer)
-    .index("by_tournament_status", ["tournamentId", "auctionStatus"]),
+    .index("by_tournament_status", ["tournamentId", "auctionStatus"])
+    // Duplicate check on the public registration form, without a full scan.
+    .index("by_tournament_phone", ["tournamentId", "phoneNumber"]),
 
   // Group Draws - random allotment of teams into groups (one per tournament).
   // Assignments are computed server-side in a single mutation and persisted

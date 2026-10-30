@@ -7,7 +7,8 @@ import { v } from "convex/values";
 import { action, internalMutation, mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
+import { consumeRateLimit } from "./rateLimit";
 import { logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { insertValidatedPlayer } from "./players";
@@ -15,6 +16,10 @@ import { normalizePhone, validatePlayerFields } from "./validation";
 import { cloudinarySignature } from "./cloudinarySignature";
 
 const MAX_PER_PHONE_PER_DAY = 3;
+// Per tournament, whatever the phone: a spammer rotating numbers is capped,
+// a real registration rush (a link shared in a group) stays under it.
+const SUBMIT_LIMIT = { limit: 30, windowMs: 60 * 1000 };
+const UPLOAD_SIGNATURE_LIMIT = { limit: 60, windowMs: 60 * 1000 };
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PHOTO_FOLDER = "cricket-auction/registrations";
 const PHOTO_FORMATS = "jpg,jpeg,png,webp";
@@ -56,6 +61,11 @@ export const getUploadSignature = action({
   handler: async (ctx, args) => {
     const info = await ctx.runQuery(api.registrations.getPublicInfo, { tournamentId: args.tournamentId });
     if (!info?.open) throw new Error("Registration is closed");
+    const allowed = await ctx.runMutation(internal.rateLimit.consume, {
+      key: `upload:${args.tournamentId}`,
+      ...UPLOAD_SIGNATURE_LIMIT,
+    });
+    if (!allowed) throw new Error("Too many uploads right now. Try again in a minute.");
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME ?? process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
@@ -92,6 +102,9 @@ export const submit = mutation({
       throw new Error("Registration is closed for this tournament");
     }
     if (args.website.trim() !== "") return { success: true as const, needsPayment: false, fee: 0 };
+    if (!(await consumeRateLimit(ctx, `register:${args.tournamentId}`, SUBMIT_LIMIT))) {
+      throw new Error("Too many registrations right now. Try again in a minute.");
+    }
 
     const { website: _honeypot, consentWhatsApp, tournamentId, ...fields } = args;
     const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
@@ -111,14 +124,16 @@ export const submit = mutation({
       throw new Error("Too many registrations from this phone number today. Try again tomorrow.");
     }
 
+    // Indexed on the normalised phone: no full roster scan on a public path.
+    // (Approval re-checks against every player, legacy phone formats too.)
     const key = duplicateKey(fields.name, phoneNumber);
-    const players = await ctx.db
+    const playersWithPhone = await ctx.db
       .query("players")
-      .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId))
+      .withIndex("by_tournament_phone", (q) => q.eq("tournamentId", tournamentId).eq("phoneNumber", phoneNumber))
       .collect();
     if (
       samePhone.some((r) => r.status !== "rejected" && duplicateKey(r.name, r.phoneNumber) === key) ||
-      players.some((p) => duplicateKey(p.name, playerPhone(p)) === key)
+      playersWithPhone.some((p) => duplicateKey(p.name, playerPhone(p)) === key)
     ) {
       throw new Error(`${fields.name.trim()} is already registered for this tournament`);
     }
@@ -391,9 +406,16 @@ export const getPaymentInfo = query({
     const registration = await ctx.db.get(args.registrationId);
     if (!registration) return null;
     const tournament = await ctx.db.get(registration.tournamentId);
+    const orders = (
+      await ctx.db
+        .query("registrationOrders")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", registration.tournamentId))
+        .collect()
+    ).filter((o) => o.registrationId === registration._id);
     return {
       status: registration.status,
       fee: registration.fee,
+      ordersLeft: Math.max(0, MAX_ORDERS_PER_REGISTRATION - orders.length),
       tournamentId: registration.tournamentId,
       tournamentName: tournament?.name ?? "Tournament",
     };

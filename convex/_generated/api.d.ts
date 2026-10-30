@@ -27,6 +27,7 @@ import type * as plans from "../plans.js";
 import type * as players from "../players.js";
 import type * as presentation from "../presentation.js";
 import type * as projections from "../projections.js";
+import type * as rateLimit from "../rateLimit.js";
 import type * as razorpaySignature from "../razorpaySignature.js";
 import type * as registrations from "../registrations.js";
 import type * as results from "../results.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   players: typeof players;
   presentation: typeof presentation;
   projections: typeof projections;
+  rateLimit: typeof rateLimit;
   razorpaySignature: typeof razorpaySignature;
   registrations: typeof registrations;
   results: typeof results;
