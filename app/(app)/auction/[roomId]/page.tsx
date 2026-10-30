@@ -29,6 +29,7 @@ import { AdminTeamsPanel } from '@/components/auction/AdminTeamsPanel';
 import { OwnerPaddle } from '@/components/auction/OwnerPaddle';
 import { IncomingRaisesTray } from '@/components/auction/IncomingRaisesTray';
 import { ConnectionStatus } from '@/components/ui/connection-status';
+import { useWakeLock } from '@/lib/wakeLock';
 import { ReconciliationBadge } from '@/components/auction/ReconciliationBadge';
 import { BidTimerRing } from '@/components/auction/BidTimerRing';
 import { GoingOnceHelper } from '@/components/auction/GoingOnceHelper';
@@ -193,6 +194,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const resumeAuction = useMutation(api.auctions.resumeAuction);
   const restartAuction = useMutation(api.auctions.restartAuction);
   const resolveStalledRound = useMutation(api.auctions.resolveStalledRound);
+
+  // Keep the projector / console screen on while the auction is running.
+  const roomStatus = liveData?.auctionRoom.status;
+  useWakeLock(roomStatus === 'live' || roomStatus === 'paused');
 
   // The player and top bid this console is showing (optimistic bids included,
   // since this client's mutations apply in order). Sent with every console
@@ -785,7 +790,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   return (
     <div className={`${isConsole ? 'min-h-screen' : 'h-[100dvh] flex flex-col'} bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden`}>
       {/* Reconnecting indicator — surfaces silent socket drops (P1-1) */}
-      <ConnectionStatus />
+      <ConnectionStatus showLive={isConsole} />
 
       {/* Cricket Stadium Background Effects */}
       <div className="fixed inset-0 pointer-events-none">

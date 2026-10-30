@@ -1,44 +1,33 @@
 "use client";
 
-// Connection-state indicator (AUDIT P1-1).
+// Connection-state indicator (AUDIT P1-1, AUDIT 2026-10 P1-13).
 //
 // Convex auto-reconnects and resyncs full query state on reconnect, so data is
 // never wrong or partially replayed — but during a drop the UI silently freezes
-// on the last value with no signal. For a team owner bidding on venue wifi, that
-// means bidding against a stale number without knowing. This surfaces a clear
-// "Reconnecting…" badge whenever the socket is down, so staleness is never
-// invisible. It disappears the moment the socket is back (and the fresh state
-// has already been resynced by Convex).
+// on the last value. This makes staleness visible: "Reconnecting… · last update
+// 12s ago", with a Reload button once it has been stale for a while (iOS can
+// resume a backgrounded tab with a dead socket). Rules: lib/connection.ts.
 
-import { useEffect, useState } from "react";
-import { useConvexConnectionState } from "convex/react";
-import { WifiOff } from "lucide-react";
+import { RefreshCw, WifiOff } from "lucide-react";
+import { useConnectionView } from "@/lib/useConnectionView";
 
-export function ConnectionStatus() {
-  const state = useConvexConnectionState();
-  // `debounced` flips true only after the socket has been down for ~1.2s.
-  const [debounced, setDebounced] = useState(false);
+/** `showLive`: also show a small "Live" dot while connected (the console). */
+export function ConnectionStatus({ showLive = false }: { showLive?: boolean }) {
+  const view = useConnectionView();
 
-  // Only after the client has connected at least once — otherwise the initial
-  // page-load spinner already covers "connecting". `disconnected` is a stable
-  // boolean, so this effect re-runs only when it actually flips (not on every
-  // inflight-request tick that useConvexConnectionState re-renders on). All
-  // state writes happen asynchronously (timeout / cleanup), never synchronously
-  // in the effect body.
-  const disconnected = state.hasEverConnected && !state.isWebSocketConnected;
-
-  useEffect(() => {
-    if (!disconnected) return;
-    const id = setTimeout(() => setDebounced(true), 1200);
-    // On reconnect (or unmount) clear the timer and reset the debounce flag so
-    // the next drop debounces afresh.
-    return () => {
-      clearTimeout(id);
-      setDebounced(false);
-    };
-  }, [disconnected]);
-
-  if (!disconnected || !debounced) return null;
+  if (view.kind === "live") {
+    if (!showLive) return null;
+    return (
+      <div
+        role="status"
+        className="fixed bottom-4 left-4 z-[100] flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-slate-950/80 px-2.5 py-1 text-xs font-semibold text-emerald-300 backdrop-blur"
+      >
+        <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden />
+        Live
+      </div>
+    );
+  }
+  if (view.kind !== "reconnecting") return null;
 
   return (
     <div
@@ -47,7 +36,16 @@ export function ConnectionStatus() {
       className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 rounded-full border border-amber-400/60 bg-amber-500/95 px-4 py-2 text-sm font-semibold text-amber-950 shadow-2xl backdrop-blur"
     >
       <WifiOff className="h-4 w-4 animate-pulse" />
-      Reconnecting…
+      Reconnecting… · last update {view.secondsStale}s ago
+      {view.offerReload && (
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-950/90 px-2.5 py-0.5 text-xs text-amber-100"
+        >
+          <RefreshCw className="h-3 w-3" /> Reload
+        </button>
+      )}
     </div>
   );
 }
