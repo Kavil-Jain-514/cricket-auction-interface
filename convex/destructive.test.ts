@@ -136,3 +136,101 @@ describe("snapshots — access", () => {
     await expect(stranger.query(api.snapshots.getSnapshotData, { snapshotId: snap._id })).rejects.toThrow(/access/);
   });
 });
+
+describe("deleteTournament (P1-5)", () => {
+  test("refuses while the auction is live or paused", async () => {
+    for (const status of ["live", "paused"] as const) {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t, status);
+      await expect(
+        t.withIdentity(ADMIN_IDENTITY).mutation(api.tournaments.deleteTournament, { id: tournamentId, confirmName: "Test Cup" }),
+      ).rejects.toThrow(/while the auction is running/);
+      expect(await t.run((ctx) => ctx.db.get(tournamentId))).not.toBeNull();
+    }
+  });
+
+  test("refuses unless the tournament name is typed", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, "waiting");
+    await expect(
+      t.withIdentity(ADMIN_IDENTITY).mutation(api.tournaments.deleteTournament, { id: tournamentId, confirmName: "delete" }),
+    ).rejects.toThrow(/Type the tournament name/);
+    expect(await t.run((ctx) => ctx.db.get(tournamentId))).not.toBeNull();
+  });
+
+  test("snapshots first, then removes every child row (payment records are kept)", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId, teamId, roomId, soldId } = await setup(t, "waiting");
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const userId = await ctx.db.insert("users", { email: "o@test.com", createdAt: now });
+      await ctx.db.insert("tournamentStaff", { tournamentId, userId, role: "auctioneer", createdAt: now });
+      await ctx.db.insert("teamMembers", { teamId, tournamentId, userId, role: "owner", createdAt: now });
+      await ctx.db.insert("teamInvites", { teamId, tournamentId, tokenHash: "h", expiresAt: now, createdBy: userId });
+      await ctx.db.insert("bidRequests", { auctionRoomId: roomId, playerId: soldId, teamId, userId, amount: 1, status: "pending", createdAt: now });
+      await ctx.db.insert("bidRequestsSeen", { key: "placeBid:x", auctionRoomId: roomId, result: {}, createdAt: now });
+      await ctx.db.insert("paymentOrders", { tournamentId, tier: "club", amount: 99_900, razorpayOrderId: "order_1", status: "paid", createdBy: userId, createdAt: now });
+    });
+
+    await t.withIdentity(ADMIN_IDENTITY).mutation(api.tournaments.deleteTournament, { id: tournamentId, confirmName: "Test Cup" });
+
+    const left = await t.run(async (ctx) => ({
+      tournament: await ctx.db.get(tournamentId),
+      staff: await ctx.db.query("tournamentStaff").collect(),
+      members: await ctx.db.query("teamMembers").collect(),
+      invites: await ctx.db.query("teamInvites").collect(),
+      requests: await ctx.db.query("bidRequests").collect(),
+      seen: await ctx.db.query("bidRequestsSeen").collect(),
+      orders: await ctx.db.query("paymentOrders").collect(),
+      snapshots: await ctx.db.query("tournamentSnapshots").collect(),
+      audit: (await ctx.db.query("auditLogs").collect()).find((l) => l.action === "delete_tournament"),
+    }));
+    expect(left.tournament).toBeNull();
+    expect([left.staff, left.members, left.invites, left.requests, left.seen].map((rows) => rows.length)).toEqual([0, 0, 0, 0, 0]);
+    expect(left.orders).toHaveLength(1);
+    expect(left.snapshots).toHaveLength(1);
+    expect(left.snapshots[0]).toMatchObject({ reason: "before delete_tournament", tournamentName: "Test Cup" });
+    expect(left.audit?.newData).toMatchObject({ snapshotId: left.snapshots[0]._id });
+  });
+});
+
+describe("audit rows for bulk status changes (P1-6)", () => {
+  async function stalledRoom(t: ReturnType<typeof convexTest>) {
+    const ids = await setup(t, "live");
+    await t.run(async (ctx) => {
+      const players = await ctx.db.query("players").collect();
+      const pending = players.find((p) => p.auctionStatus === "pending")!;
+      await ctx.db.patch(pending._id, { auctionStatus: "unsold" });
+      await ctx.db.patch(ids.roomId, { auctionPhase: "unsold", roundNumber: 2, roundStalled: true });
+    });
+    return ids;
+  }
+
+  for (const action of ["end", "finalizeUnsold"] as const) {
+    test(`resolveStalledRound "${action}" is audited`, async () => {
+      const t = convexTest(schema, modules);
+      const { roomId } = await stalledRoom(t);
+
+      await t.withIdentity(ADMIN_IDENTITY).mutation(api.auctions.resolveStalledRound, { auctionRoomId: roomId, action });
+
+      const audit = await t.run(async (ctx) => (await ctx.db.query("auditLogs").collect()).map((l) => l.action));
+      expect(audit).toContain(action === "end" ? "end_auction_stalled_round" : "final_unsold_stalled_round");
+    });
+  }
+
+  test("startNextPlayer completing the auction is audited", async () => {
+    const t = convexTest(schema, modules);
+    const { roomId } = await setup(t, "live");
+    await t.run(async (ctx) => {
+      for (const p of await ctx.db.query("players").collect()) {
+        if (p.auctionStatus === "pending") await ctx.db.patch(p._id, { auctionStatus: "final_unsold" });
+      }
+    });
+
+    const res = await t.withIdentity(ADMIN_IDENTITY).mutation(api.auctions.startNextPlayer, { auctionRoomId: roomId });
+
+    expect(res).toMatchObject({ completed: true });
+    const audit = await t.run(async (ctx) => (await ctx.db.query("auditLogs").collect()).map((l) => l.action));
+    expect(audit).toContain("complete_auction");
+  });
+});

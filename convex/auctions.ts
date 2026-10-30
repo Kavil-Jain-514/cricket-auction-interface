@@ -34,6 +34,7 @@ import { toPublicPlayer } from "./projections";
 import { nextPresentationSet } from "./presentation";
 import { withIdempotency } from "./idempotency";
 import { takeSnapshot } from "./snapshots";
+import { confirmsTournamentName } from "./validation";
 import {
   maxRuleViolation,
   minRuleShortfall,
@@ -930,6 +931,16 @@ export const startNextPlayer = mutation({
             status: "completed",
             updatedAt: now,
           }),
+          logAdminAction(ctx, {
+            userId: admin._id,
+            userEmail: admin.email,
+            action: "complete_auction",
+            targetType: "auction",
+            targetId: args.auctionRoomId,
+            newData: { reason: "all squads full" },
+            tournamentId: auctionRoom.tournamentId,
+            auctionRoomId: args.auctionRoomId,
+          }),
         ]);
         return { success: true, completed: true };
       }
@@ -1009,6 +1020,16 @@ export const startNextPlayer = mutation({
         ctx.db.patch(auctionRoom.tournamentId, {
           status: "completed",
           updatedAt: now,
+        }),
+        logAdminAction(ctx, {
+          userId: admin._id,
+          userEmail: admin.email,
+          action: "complete_auction",
+          targetType: "auction",
+          targetId: args.auctionRoomId,
+          newData: { reason: "no players left" },
+          tournamentId: auctionRoom.tournamentId,
+          auctionRoomId: args.auctionRoomId,
         }),
       ]);
       return { success: true, completed: true };
@@ -1211,7 +1232,22 @@ export const resolveStalledRound = mutation({
       return { success: true, completed: true };
     };
 
+    const audit = (action: string, newData: unknown) =>
+      logAdminAction(ctx, {
+        userId: admin._id,
+        userEmail: admin.email,
+        action,
+        targetType: "auction",
+        targetId: args.auctionRoomId,
+        newData,
+        tournamentId: auctionRoom.tournamentId,
+        auctionRoomId: args.auctionRoomId,
+      });
+
     if (args.action === "end") {
+      await audit("end_auction_stalled_round", {
+        unsoldLeft: unsoldPlayers.map((p) => p._id),
+      });
       return await endAuction();
     }
 
@@ -1228,6 +1264,9 @@ export const resolveStalledRound = mutation({
           }),
         ),
       );
+      await audit("final_unsold_stalled_round", {
+        players: unsoldPlayers.map((p) => ({ playerId: p._id, name: p.name })),
+      });
       return await endAuction();
     }
 
@@ -2087,11 +2126,6 @@ export const getAuctionRooms = query({
       .collect();
   },
 });
-
-/** True when `typed` is the tournament's name (trimmed, any case). */
-export function confirmsTournamentName(typed: string, name: string): boolean {
-  return typed.trim().toLowerCase() === name.trim().toLowerCase();
-}
 
 /**
  * Restart auction - reset all players, teams, and auction state (owners only).

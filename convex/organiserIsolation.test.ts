@@ -172,7 +172,7 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "teams:deleteTeam": (as, fx) => as.mutation(api.teams.deleteTeam, { id: fx.teamA2 }),
   "tournaments:update": (as, fx) => as.mutation(api.tournaments.update, { id: fx.tA, name: "Hijacked" }),
   "tournaments:setActive": (as, fx) => as.mutation(api.tournaments.setActive, { id: fx.tA, isActive: false }),
-  "tournaments:deleteTournament": (as, fx) => as.mutation(api.tournaments.deleteTournament, { id: fx.tA }),
+  "tournaments:deleteTournament": (as, fx) => as.mutation(api.tournaments.deleteTournament, { id: fx.tA, confirmName: "A Cup" }),
 };
 
 /** Public mutations that are deliberately not tournament-staff-scoped. */

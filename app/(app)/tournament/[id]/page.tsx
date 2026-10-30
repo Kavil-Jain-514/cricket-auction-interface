@@ -120,20 +120,19 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   };
 
   const handleDelete = async () => {
-    const liveWarning = tournament?.status === 'active'
-      ? 'This auction is currently LIVE — viewers may be watching right now.\n\n'
-      : '';
+    const tournamentName = tournament?.name ?? '';
     if (!(await confirm({
-      title: `Delete "${tournament?.name}"?`,
-      description: `${liveWarning}This will permanently delete all teams, players, and auction data. This action cannot be undone.`,
+      title: `Delete "${tournamentName}"?`,
+      description: 'This will permanently delete all teams, players, and auction data. A snapshot is saved first. A running auction must be restarted or finished before the tournament can be deleted.',
       confirmText: 'Delete Tournament',
+      requireTypedText: tournamentName,
     }))) {
       return;
     }
 
     setDeleting(true);
     try {
-      await deleteTournament({ id: tournamentId });
+      await deleteTournament({ id: tournamentId, confirmName: tournamentName });
       toast.success('Tournament deleted successfully');
       router.push('/dashboard');
     } catch (error) {

@@ -5,6 +5,11 @@
 // or null when the value is fine.
 import { isWholeRupees } from "./bidRules";
 
+/** True when `typed` is the tournament's name (trimmed, any case). */
+export function confirmsTournamentName(typed: string, name: string): boolean {
+  return typed.trim().toLowerCase() === name.trim().toLowerCase();
+}
+
 export const MIN_BASE_PURSE = 100_000; // ₹1 Lakh
 export const MAX_BASE_PURSE = 1_000_000_000; // ₹100 Crore
 export const MIN_BID_INCREMENT = 5_000;
