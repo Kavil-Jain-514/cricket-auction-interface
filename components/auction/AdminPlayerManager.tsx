@@ -8,6 +8,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { X, Search, UserCheck, UserX, ArrowRightLeft, DollarSign, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { AmountInput } from '@/components/ui/amount-input';
 import { formatCurrency, getErrorMessage, getRoleDisplay, getCaptainPlayerIds } from '@/lib/utils';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -357,20 +358,18 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                                                                         <option value="">Select team...</option>
                                                                         {teams?.map(t => (
                                                                             <option key={t._id} value={t._id}>
-                                                                                {t.name} (₹{(t.purseRemaining / 100000).toFixed(1)}L left)
+                                                                                {t.name} ({formatCurrency(t.purseRemaining)} left)
                                                                             </option>
                                                                         ))}
                                                                     </NativeSelect>
                                                                 </div>
                                                                 <div>
                                                                     <label className="text-xs text-slate-400 mb-1 block">Sold Price (₹)</label>
-                                                                    <Input
-                                                                        type="number"
-                                                                        value={editState.newPrice || ''}
-                                                                        onChange={(e) => setEditState({ ...editState, newPrice: parseInt(e.target.value) || 0 })}
+                                                                    <AmountInput
+                                                                        aria-label="Sold price in rupees"
+                                                                        value={editState.newPrice || undefined}
+                                                                        onValueChange={(n) => setEditState({ ...editState, newPrice: n ?? 0 })}
                                                                         className={`bg-slate-800 border-slate-600 ${insufficientPurse ? 'border-red-500' : ''}`}
-                                                                        min={0}
-                                                                        step={5000}
                                                                     />
                                                                 </div>
                                                                 {insufficientPurse && (
@@ -409,20 +408,18 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                                                                         <option value="">Select team...</option>
                                                                         {teams?.filter(t => t._id !== player.teamId).map(t => (
                                                                             <option key={t._id} value={t._id}>
-                                                                                {t.name} (₹{(t.purseRemaining / 100000).toFixed(1)}L left)
+                                                                                {t.name} ({formatCurrency(t.purseRemaining)} left)
                                                                             </option>
                                                                         ))}
                                                                     </NativeSelect>
                                                                 </div>
                                                                 <div>
                                                                     <label className="text-xs text-slate-400 mb-1 block">Sold Price (₹)</label>
-                                                                    <Input
-                                                                        type="number"
-                                                                        value={editState.newPrice || ''}
-                                                                        onChange={(e) => setEditState({ ...editState, newPrice: parseInt(e.target.value) || 0 })}
+                                                                    <AmountInput
+                                                                        aria-label="Sold price in rupees"
+                                                                        value={editState.newPrice || undefined}
+                                                                        onValueChange={(n) => setEditState({ ...editState, newPrice: n ?? 0 })}
                                                                         className={`bg-slate-800 border-slate-600 ${insufficientPurse ? 'border-red-500' : ''}`}
-                                                                        min={0}
-                                                                        step={5000}
                                                                     />
                                                                 </div>
                                                                 {insufficientPurse && (
@@ -456,13 +453,11 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                                                             <div className="max-w-xs space-y-2">
                                                                 <div>
                                                                     <label className="text-xs text-slate-400 mb-1 block">New Sold Price (₹)</label>
-                                                                    <Input
-                                                                        type="number"
-                                                                        value={editState.newPrice || ''}
-                                                                        onChange={(e) => setEditState({ ...editState, newPrice: parseInt(e.target.value) || 0 })}
+                                                                    <AmountInput
+                                                                        aria-label="Sold price in rupees"
+                                                                        value={editState.newPrice || undefined}
+                                                                        onValueChange={(n) => setEditState({ ...editState, newPrice: n ?? 0 })}
                                                                         className={`bg-slate-800 border-slate-600 ${insufficientPurse ? 'border-red-500' : ''}`}
-                                                                        min={0}
-                                                                        step={5000}
                                                                     />
                                                                 </div>
                                                                 {priceDiff !== 0 && team && (

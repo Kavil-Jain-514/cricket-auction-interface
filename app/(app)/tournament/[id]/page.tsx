@@ -130,7 +130,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
     const tournamentName = tournament?.name ?? '';
     if (!(await confirm({
       title: `Delete "${tournamentName}"?`,
-      description: 'This will permanently delete all teams, players, and auction data. A snapshot is saved first. A running auction must be restarted or finished before the tournament can be deleted.',
+      description: 'This permanently deletes all teams, players, registrations and auction data, and every photo, logo and payment screenshot stored for them. A safety snapshot and paid-registration records are kept for 30 days, then erased. This can’t be undone from the app. A running auction must be restarted or finished first.',
       confirmText: 'Delete Tournament',
       requireTypedText: tournamentName,
     }))) {

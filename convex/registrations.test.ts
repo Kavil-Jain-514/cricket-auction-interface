@@ -312,6 +312,7 @@ describe("public info", () => {
       paymentQrUrl: undefined,
       sponsors: [],
       categories: [],
+      form: null,
     });
   });
 

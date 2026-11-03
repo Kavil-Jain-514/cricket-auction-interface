@@ -9,6 +9,10 @@ interface ImgWithFallbackProps {
   /** Rendered when src is missing OR the image fails to load (dead URL). */
   fallback: React.ReactNode;
   referrerPolicy?: React.HTMLAttributeReferrerPolicy;
+  loading?: 'lazy' | 'eager';
+  /** Responsive candidates, e.g. Cloudinary widths for 1x / 2x screens. */
+  srcSet?: string;
+  sizes?: string;
 }
 
 /**
@@ -22,6 +26,9 @@ export function ImgWithFallback({
   className,
   fallback,
   referrerPolicy = 'no-referrer',
+  loading,
+  srcSet,
+  sizes,
 }: ImgWithFallbackProps) {
   // Track *which* src failed rather than a boolean. The error state then clears
   // automatically when `src` changes (a different src won't match `erroredSrc`),
@@ -39,6 +46,10 @@ export function ImgWithFallback({
       alt={alt}
       className={className}
       referrerPolicy={referrerPolicy}
+      loading={loading}
+      srcSet={srcSet}
+      sizes={sizes}
+      decoding="async"
       onError={() => setErroredSrc(src)}
     />
   );

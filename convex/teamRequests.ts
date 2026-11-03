@@ -7,12 +7,14 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUser, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
 import { getOrCreateUser } from "./members";
+import { canRequestTeam } from "./policy";
+import { consumeInviteEmailQuota, enqueueEmail, requeueEmail } from "./emails";
 import { insertValidatedTeam } from "./teams";
-import { validateOwnerName, validateTeamColours, validateTeamName } from "./validation";
+import { normalizeEmail, validateOwnerName, validateTeamColours, validateTeamName } from "./validation";
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
-/** Ask for a team in a tournament. Any signed-in user; one open request each. */
+/** Ask for a team in a tournament. Team owners only; one open request each. */
 export const submit = mutation({
   args: {
     tournamentId: v.id("tournaments"),
@@ -27,6 +29,7 @@ export const submit = mutation({
     const user = await getOrCreateUser(ctx);
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament || tournament.isActive === false) throw new Error("Tournament not found");
+    if (!canRequestTeam(user)) throw new Error('Only team owners can register a team. Choose "I own a team" on your dashboard first.');
     if (tournament.status === "completed") throw new Error("This tournament is closed");
 
     const error =
@@ -194,5 +197,72 @@ export const reject = mutation({
       tournamentId: request.tournamentId,
     });
     return { success: true };
+  },
+});
+
+/**
+ * Invite a team owner to add their own team: emails them the tournament's
+ * team sign-up link (/tournament/<id>/join-team). Owners only. The same
+ * address is invited at most once a day (a failed email is sent again), and
+ * every invite email counts against the organiser's hourly cap.
+ */
+export const inviteOwner = mutation({
+  args: { tournamentId: v.id("tournaments"), email: v.string() },
+  handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+    const owner = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    const email = normalizeEmail(args.email);
+    if (!email) throw new Error("Enter a valid email address");
+    if (tournament.status === "completed") throw new Error("This tournament is closed");
+
+    const day = new Date().toISOString().slice(0, 10);
+    const dedupeKey = `team-signup:${args.tournamentId}:${email}:${day}`;
+    const existing = await ctx.db
+      .query("emails")
+      .withIndex("by_dedupe", (q) => q.eq("dedupeKey", dedupeKey))
+      .first();
+    if (existing && existing.status !== "failed") throw new Error(`${email} was already invited today`);
+    await consumeInviteEmailQuota(ctx, owner._id);
+    if (existing) {
+      await requeueEmail(ctx, existing._id);
+    } else {
+      await enqueueEmail(ctx, {
+        kind: "team_signup_invite",
+        dedupeKey,
+        tournamentId: args.tournamentId,
+        to: email,
+        payload: { tournamentId: args.tournamentId, tournamentName: tournament.name, inviterName: owner.name || owner.email },
+      });
+    }
+    await logAdminAction(ctx, {
+      userId: owner._id,
+      userEmail: owner.email,
+      action: "invite_team_owner",
+      targetType: "tournament",
+      targetId: args.tournamentId,
+      newData: { email },
+      tournamentId: args.tournamentId,
+    });
+    return { success: true };
+  },
+});
+
+/** "Add your team" invitations sent for a tournament, newest first, one per address. Owners only. */
+export const listOwnerInvites = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    const rows = (
+      await ctx.db
+        .query("emails")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+        .collect()
+    )
+      .filter((r) => r.kind === "team_signup_invite")
+      .sort((a, b) => b.createdAt - a.createdAt);
+    const latest = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) if (!latest.has(r.to)) latest.set(r.to, r);
+    return [...latest.values()].map((r) => ({ _id: r._id, email: r.to, status: r.status, createdAt: r.createdAt }));
   },
 });

@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { Users, Gavel } from 'lucide-react';
 import { TeamLogo } from '@/components/ui/team-logo';
-import { Input } from '@/components/ui/input';
+import { AmountInput } from '@/components/ui/amount-input';
 import { formatCurrency } from '@/lib/utils';
 import { toast } from 'sonner';
 import { RuleStatusLine, type RuleStatus } from './RuleStatusLine';
@@ -31,7 +31,6 @@ export interface AdminTeamsPanelProps {
   minNextBid: number;
   maxPlayersPerTeam: number;
   tournamentBasePrice: number;
-  minBidIncrement: number;
   bidding: string | null;
   getCustomBidAmount: (teamId: string, minBid: number) => number;
   setCustomBidAmount: (teamId: string, amount: number) => void;
@@ -50,7 +49,6 @@ export function AdminTeamsPanel({
   minNextBid,
   maxPlayersPerTeam,
   tournamentBasePrice,
-  minBidIncrement,
   bidding,
   getCustomBidAmount,
   setCustomBidAmount,
@@ -166,16 +164,10 @@ export function AdminTeamsPanel({
                   onClick={(e) => e.stopPropagation()}
                 >
                   <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">₹</span>
-                  <Input
-                    type="number"
-                    min={minBidForTeam}
-                    max={maxAllowedBid}
-                    step={minBidIncrement}
-                    value={customAmount}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value) || minBidForTeam;
-                      setCustomBidAmount(team._id, value);
-                    }}
+                  <AmountInput
+                    aria-label={`Custom bid for ${team.name}`}
+                    value={customAmount > 0 ? customAmount : undefined}
+                    onValueChange={(n) => setCustomBidAmount(team._id, n ?? 0)}
                     className={`pl-6 pr-2 py-1 h-8 text-xs bg-slate-900 border-slate-600 text-white w-full ${exceedsMaxAllowed ? 'border-red-500' : ''}`}
                     disabled={!currentPlayer || hasReachedMaxPlayers}
                   />

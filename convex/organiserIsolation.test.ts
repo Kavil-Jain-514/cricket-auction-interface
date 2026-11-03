@@ -125,7 +125,18 @@ async function seed(t: T) {
       counts: { players: 0, teams: 0, bids: 0, events: 0 }, createdAt: now,
     });
     await syncTournamentAuctionCounts(ctx, tA);
-    return { teamRequest, snapshotA, registration, orgA, orgB, auctioneerA, tA, tB, teamA1, teamA2, pending, sold, onBlock, roomA, request, member, invite, staffAuctioneer };
+    const notification = await ctx.db.insert("notifications", {
+      kind: "registration_received",
+      dedupeKey: `registered:${registration}`,
+      tournamentId: tA,
+      registrationId: registration,
+      payload: { playerName: "Player", phoneNumber: "9876543210", tournamentName: "A Cup" },
+      status: "failed",
+      attempts: 5,
+      nextAttemptAt: now,
+      createdAt: now,
+    });
+    return { notification, teamRequest, snapshotA, registration, orgA, orgB, auctioneerA, tA, tB, teamA1, teamA2, pending, sold, onBlock, roomA, request, member, invite, staffAuctioneer };
   });
 }
 
@@ -169,6 +180,14 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "registrations:markPaid": (as, fx) => as.mutation(api.registrations.markPaid, { registrationId: fx.registration }),
   "registrations:setCategory": (as, fx) => as.mutation(api.registrations.setCategory, { registrationId: fx.registration }),
   "registrations:reject": (as, fx) => as.mutation(api.registrations.reject, { registrationId: fx.registration, reason: "x" }),
+  "teamRequests:inviteOwner": (as, fx) => as.mutation(api.teamRequests.inviteOwner, { tournamentId: fx.tA, email: "invitee@example.com" }),
+  "notifications:resend": (as, fx) => as.mutation(api.notifications.resend, { notificationId: fx.notification }),
+  "registrationForms:save": (as, fx) =>
+    as.mutation(api.registrationForms.save, {
+      tournamentId: fx.tA,
+      questions: [{ id: "q_club", type: "short_text", label: "Club", required: false }],
+      expectedVersion: 0,
+    }),
   "players:create": (as, fx) => as.mutation(api.players.create, { tournamentId: fx.tA, ...newPlayer }),
   "players:bulkImport": (as, fx) => as.mutation(api.players.bulkImport, { tournamentId: fx.tA, players: [newPlayer] }),
   "players:update": (as, fx) => as.mutation(api.players.update, { id: fx.pending, name: "Renamed" }),
@@ -195,6 +214,8 @@ const NOT_STAFF_SCOPED: Record<string, string> = {
   "auth:ensureUser": "creates the caller's own user row",
   "auth:setAccountType": "sets the caller's own account type (tested in teamRequests.test.ts)",
   "auth:setUserRole": "global, super-admin only (tested below)",
+  "auth:setUserIntent": "global, super-admin only (tested in superAdmin.test.ts)",
+  "auth:setUserActive": "global, super-admin only (tested in superAdmin.test.ts)",
   "auctions:raiseBid": "team owners bidding from their paddle; checked by team membership",
   "members:claimInvite": "claimed with a one-time invite token",
   "ops:heartbeat": "the caller's own presence; ignored unless staff or a team owner (tested in ops.test.ts)",
@@ -204,8 +225,8 @@ const NOT_STAFF_SCOPED: Record<string, string> = {
   "registrations:recordOrder": "anonymous registrant's fee order; only the signed webhook marks it paid",
   "registrations:submitPaymentProof": "anonymous registrant's QR screenshot; the owner checks it before approving",
   "registrations:chooseOfflinePayment": "anonymous registrant chooses to pay in person; only the owner marks it paid",
-  "teamRequests:submit": "any signed-in user asks for a team; the tournament's owner approves it (tested in teamRequests.test.ts)",
-  "tournaments:create": "any signed-in user; they become the owner",
+  "teamRequests:submit": "team owners only (policy.canRequestTeam, roles.test.ts) ask for a team; the tournament's owner approves it (tested in teamRequests.test.ts)",
+  "tournaments:create": "organisers only (policy.canCreateTournament, roles.test.ts); they become the owner",
 };
 
 /** Every table a tournament's data lives in, for a before/after comparison. */
@@ -291,9 +312,13 @@ describe("auctioneer role", () => {
 });
 
 describe("tournament creation and staff", () => {
-  test("any signed-in user can create a tournament and becomes its owner", async () => {
+  test("an organiser can create a tournament and becomes its owner", async () => {
     const t = convexTest(schema, modules);
     await seed(t);
+    await t.run(async (ctx) => {
+      const b = await ctx.db.query("users").withIndex("by_email", (q) => q.eq("email", ORG_B.email)).first();
+      await ctx.db.patch(b!._id, { accountType: "organiser", accountTypeChosenAt: 1 });
+    });
     const asB = t.withIdentity(ORG_B);
     const id = await asB.mutation(api.tournaments.create, {
       name: "B Two",

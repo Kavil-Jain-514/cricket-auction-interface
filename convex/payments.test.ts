@@ -21,7 +21,7 @@ async function hmacHex(secret: string, body: string): Promise<string> {
 
 async function setup(t: ReturnType<typeof convexTest>) {
   await t.run(async (ctx) => {
-    await ctx.db.insert("users", { email: ORG.email, createdAt: Date.now() });
+    await ctx.db.insert("users", { email: ORG.email, accountType: "organiser", accountTypeChosenAt: 1, createdAt: Date.now() });
     await ctx.db.insert("users", { email: OTHER.email, createdAt: Date.now() });
   });
   const tournamentId = await t.withIdentity(ORG).mutation(api.tournaments.create, {

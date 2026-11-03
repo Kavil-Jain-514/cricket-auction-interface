@@ -1,6 +1,9 @@
 "use client";
 
+import { useQuery } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 import { Doc } from '@/convex/_generated/dataModel';
+import { formatAnswer } from '@/lib/registrationsWorkbook';
 import { formatCurrency, getRoles } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -9,7 +12,8 @@ import {
   Shirt,
   Phone,
   IndianRupee,
-  Trophy
+  Trophy,
+  ClipboardList
 } from 'lucide-react';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 
@@ -40,6 +44,8 @@ export function PlayerDetailsModal({
   teamName,
   onClose
 }: PlayerDetailsModalProps) {
+  // The organiser's own registration questions; null unless the caller owns the tournament.
+  const answers = useQuery(api.registrationForms.answersForPlayer, { playerId: player._id });
   const roles = getRoles(player.role);
   const primaryRole = roles[0];
   // const roleStyle = roleColors[primaryRole] || roleColors['Batter'];
@@ -223,6 +229,29 @@ export function PlayerDetailsModal({
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {answers && answers.length > 0 && (
+                <div className="bg-slate-800/50 rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-slate-400 mb-3 flex items-center gap-2">
+                    <ClipboardList className="w-4 h-4" />
+                    Registration answers
+                  </h3>
+                  <dl className="space-y-2 text-sm">
+                    {answers.map((a) => (
+                      <div key={a.questionId}>
+                        <dt className="text-xs text-slate-400">{a.label}{a.archived ? ' (archived)' : ''}</dt>
+                        <dd className="break-words text-slate-100">
+                          {a.type === 'file' && typeof a.value === 'string' ? (
+                            <a href={a.value} target="_blank" rel="noopener noreferrer" className="text-blue-300 underline">View image</a>
+                          ) : (
+                            formatAnswer(a.value, a.type)
+                          )}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
                 </div>
               )}
             </div>

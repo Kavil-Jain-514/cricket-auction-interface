@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { paginationOptsValidator, type PaginationResult } from "convex/server";
+import { mutation, query, type QueryCtx } from "./_generated/server";
 import {
   getCurrentUser,
   getTournamentRole,
@@ -25,7 +26,9 @@ import {
 } from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { initialPlan } from "./plans";
+import { canCreateTournament, canUploadTournamentLogo, isSuperAdmin } from "./policy";
 import { takeSnapshot } from "./snapshots";
+import { scheduleTournamentPurge } from "./fileCleanup";
 import {
   confirmsTournamentName,
   normalizeFooterText,
@@ -37,6 +40,13 @@ import {
   validateSquadRules,
   validateTournamentName,
 } from "./validation";
+
+/** Logos must come from our own upload (Cloudinary over https). */
+function assertUploadedLogo(logoUrl: string | undefined) {
+  if (logoUrl !== undefined && !logoUrl.startsWith("https://res.cloudinary.com/")) {
+    throw new Error("Upload the logo with the logo button");
+  }
+}
 
 // Who may bid (see schema.ts). Not a locked setting: the auctioneer can fall
 // back to "admin_only" mid-auction.
@@ -67,8 +77,11 @@ export const create = mutation({
     }),
   },
   handler: async (ctx, args) => {
-    // Any signed-in user may create a tournament; they become its owner.
-    await requireUser(ctx);
+    // Organisers (and the super-admin) create tournaments and become the owner.
+    const user = await requireUser(ctx);
+    if (!canCreateTournament(user)) {
+      throw new Error("Only organisers can create tournaments");
+    }
 
     // Validation (shared with update — convex/validation.ts)
     const error =
@@ -82,29 +95,7 @@ export const create = mutation({
     }
     const rulesError = validateRuleSettings(args.settings);
     if (rulesError) throw new Error(rulesError);
-    // Get current user (implement auth first)
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
-
-    // Find or create user
-    let user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
-      .first();
-
-    // Auto-create user if not found
-    if (!user) {
-      const userId = await ctx.db.insert("users", {
-        email: identity.email!,
-        name: identity.name ?? identity.email!.split("@")[0],
-        createdAt: Date.now(),
-      });
-      user = await ctx.db.get(userId);
-    }
-
-    if (!user) {
-      throw new Error("Failed to create user");
-    }
+    assertUploadedLogo(args.logoUrl);
 
     const footer = normalizeFooterText(args.settings.footerText);
     if (!footer.ok) throw new Error(footer.error);
@@ -187,6 +178,20 @@ export const getById = query({
 });
 
 /**
+ * What the team sign-up page (/tournament/<id>/join-team) shows before
+ * anyone registers: name, logo, and whether teams can still be added.
+ * Identity-free; null for a deactivated or missing tournament.
+ */
+export const getJoinTeamInfo = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament || tournament.isActive === false) return null;
+    return { name: tournament.name, logoUrl: tournament.logoUrl, open: tournament.status !== "completed" };
+  },
+});
+
+/**
  * The caller's access to a tournament, for showing or hiding controls:
  * "super_admin", "owner", "auctioneer" or null. The server re-checks every
  * action, so this is for UI only.
@@ -217,6 +222,168 @@ export const listMine = query({
     return tournaments
       .filter((t): t is NonNullable<typeof t> => t !== null)
       .sort((a, b) => b.createdAt - a.createdAt);
+  },
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DASHBOARD LISTINGS (one per role, paginated on the server)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** What a dashboard card shows. Never settings an organiser keeps private. */
+function tournamentCard(t: Doc<"tournaments">, isLive: boolean) {
+  return {
+    _id: t._id,
+    name: t.name,
+    description: t.description,
+    logoUrl: t.logoUrl,
+    status: t.status,
+    isActive: t.isActive,
+    createdAt: t.createdAt,
+    basePurse: t.settings.basePurse,
+    maxPlayersPerTeam: t.settings.maxPlayersPerTeam,
+    isLive,
+  };
+}
+export type TournamentCard = ReturnType<typeof tournamentCard>;
+
+/**
+ * Tournaments with an auction running now (live or paused, rehearsals
+ * excluded). Reads only the live/paused slice of auctionRooms, which changes
+ * once per player, never per bid (bids go to liveBids).
+ */
+async function liveTournamentIds(ctx: QueryCtx): Promise<Set<Id<"tournaments">>> {
+  const rooms = await Promise.all(
+    (["live", "paused"] as const).map((status) =>
+      ctx.db.query("auctionRooms").withIndex("by_status", (q) => q.eq("status", status)).take(200),
+    ),
+  );
+  return new Set(rooms.flat().filter((r) => !r.rehearsal).map((r) => r.tournamentId));
+}
+
+const dashboardStatus = v.optional(v.union(v.literal("live"), v.literal("upcoming"), v.literal("completed")));
+type DashboardStatus = "live" | "upcoming" | "completed" | "inactive" | undefined;
+
+/**
+ * One page of tournaments for a status filter. "live" is the (small) set of
+ * running auctions, returned whole; other filters leave live ones out,
+ * because the dashboard shows those on top ("inactive" keeps them).
+ * "upcoming" = not completed.
+ */
+async function pageTournaments(
+  ctx: QueryCtx,
+  args: {
+    status: DashboardStatus;
+    includeDeactivated: boolean;
+    paginationOpts: { numItems: number; cursor: string | null };
+  },
+): Promise<PaginationResult<TournamentCard>> {
+  const live = await liveTournamentIds(ctx);
+  const shown = (t: Doc<"tournaments">) => args.includeDeactivated || t.isActive !== false;
+
+  if (args.status === "live") {
+    const docs = await Promise.all([...live].map((id) => ctx.db.get(id)));
+    const page = docs
+      .filter((t): t is Doc<"tournaments"> => t !== null && shown(t))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((t) => tournamentCard(t, true));
+    return { page, isDone: true, continueCursor: "" };
+  }
+
+  // "inactive" is an admin lookup, not a section under the live strip.
+  const liveIds = args.status === "inactive" ? [] : [...live];
+  const status = args.status;
+  const base =
+    status === "completed"
+      ? ctx.db.query("tournaments").withIndex("by_status", (q) => q.eq("status", "completed"))
+      : ctx.db.query("tournaments");
+  const result = await base
+    .order("desc")
+    .filter((q) =>
+      q.and(
+        args.includeDeactivated ? true : q.neq(q.field("isActive"), false),
+        status === "inactive" ? q.eq(q.field("isActive"), false) : true,
+        status === "upcoming" ? q.neq(q.field("status"), "completed") : true,
+        ...liveIds.map((id) => q.neq(q.field("_id"), id)),
+      ),
+    )
+    .paginate(args.paginationOpts);
+  return { ...result, page: result.page.map((t) => tournamentCard(t, false)) };
+}
+
+/**
+ * Public tournaments for viewers and the organiser's "All" tab. Reads no
+ * identity, so every viewer shares one cached result; deactivated
+ * tournaments never appear (their staff see them under "My").
+ */
+export const listPublic = query({
+  args: { status: dashboardStatus, paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) =>
+    await pageTournaments(ctx, { status: args.status, includeDeactivated: false, paginationOpts: args.paginationOpts }),
+});
+
+/** The organiser's "My" tab: tournaments they're on the staff of, with their role. */
+export const listMinePaged = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return { page: [], isDone: true, continueCursor: "" };
+    const live = await liveTournamentIds(ctx);
+    const result = await ctx.db
+      .query("tournamentStaff")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .order("desc")
+      .paginate(args.paginationOpts);
+    const page = await Promise.all(
+      result.page.map(async (row) => {
+        const t = await ctx.db.get(row.tournamentId);
+        return t ? { ...tournamentCard(t, live.has(t._id)), myRole: row.role } : null;
+      }),
+    );
+    return { ...result, page: page.filter((c) => c !== null) };
+  },
+});
+
+/** Every tournament, deactivated included, for the super-admin. Others get nothing. */
+export const listForAdmin = query({
+  args: {
+    status: v.optional(v.union(v.literal("live"), v.literal("upcoming"), v.literal("completed"), v.literal("inactive"))),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    if (!isSuperAdmin(await getCurrentUser(ctx))) return { page: [], isDone: true, continueCursor: "" };
+    return await pageTournaments(ctx, { status: args.status, includeDeactivated: true, paginationOpts: args.paginationOpts });
+  },
+});
+
+/**
+ * A team owner's tournaments: where they own a team (teamMembers) or asked
+ * for one (teamRequests). A handful per user, so no paging.
+ */
+export const listForTeamOwner = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return [];
+    const [memberships, requests, live] = await Promise.all([
+      ctx.db.query("teamMembers").withIndex("by_user", (q) => q.eq("userId", user._id)).take(100),
+      ctx.db.query("teamRequests").withIndex("by_user", (q) => q.eq("userId", user._id)).take(100),
+      liveTournamentIds(ctx),
+    ]);
+    const byTournament = new Map<Id<"tournaments">, { teamName: string; teamStatus: "owner" | "viewer" | Doc<"teamRequests">["status"] }>();
+    for (const r of requests) {
+      if (r.status !== "approved") byTournament.set(r.tournamentId, { teamName: r.name, teamStatus: r.status });
+    }
+    for (const m of memberships) {
+      const team = await ctx.db.get(m.teamId);
+      if (team) byTournament.set(m.tournamentId, { teamName: team.name, teamStatus: m.role });
+    }
+    const rows = await Promise.all(
+      [...byTournament].map(async ([id, team]) => {
+        const t = await ctx.db.get(id);
+        return t && t.isActive !== false ? { ...tournamentCard(t, live.has(id)), ...team } : null;
+      }),
+    );
+    return rows.filter((r) => r !== null).sort((a, b) => b.createdAt - a.createdAt);
   },
 });
 
@@ -326,6 +493,12 @@ export const update = mutation({
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
     const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
+    if (args.logoUrl !== undefined && args.logoUrl !== tournament.logoUrl) {
+      if (!canUploadTournamentLogo(await getTournamentRole(ctx, args.id, admin))) {
+        throw new Error("Only the tournament's owner can change its logo");
+      }
+      assertUploadedLogo(args.logoUrl);
+    }
 
     // Cannot edit completed tournaments
     if (tournament.status === "completed") {
@@ -629,7 +802,8 @@ export const setActive = mutation({
  * Delete a tournament and everything under it. Never while its auction is
  * live or paused, only with the tournament name typed, and always after a
  * snapshot (AUDIT 2026-10 P1-5). Payment records stay: paymentOrders and any
- * registration with a payment reference.
+ * registration with a payment reference. That snapshot, those registrations
+ * and every stored file are purged after RETENTION_MS (convex/fileCleanup.ts).
  */
 export const deleteTournament = mutation({
   args: { id: v.id("tournaments"), confirmName: v.string() },
@@ -639,7 +813,7 @@ export const deleteTournament = mutation({
     const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     // Fetch all related data in parallel
-    const [teams, players, auctionRooms, groupDraws, staff, registrations, registrationOrders] = await Promise.all([
+    const [teams, players, auctionRooms, groupDraws, staff, registrations, registrationOrders, formVersions, teamRequests, notifications, emails] = await Promise.all([
       ctx.db
         .query("teams")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
@@ -666,6 +840,22 @@ export const deleteTournament = mutation({
         .collect(),
       ctx.db
         .query("registrationOrders")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("registrationFormVersions")
+        .withIndex("by_tournament_version", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("teamRequests")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("notifications")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("emails")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
         .collect(),
     ]);
@@ -706,6 +896,10 @@ export const deleteTournament = mutation({
           ctx.db
             .query("bidRequestsSeen")
             .withIndex("by_room_key", (q) => q.eq("auctionRoomId", room._id))
+            .collect(),
+          ctx.db
+            .query("presence")
+            .withIndex("by_room", (q) => q.eq("auctionRoomId", room._id))
             .collect(),
         ]),
       ),
@@ -761,11 +955,17 @@ export const deleteTournament = mutation({
     await deleteInChunks(allLiveBids);
     await deleteInChunks(roomRelated.flatMap(([, , , requests]) => requests));
     await deleteInChunks(roomRelated.flatMap(([, , , , seen]) => seen));
+    await deleteInChunks(roomRelated.flatMap(([, , , , , presence]) => presence));
     await deleteInChunks(teamRelated.flatMap(([members, invites]) => [...members, ...invites]));
     await deleteInChunks(staff);
-    // Keep registrations that carry a payment reference (refund trail).
+    // Keep registrations that carry a payment reference (refund trail) until
+    // the purge.
     await deleteInChunks(registrations.filter((r) => !r.paymentRef));
     await deleteInChunks(registrationOrders.filter((o) => o.status !== "paid"));
+    await deleteInChunks(formVersions);
+    await deleteInChunks(teamRequests);
+    await deleteInChunks(notifications); // they hold phone numbers
+    await deleteInChunks(emails); // and these, email addresses
 
     // 2. Mid-level: group draws, players, teams, auction rooms
     await deleteInChunks(groupDraws);
@@ -773,7 +973,14 @@ export const deleteTournament = mutation({
     await deleteInChunks(teams);
     await deleteInChunks(auctionRooms);
 
-    // 3. Tournament itself
+    // 3. Tournament itself. Its files (logo, sponsors, QR, team logos, photos,
+    // payment screenshots, form uploads) are queued for deletion, after the
+    // retention period, with the snapshot and the kept registrations.
+    await scheduleTournamentPurge(ctx, {
+      tournament,
+      rows: [teams, players, registrations, teamRequests],
+      userId: admin._id,
+    });
     await ctx.db.delete(args.id);
 
     return { success: true };

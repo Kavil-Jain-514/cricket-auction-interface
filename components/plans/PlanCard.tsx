@@ -10,8 +10,9 @@ import { PLAN_ORDER, PLAN_TIERS, upgradePrice, type PlanTier } from '@/convex/pl
 import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
 import { openRazorpayCheckout } from '@/lib/razorpayCheckout';
+import { formatRupees } from '@/convex/bidRules';
 
-const rupees = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN')}`;
+const rupees = (paise: number) => formatRupees(paise / 100);
 
 function Meter({ label, used, max }: { label: string; used: number; max: number }) {
   const pct = Math.min(100, (used / max) * 100);

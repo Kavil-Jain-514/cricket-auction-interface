@@ -1,20 +1,26 @@
-# WhatsApp "Player Sold" Notifications
+# WhatsApp Notifications
 
-When a player is sold in the live auction (`finalizePlayerSale`), we send them a
-WhatsApp message containing the tournament name, team name, owner name, captain
-name, and sold price. Sent via the **Meta WhatsApp Cloud API**.
+Players get three WhatsApp messages, sent via the **Meta WhatsApp Cloud API**:
+
+| When | Template | Who |
+| ---- | -------- | --- |
+| They submit the public registration form | `registration_received` | registrants who ticked the WhatsApp box |
+| The organiser approves their registration | `registration_approved` | same |
+| They are sold in the live auction (`finalizePlayerSale`) | `player_sold` | players with a phone who didn't decline |
 
 ## How it works
 
-1. `convex/auctions.ts` → `finalizePlayerSale` commits the sale and, in the same
-   transaction, adds one row to the `notifications` outbox
-   (`enqueueSoldNotification`). Nothing is sent inside the sale.
+1. The sale (`finalizePlayerSale`), the registration (`registrations:submit`) or
+   the approval (`registrations:approve` / `bulkApprove`) adds one row to the
+   `notifications` outbox in its own transaction. Nothing is sent inside them, so
+   WhatsApp can never slow down or fail a sale or a registration.
 2. `convex/notifications.ts` → `processQueue` sends queued rows through the
    **Meta Cloud API** (`graph.facebook.com/.../messages`) using an **approved
    message template**, at most 10 a second.
 
-- **One message per player and team.** Restarting the auction, or re-selling a
-  player to the same team, never messages them twice.
+- **Never twice.** One row per event and person (`dedupeKey`): one "sold" per
+  player and team, one "received" and one "approved" per registration. Restarts,
+  retries and double clicks reuse the row.
 - **Retries.** A failed send is retried after 30s, 60s, 2m and 4m; after 5
   attempts the row is marked `failed` with the last error. Rows a crashed run left
   in `sending` are picked up again after 5 minutes.
@@ -24,7 +30,16 @@ name, and sold price. Sent via the **Meta WhatsApp Cloud API**.
   registration form (`consentWhatsApp: false`), and every send when the env vars
   are missing (`not_configured`) or `WHATSAPP_NOTIFICATIONS_ENABLED=false`.
 - Phone numbers are masked in logs (`+91•••••3210`).
-- Queue depth and the last failure: `notifications:queueStats` (super-admin).
+- **Opt-outs.** A player who replies STOP (or UNSUBSCRIBE) is never messaged again
+  (`whatsappOptOuts`) until they reply START. The registration form says so.
+- **Delivery.** The webhook below marks messages `delivered`, or `failed` if Meta
+  accepted a message but couldn't deliver it.
+- **Organisers** see each registration's messages (sent / delivered / failed /
+  not sent) on the Registrations page, with **Resend** on failed ones. Resend
+  re-queues the same row, so it can't send twice.
+- Queue depth and the last failure: `/admin/live` (`notifications:queueStats`).
+- **Local development:** `npx convex env set WHATSAPP_PROVIDER log` logs each
+  message (masked) instead of sending it.
 
 ## Why a template is required (important)
 
@@ -56,11 +71,39 @@ The temporary token expires in ~24h. For a real deployment, create a
   system user → generate token with the `whatsapp_business_messaging` (and
   `whatsapp_business_management`) permissions. Set it to **never expire**.
 
-### 3. Create & submit the message template
+### 3. Create & submit the message templates
 
 In **WhatsApp Manager → Account tools → Message templates → Create template**
-(category **Utility**), name it `player_sold`, language **English**, with this
-body, then submit for approval:
+create these three (category **Utility**, language **English**) and submit them
+for approval. Use exactly these names, or set the env vars below to yours.
+
+#### `registration_received`
+
+```
+Hi {{1}}, thanks for registering for *{{2}}*! 🏏
+
+The organiser will review your entry. We'll message you here once you're approved.
+```
+
+| Var | Value | Sample |
+| --- | ----- | ------ |
+| `{{1}}` | Player name | Virat |
+| `{{2}}` | Tournament name | Summer Cup |
+
+#### `registration_approved`
+
+```
+Good news, {{1}}! ✅ You're approved for *{{2}}* and in the player pool for the auction.
+
+We'll message you here when a team picks you.
+```
+
+| Var | Value | Sample |
+| --- | ----- | ------ |
+| `{{1}}` | Player name | Virat |
+| `{{2}}` | Tournament name | Summer Cup |
+
+#### `player_sold`
 
 ```
 Congratulations {{1}}! 🎉
@@ -90,8 +133,11 @@ Welcome to the squad!
 > provide realistic examples (e.g. "Virat", "Summer Cup", "Royal XI", "R. Sharma",
 > "M. Dhoni", "₹1,50,000").
 >
-> If you change the parameter order in the template, update the `bodyParams`
-> array in `convex/notifications.ts` to match.
+> If you change the parameter order in a template, update `templateFor` in
+> `convex/notifications.ts` to match.
+>
+> Meta adds its own "reply STOP to unsubscribe" handling for marketing templates
+> only; these are Utility templates, so our webhook handles STOP itself.
 
 ### 4. Set Convex environment variables
 
@@ -106,11 +152,27 @@ Optional (sensible defaults shown):
 
 ```bash
 npx convex env set WHATSAPP_TEMPLATE_NAME    player_sold           # default: player_sold
+npx convex env set WHATSAPP_TEMPLATE_REGISTERED registration_received  # default: registration_received
+npx convex env set WHATSAPP_TEMPLATE_APPROVED   registration_approved  # default: registration_approved
 npx convex env set WHATSAPP_TEMPLATE_LANG    en                    # default: en  (must match template language)
 npx convex env set WHATSAPP_GRAPH_VERSION    v21.0                 # default: v21.0
 npx convex env set WHATSAPP_DEFAULT_COUNTRY_CODE 91                # default: 91 (India), for bare 10-digit numbers
 npx convex env set WHATSAPP_NOTIFICATIONS_ENABLED false            # kill switch — disable all sends
+npx convex env set WHATSAPP_PROVIDER         log                   # development: log instead of sending
 ```
+
+### 5. Delivery and STOP webhook
+
+In the Meta app: **WhatsApp → Configuration → Webhook**:
+
+- Callback URL: `<NEXT_PUBLIC_CONVEX_SITE_URL>/whatsapp/webhook`
+- Verify token: any long random string; set the same one in Convex:
+  `npx convex env set WHATSAPP_WEBHOOK_VERIFY_TOKEN <token>`
+- Subscribe to the **messages** field.
+- App secret (**App settings → Basic → App secret**):
+  `npx convex env set WHATSAPP_APP_SECRET <secret>`. Every POST is checked
+  against its `X-Hub-Signature-256`; unsigned or mis-signed requests get a 401
+  and change nothing. Without the secret the webhook refuses everything.
 
 > `WHATSAPP_TEMPLATE_LANG` must exactly match the template's language code in
 > Meta (e.g. `en` vs `en_US`) or the send fails with a "template not found" error.
@@ -135,12 +197,12 @@ country to be safe.
 4. Check the Convex logs (`npx convex logs` or the dashboard) for a
    `[whatsapp] Sent sold notification …` line, and your phone for the message.
 
-## Notes / possible extensions
+## Notes
 
 - New WhatsApp business numbers start throttled (e.g. ~250 business-initiated
-  conversations/day) until your quality rating and limits ramp up.
-- Only the live-auction sale path (`finalizePlayerSale`) triggers a message.
-  Admin reassignments in `convex/admin.ts` do **not** — wire the same scheduler
-  call there if you want those covered too.
-- Delivery status webhooks, retries, and a per-player "notified" flag (to avoid
-  duplicate sends on re-runs) are not implemented — add if needed.
+  conversations/day) until your quality rating and limits ramp up. A big
+  registration day can hit that; messages over the limit fail and can be resent.
+- Only the live-auction sale path (`finalizePlayerSale`) sends "sold". Admin
+  reassignments in `convex/admin.ts` do **not**.
+- Players added by the organiser (not through the form) get no registration
+  messages; they never opted in.

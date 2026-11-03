@@ -5,6 +5,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { toast } from 'sonner';
+import { formatCurrency } from '@/lib/utils';
 import {
   PlayerFormModal,
   PlayerFormFields,
@@ -127,7 +128,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
         basePricePlaceholder={inheritedPlaceholder(formData.categoryId, tournament?.settings)}
         basePriceHint={
           formData.basePrice
-            ? `Overridden: ₹${(formData.basePrice / 100000).toFixed(2)}L`
+            ? `Overridden: ${formatCurrency(formData.basePrice)}`
             : 'Leave empty to inherit'
         }
       />

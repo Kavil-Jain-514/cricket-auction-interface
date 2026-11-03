@@ -1,4 +1,5 @@
-// convex/razorpaySignature.ts - Razorpay webhook signature check. Pure Web
+// convex/razorpaySignature.ts - Razorpay and Meta (WhatsApp) webhook
+// signature checks: both are a hex HMAC-SHA256 of the raw body. Pure Web
 // Crypto (no Node APIs), so it runs in Convex HTTP actions.
 
 function toHex(buffer: ArrayBuffer): string {
@@ -32,4 +33,13 @@ export async function verifyRazorpaySignature(
   );
   const expected = toHex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody)));
   return safeEqual(expected, signature.trim().toLowerCase());
+}
+
+/**
+ * True when `header` (X-Hub-Signature-256, "sha256=<hex>") is the HMAC-SHA256
+ * of the raw request body under the Meta app secret.
+ */
+export async function verifyMetaSignature(rawBody: string, header: string | null, appSecret: string): Promise<boolean> {
+  if (!header?.startsWith("sha256=")) return false;
+  return await verifyRazorpaySignature(rawBody, header.slice("sha256=".length), appSecret);
 }

@@ -2,7 +2,7 @@
 
 import { use, useState } from 'react';
 import { useAction, useMutation, useQuery } from 'convex/react';
-import { Activity, Check, CheckCircle2, ImageUp, QrCode, Tag, Trophy, Upload, UserRound, Wallet } from 'lucide-react';
+import { Activity, Check, CheckCircle2, ClipboardList, ImageUp, QrCode, Tag, Trophy, Upload, UserRound, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -14,6 +14,10 @@ import { Field, FormDivider, SectionHeading, formInputCls } from '@/components/u
 import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { PLAYER_ROLES, cn, getErrorMessage, getRoleBadgeBg } from '@/lib/utils';
 import { openRazorpayCheckout } from '@/lib/razorpayCheckout';
+import { formatRupees } from '@/convex/bidRules';
+import { validateAnswers } from '@/convex/registrationForm';
+import { CustomQuestions, answersToSubmit, type AnswerMap } from '@/components/registration/CustomQuestions';
+import { SponsorBand } from '@/components/registration/SponsorBand';
 
 // Same limits as /api/upload.
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -48,6 +52,8 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
     website: '', // honeypot: hidden from people, filled by bots
   });
   const [photoUrl, setPhotoUrl] = useState<string | undefined>();
+  const [answers, setAnswers] = useState<AnswerMap>({});
+  const [answerErrors, setAnswerErrors] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState<'photo' | 'proof' | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<Done | null>(null);
@@ -123,6 +129,17 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (form.role.length === 0) return toast.error('Choose at least one role');
+    // The organiser's questions: the same check the server runs.
+    const customForm = info?.form ?? null;
+    const values = customForm ? answersToSubmit(customForm.questions, answers) : [];
+    if (customForm) {
+      const { errors } = validateAnswers(customForm.questions, values);
+      setAnswerErrors(Object.fromEntries(errors.map((err) => [err.questionId, err.message])));
+      if (errors.length > 0) {
+        document.getElementById(`cq-${errors[0].questionId}`)?.focus();
+        return toast.error(errors[0].message);
+      }
+    }
     setSubmitting(true);
     try {
       const res = await submit({
@@ -138,6 +155,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         categoryId: form.categoryId || undefined,
         photoUrl,
         consentWhatsApp: form.consentWhatsApp,
+        answers: customForm ? { formVersion: customForm.version, values } : undefined,
         website: form.website,
       });
       setDone({ registrationId: res.registrationId, needsPayment: res.needsPayment, fee: res.fee, step: res.needsPayment ? 'choose' : 'paid' });
@@ -201,19 +219,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
               {info?.description && <p className="mt-1 text-sm text-slate-300 line-clamp-3">{info.description}</p>}
             </div>
           </div>
-          {sponsors.length > 0 && (
-            <div className="border-t border-white/10 bg-black/20 px-5 py-3">
-              <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-widest text-slate-400 sm:text-left">Supported by</p>
-              <ul className="flex flex-wrap items-center justify-center gap-3 sm:justify-start">
-                {sponsors.map((s) => (
-                  <li key={s.name} className="flex items-center gap-2 rounded-lg bg-white/5 px-2.5 py-1.5">
-                    {s.logoUrl && <ImgWithFallback src={s.logoUrl} alt="" className="h-7 w-7 rounded object-contain" fallback={null} />}
-                    <span className="text-sm font-medium text-slate-200">{s.name}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <SponsorBand sponsors={sponsors} />
         </header>
         {children}
       </div>
@@ -225,7 +231,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   }
 
   if (done) {
-    const fee = `₹${done.fee.toLocaleString('en-IN')}`;
+    const fee = formatRupees(done.fee);
     return shell(
       <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4 text-center">
         {done.step === 'paid' && (
@@ -289,7 +295,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
     <form onSubmit={handleSubmit} className="space-y-5 rounded-2xl border border-slate-800 bg-slate-900 p-5">
       {info.fee > 0 && (
         <p className="rounded-lg bg-blue-500/10 px-3 py-2 text-sm text-blue-200">
-          Registration fee: ₹{info.fee.toLocaleString('en-IN')}, paid after you submit{info.paymentQrUrl ? ' by scanning the organiser’s QR' : ''} or in person.
+          Registration fee: {formatRupees(info.fee)}, paid after you submit{info.paymentQrUrl ? ' by scanning the organiser’s QR' : ''} or in person.
         </p>
       )}
 
@@ -340,7 +346,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
                   aria-pressed={on}
                   onClick={() => patch({ role: on ? form.role.filter((x) => x !== r) : [...form.role, r] })}
                   className={cn(
-                    'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition',
+                    'inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition',
                     on ? cn(getRoleBadgeBg(r), 'border-transparent text-white shadow-sm') : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700',
                   )}
                 >
@@ -366,7 +372,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
                     aria-pressed={on}
                     onClick={() => patch({ categoryId: on ? '' : c.id })}
                     className={cn(
-                      'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition',
+                      'inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition',
                       on ? 'border-blue-500 bg-blue-600 text-white shadow' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700',
                     )}
                   >
@@ -389,7 +395,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
                   key={hand}
                   type="button"
                   onClick={() => patch({ battingBowlingHand: hand })}
-                  className={cn('h-9 rounded-md text-sm font-medium transition', selected ? 'bg-blue-600 text-white shadow' : 'text-slate-300 hover:text-white')}
+                  className={cn('h-11 rounded-md text-sm font-medium transition', selected ? 'bg-blue-600 text-white shadow' : 'text-slate-300 hover:text-white')}
                 >
                   {hand}
                 </button>
@@ -414,6 +420,25 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         </div>
       </section>
 
+      {info.form && info.form.questions.length > 0 && (
+        <>
+          <FormDivider />
+          <section className="space-y-4">
+            <SectionHeading icon={ClipboardList} title="More details" />
+            <CustomQuestions
+              questions={info.form.questions}
+              answers={answers}
+              errors={answerErrors}
+              onChange={(id, value) => {
+                setAnswers((a) => ({ ...a, [id]: value }));
+                setAnswerErrors(({ [id]: _cleared, ...rest }) => rest);
+              }}
+              uploadFile={uploadImage}
+            />
+          </section>
+        </>
+      )}
+
       {/* Honeypot: off-screen and skipped by keyboards and screen readers. */}
       <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">
         <label>Website<input tabIndex={-1} autoComplete="off" value={form.website} onChange={(e) => patch({ website: e.target.value })} /></label>
@@ -423,9 +448,9 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
 
       <label className="flex items-start gap-2 text-sm text-slate-300">
         <input type="checkbox" checked={form.consentWhatsApp} onChange={(e) => patch({ consentWhatsApp: e.target.checked })} className="mt-1 accent-blue-600" />
-        <span>I agree to get WhatsApp messages about this tournament from the organiser and Bid11Pro, such as which team bought me.</span>
+        <span>Send me WhatsApp updates on this number: that I&apos;m registered, when I&apos;m approved, and which team bought me.</span>
       </label>
-      <p className="text-xs text-slate-500">Your phone number is only shared with the organiser.</p>
+      <p className="text-xs text-slate-400">Your phone number is only shared with the organiser. Reply STOP on WhatsApp at any time to stop the messages.</p>
 
       <Button type="submit" disabled={submitting || uploading !== null} className="w-full h-11">
         {submitting ? 'Submitting…' : 'Register'}

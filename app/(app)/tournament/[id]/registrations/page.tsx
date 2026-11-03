@@ -3,7 +3,7 @@
 import { use, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery } from 'convex/react';
-import { ArrowLeft, Copy, AlertTriangle, ImageIcon, X } from 'lucide-react';
+import { ArrowLeft, Copy, AlertTriangle, FileSpreadsheet, ImageIcon, ListChecks, MessageCircle, RotateCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -13,6 +13,8 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { getErrorMessage, getRoleDisplay } from '@/lib/utils';
+import { formatRupees } from '@/convex/bidRules';
+import { buildRegistrationRows, formatAnswer } from '@/lib/registrationsWorkbook';
 
 type Status = 'pending_payment' | 'paid' | 'approved' | 'rejected';
 const FILTERS: Array<{ key: Status | 'all'; label: string }> = [
@@ -23,6 +25,14 @@ const FILTERS: Array<{ key: Status | 'all'; label: string }> = [
   { key: 'all', label: 'All' },
 ];
 const PAYMENT_LABEL = { razorpay: 'paid online', qr: 'paid by QR', offline: 'paying offline' } as const;
+const MESSAGE_STATUS = {
+  queued: { label: 'sending', cls: 'bg-slate-800 text-slate-300' },
+  sending: { label: 'sending', cls: 'bg-slate-800 text-slate-300' },
+  sent: { label: 'sent', cls: 'bg-blue-500/15 text-blue-300' },
+  delivered: { label: 'delivered', cls: 'bg-green-500/15 text-green-300' },
+  failed: { label: 'failed', cls: 'bg-red-500/15 text-red-300' },
+  skipped: { label: 'not sent', cls: 'bg-slate-800 text-slate-400' },
+} as const;
 const STATUS_LABEL: Record<Status, string> = {
   pending_payment: 'Awaiting payment',
   paid: 'Ready',
@@ -37,6 +47,19 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   const { canManage, isLoading } = useTournamentRole(tournamentId);
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const rows = useQuery(api.registrations.list, canManage ? { tournamentId } : 'skip');
+  const form = useQuery(api.registrationForms.get, canManage ? { tournamentId } : 'skip');
+  const messages = useQuery(api.notifications.listForTournament, canManage ? { tournamentId } : 'skip');
+  const resendMessage = useMutation(api.notifications.resend);
+  // WhatsApp messages per registration ("received", then "approved").
+  const messagesByRegistration = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof messages>>();
+    for (const m of messages ?? []) {
+      if (!m.registrationId) continue;
+      map.set(m.registrationId, [...(map.get(m.registrationId) ?? []), m]);
+    }
+    return map;
+  }, [messages]);
+  const labels = form?.labels ?? {};
   const approve = useMutation(api.registrations.approve);
   const reject = useMutation(api.registrations.reject);
   const bulkApprove = useMutation(api.registrations.bulkApprove);
@@ -53,6 +76,22 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   const shown = useMemo(() => (rows ?? []).filter((r) => filter === 'all' || r.status === filter), [rows, filter]);
   const readyCount = (rows ?? []).filter((r) => r.status === 'paid').length;
   const link = typeof window !== 'undefined' ? `${window.location.origin}/register/${tournamentId}` : '';
+
+  const exportRows = async () => {
+    if (!rows) return;
+    try {
+      const XLSX = await import('xlsx');
+      const data = buildRegistrationRows(rows, labels);
+      const workbook = XLSX.utils.book_new();
+      const sheet = XLSX.utils.aoa_to_sheet(data);
+      sheet['!cols'] = data[0].map((_, col) => ({ wch: Math.min(40, Math.max(...data.map((r) => String(r[col] ?? '').length), 8) + 2) }));
+      XLSX.utils.book_append_sheet(workbook, sheet, 'Registrations');
+      const safeName = (tournament?.name ?? 'tournament').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '') || 'tournament';
+      XLSX.writeFile(workbook, `${safeName}_registrations.xlsx`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to export registrations'));
+    }
+  };
 
   const run = async (key: string, fn: () => Promise<unknown>, ok: string) => {
     setBusy(key);
@@ -101,7 +140,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
             <h1 className="text-2xl sm:text-3xl font-bold">Registrations</h1>
             <p className="text-sm text-slate-400">
               Registration is {tournament?.settings.registrationOpen ? 'open' : 'closed'}
-              {tournament?.settings.registrationFee ? ` · fee ₹${tournament.settings.registrationFee.toLocaleString('en-IN')}` : ' · free'}. Change it in Settings.
+              {tournament?.settings.registrationFee ? ` · fee ${formatRupees(tournament.settings.registrationFee)}` : ' · free'}. Change it in Settings.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -111,6 +150,14 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
               className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white"
             >
               <Copy className="w-4 h-4" /> Copy form link
+            </Button>
+            <Button asChild variant="outline" className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
+              <Link href={`/tournament/${tournamentId}/registration-form`}>
+                <ListChecks className="w-4 h-4" /> Edit form &amp; share
+              </Link>
+            </Button>
+            <Button variant="outline" onClick={exportRows} disabled={!rows || rows.length === 0} className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
+              <FileSpreadsheet className="w-4 h-4" /> Export (.xlsx)
             </Button>
             <Button onClick={handleBulk} disabled={readyCount === 0 || busy !== null}>Approve all ready ({readyCount})</Button>
           </div>
@@ -144,6 +191,48 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                   {r.paymentRef ? ` (${r.paymentRef})` : ''}
                   {r.rejectReason ? ` · ${r.rejectReason}` : ''}
                 </div>
+                {(messagesByRegistration.get(r._id) ?? []).length > 0 && (
+                  <ul className="mt-1 flex flex-wrap gap-1.5" aria-label={`WhatsApp messages to ${r.name}`}>
+                    {(messagesByRegistration.get(r._id) ?? []).map((m) => (
+                      <li key={m._id} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${MESSAGE_STATUS[m.status].cls}`} title={m.lastError}>
+                        <MessageCircle className="h-3 w-3" aria-hidden />
+                        {m.kind === 'registration_approved' ? 'Approval' : m.kind === 'registration_received' ? 'Confirmation' : 'Sold'}: {MESSAGE_STATUS[m.status].label}
+                        {m.status === 'failed' && (
+                          <button
+                            type="button"
+                            disabled={busy !== null}
+                            onClick={() => run(m._id, () => resendMessage({ notificationId: m._id }), 'Message queued again')}
+                            className="ml-1 inline-flex items-center gap-0.5 font-semibold underline-offset-2 hover:underline"
+                          >
+                            <RotateCw className="h-3 w-3" aria-hidden /> Resend
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {r.answers && r.answers.values.length > 0 && (
+                  <details className="mt-2 text-sm">
+                    <summary className="cursor-pointer text-xs font-medium text-blue-300 hover:text-blue-200">Answers ({r.answers.values.length})</summary>
+                    <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-[auto_1fr]">
+                      {r.answers.values.map((a) => {
+                        const q = labels[a.questionId];
+                        return (
+                          <div key={a.questionId} className="contents">
+                            <dt className="text-slate-400">{q?.label ?? 'Removed question'}{q?.archived ? ' (archived)' : ''}</dt>
+                            <dd className="min-w-0 break-words text-slate-200">
+                              {q?.type === 'file' && typeof a.value === 'string' ? (
+                                <a href={a.value} target="_blank" rel="noopener noreferrer" className="text-blue-300 underline">View image</a>
+                              ) : (
+                                formatAnswer(a.value, q?.type)
+                              )}
+                            </dd>
+                          </div>
+                        );
+                      })}
+                    </dl>
+                  </details>
+                )}
               </div>
               {r.paymentProofUrl && (
                 <Button size="sm" variant="outline" onClick={() => setProofUrl(r.paymentProofUrl!)} className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
