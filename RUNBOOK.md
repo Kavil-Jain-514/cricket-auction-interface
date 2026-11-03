@@ -169,6 +169,25 @@ The **frontend (Vercel)** and **backend (Convex)** deploy separately — check w
   them back on. Someone with the form already open when you switch it off still registers; their custom
   answers just aren't saved.
 
+## Invite emails (Resend)
+
+- **What is sent:** the team-owner invite link, when the organiser types the owner's email in *Owners → Email
+  invite*, and "you've been added" when someone is made an auctioneer or owner (Settings → Staff).
+- **Setup (one time):** create a Resend account, add and verify your sending domain (DNS records Resend shows
+  you), create an API key, then in the **Convex** env:
+  `npx convex env set RESEND_API_KEY re_...`,
+  `npx convex env set EMAIL_FROM "Bid11Pro <no-reply@your-domain>"` (must be on the verified domain), and for any
+  deployment that isn't `https://bid11pro.kaviljain.com`, `npx convex env set APP_URL <its URL>` so links point
+  at the right site (`http://localhost:3000` on dev).
+- Without the key or sender, invites still work; the email is just recorded as *not sent*. Local development:
+  `npx convex env set EMAIL_PROVIDER log` prints emails to the Convex logs instead. Off switch:
+  `npx convex env set EMAIL_ENABLED false`.
+- Sends retry on Resend outages (30 s up to 4 min, 5 tries); a 4xx (bad address, unverified domain) fails at
+  once. The organiser sees *sent / sending / not delivered* on each open invite; queue health is on /admin/live.
+  A failed invite email can't be resent (the link is never stored), so create a new invite.
+- Each organiser can email at most 30 invites an hour. The one-time link is deleted from the outbox as soon as it
+  is sent; an invite revoked before then is never emailed.
+
 ## Deleting a tournament
 
 - Owner or super-admin only, never while the auction is live or paused, and only with the name typed. A snapshot

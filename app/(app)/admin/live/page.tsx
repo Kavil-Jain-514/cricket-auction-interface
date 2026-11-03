@@ -2,11 +2,11 @@
 
 // Super-admin live-ops panel (AUDIT 2026-10 Phase 5): running rooms and who
 // has a console or owner paddle open, recent client errors, the Razorpay
-// webhook log, the WhatsApp queue, refunds due and deleted-tournament files. Viewer counts are not
+// webhook log, the WhatsApp and email queues, refunds due and deleted-tournament files. Viewer counts are not
 // tracked per client (D2); use the Convex dashboard for those.
 
 import { useQuery } from 'convex/react';
-import { AlertTriangle, MessageCircle, Radio, Receipt, Trash2, Wallet } from 'lucide-react';
+import { AlertTriangle, Mail, MessageCircle, Radio, Receipt, Trash2, Wallet } from 'lucide-react';
 import { api } from '@/convex/_generated/api';
 
 const time = (ms: number) => new Date(ms).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -25,6 +25,7 @@ function Card({ title, icon: Icon, children }: { title: string; icon: typeof Rad
 export default function AdminLivePage() {
   const data = useQuery(api.ops.liveOverview);
   const files = useQuery(api.fileCleanup.stats);
+  const emails = useQuery(api.emails.stats);
   if (data === undefined) return <p className="text-sm text-slate-400">Loading…</p>;
 
   return (
@@ -93,6 +94,15 @@ export default function AdminLivePage() {
         </p>
         <p className="mt-1 text-xs text-slate-400">Payments that arrived but could not be applied. Refund them in the Razorpay dashboard.</p>
       </Card>
+
+      {emails && (
+        <Card title="Invite emails" icon={Mail}>
+          <p className="text-sm">
+            {emails.queued} queued · <span className={emails.failed > 0 ? 'text-red-300' : ''}>{emails.failed} failed</span>
+          </p>
+          {emails.lastError && <p className="mt-1 break-all text-xs text-slate-400">Last failure: {emails.lastError}</p>}
+        </Card>
+      )}
 
       {files && (
         <Card title="Deleted tournaments: stored files" icon={Trash2}>

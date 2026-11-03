@@ -11,8 +11,12 @@ import {
   requireTournamentRole,
 } from "./auth";
 import { intentAfterClaimingInvite } from "./policy";
+import { appUrl, enqueueEmail } from "./emails";
+import { consumeRateLimit } from "./rateLimit";
+import { normalizeEmail } from "./validation";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const INVITE_EMAIL_LIMIT = { limit: 30, windowMs: 60 * 60 * 1000 };
 
 /** Hex SHA-256 of an invite token. Only this hash is ever stored. */
 async function hashInviteToken(token: string): Promise<string> {
@@ -54,13 +58,26 @@ export async function getOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> {
   return (await ctx.db.get(userId))!;
 }
 
-/** Create a one-time owner invite for a team (admin only). Valid for 7 days. */
+/**
+ * Create a one-time owner invite for a team (owners only). Valid for 7 days.
+ * With `email`, the link is also emailed to the owner (emails.ts); invite
+ * emails are capped per organiser so this can't be used to spam addresses.
+ */
 export const createInvite = mutation({
-  args: { teamId: v.id("teams") },
+  args: { teamId: v.id("teams"), email: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const team = await ctx.db.get(args.teamId);
     if (!team) throw new Error("Team not found");
     const admin = await requireTournamentRole(ctx, team.tournamentId, OWNER_ONLY);
+
+    let email: string | undefined;
+    if (args.email?.trim()) {
+      email = normalizeEmail(args.email) ?? undefined;
+      if (!email) throw new Error("Enter a valid email address, or leave it empty to just copy the link");
+      if (!(await consumeRateLimit(ctx, `invite-email:${admin._id}`, INVITE_EMAIL_LIMIT))) {
+        throw new Error("Too many invite emails in the last hour. Copy the link instead, or try again later.");
+      }
+    }
 
     const token = generateInviteToken();
     const expiresAt = Date.now() + INVITE_TTL_MS;
@@ -70,7 +87,25 @@ export const createInvite = mutation({
       tokenHash: await hashInviteToken(token),
       expiresAt,
       createdBy: admin._id,
+      email,
     });
+    if (email) {
+      const tournament = await ctx.db.get(team.tournamentId);
+      await enqueueEmail(ctx, {
+        kind: "team_owner_invite",
+        dedupeKey: `invite:${inviteId}`,
+        tournamentId: team.tournamentId,
+        to: email,
+        inviteId,
+        payload: {
+          teamName: team.name,
+          tournamentName: tournament?.name ?? "the tournament",
+          inviterName: admin.name || admin.email,
+          link: `${appUrl()}/join/${token}`,
+          expiresAt,
+        },
+      });
+    }
 
     await logAdminAction(ctx, {
       userId: admin._id,
@@ -196,6 +231,17 @@ export const listMembers = query({
 
     const users = await Promise.all(members.map((m) => ctx.db.get(m.userId)));
     const now = Date.now();
+    // Whether each emailed invite went out ("queued" until the worker sends it).
+    const emailStatuses = new Map(
+      await Promise.all(
+        invites
+          .filter((inv) => inv.email)
+          .map(async (inv) => {
+            const row = await ctx.db.query("emails").withIndex("by_dedupe", (q) => q.eq("dedupeKey", `invite:${inv._id}`)).first();
+            return [inv._id, row?.status] as const;
+          }),
+      ),
+    );
 
     return {
       members: members.map((m, i) => ({
@@ -212,7 +258,7 @@ export const listMembers = query({
             inv.revokedAt === undefined &&
             inv.expiresAt > now,
         )
-        .map((inv) => ({ _id: inv._id, expiresAt: inv.expiresAt })),
+        .map((inv) => ({ _id: inv._id, expiresAt: inv.expiresAt, email: inv.email, emailStatus: emailStatuses.get(inv._id) })),
     };
   },
 });

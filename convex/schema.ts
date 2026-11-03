@@ -352,6 +352,44 @@ export default defineSchema({
     .index("by_tournament", ["tournamentId"])
     .index("by_messageId", ["messageId"]),
 
+  // Email outbox (convex/emails.ts), sent through Resend by a worker. One row
+  // per invite or staff addition (dedupeKey). A team-owner invite's one-time
+  // link sits in `payload.link` only until it is sent or abandoned.
+  emails: defineTable({
+    kind: v.union(v.literal("team_owner_invite"), v.literal("staff_added")),
+    dedupeKey: v.string(), // "invite:<inviteId>", "staff:<tournamentStaffId>"
+    tournamentId: v.id("tournaments"),
+    to: v.string(),
+    inviteId: v.optional(v.id("teamInvites")),
+    payload: v.union(
+      v.object({
+        teamName: v.string(),
+        tournamentName: v.string(),
+        inviterName: v.string(),
+        link: v.optional(v.string()),
+        expiresAt: v.number(),
+      }),
+      v.object({
+        tournamentId: v.id("tournaments"),
+        tournamentName: v.string(),
+        inviterName: v.string(),
+        inviteeName: v.optional(v.string()),
+        role: v.union(v.literal("owner"), v.literal("auctioneer")),
+      }),
+    ),
+    status: v.union(v.literal("queued"), v.literal("sending"), v.literal("sent"), v.literal("failed"), v.literal("skipped")),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    providerId: v.optional(v.string()),
+    createdAt: v.number(),
+    sentAt: v.optional(v.number()),
+  })
+    .index("by_dedupe", ["dedupeKey"])
+    .index("by_status_next", ["status", "nextAttemptAt"])
+    .index("by_tournament", ["tournamentId"]),
+
   // Numbers that replied STOP to our WhatsApp messages (E.164 digits). Never
   // messaged again until they reply START.
   whatsappOptOuts: defineTable({
@@ -482,6 +520,8 @@ export default defineSchema({
     usedBy: v.optional(v.id("users")),
     usedAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
+    // Where the link was emailed, when the organiser gave an address (emails table).
+    email: v.optional(v.string()),
   })
     .index("by_tokenHash", ["tokenHash"])
     .index("by_team", ["teamId"]),

@@ -4,9 +4,10 @@ import { useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Doc, Id } from '@/convex/_generated/dataModel';
-import { X, Copy, MessageCircle, UserPlus, Trash2 } from 'lucide-react';
+import { X, Copy, Mail, MessageCircle, UserPlus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { getErrorMessage } from '@/lib/utils';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
@@ -28,13 +29,19 @@ export function TeamOwnersModal({ team, onClose }: TeamOwnersModalProps) {
   const confirm = useConfirm();
 
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async () => {
     setCreating(true);
     try {
-      const { token } = await createInvite({ teamId: team._id });
+      const email = inviteEmail.trim();
+      const { token } = await createInvite({ teamId: team._id, email: email || undefined });
       setInviteLink(`${window.location.origin}/join/${token}`);
+      if (email) {
+        toast.success(`Invite emailed to ${email}`);
+        setInviteEmail('');
+      }
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to create invite'));
     } finally {
@@ -118,9 +125,30 @@ export function TeamOwnersModal({ team, onClose }: TeamOwnersModalProps) {
               </div>
             </div>
           ) : (
-            <Button type="button" onClick={handleCreate} disabled={creating} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
-              <UserPlus /> {creating ? 'Creating…' : 'Invite owner'}
-            </Button>
+            <form
+              className="space-y-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleCreate();
+              }}
+            >
+              <label htmlFor="owner-invite-email" className="text-xs text-slate-400">
+                Owner&apos;s email (optional). We&apos;ll email them the link; you can also copy it or send it on WhatsApp.
+              </label>
+              <Input
+                id="owner-invite-email"
+                type="email"
+                inputMode="email"
+                autoComplete="off"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="owner@example.com"
+                className="h-11"
+              />
+              <Button type="submit" disabled={creating} className="min-h-11 w-full bg-blue-600 hover:bg-blue-700 text-white">
+                {inviteEmail.trim() ? <Mail /> : <UserPlus />} {creating ? 'Creating…' : inviteEmail.trim() ? 'Email invite' : 'Create invite link'}
+              </Button>
+            </form>
           )}
         </div>
 
@@ -157,8 +185,14 @@ export function TeamOwnersModal({ team, onClose }: TeamOwnersModalProps) {
             <h3 className="text-sm font-semibold text-slate-300">Unused invites</h3>
             {listing.invites.map((inv) => (
               <div key={inv._id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-800/60 px-3 py-2">
-                <span className="text-xs text-slate-400">
-                  Expires {new Date(inv.expiresAt).toLocaleDateString()}
+                <span className="min-w-0 text-xs text-slate-400">
+                  {inv.email && (
+                    <span className="block truncate text-slate-300">
+                      Emailed to {inv.email}
+                      {inv.emailStatus === 'failed' ? ' · not delivered' : inv.emailStatus === 'sent' ? ' · sent' : inv.emailStatus === 'skipped' ? ' · not sent' : ' · sending'}
+                    </span>
+                  )}
+                  Expires {new Date(inv.expiresAt).toLocaleDateString('en-IN')}
                 </span>
                 <button
                   onClick={() => handleRevoke(inv._id)}

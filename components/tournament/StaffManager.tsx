@@ -38,7 +38,7 @@ export function StaffManager({ tournamentId }: { tournamentId: Id<"tournaments">
     setBusy(true);
     try {
       await addStaff({ tournamentId, email, role });
-      toast.success(`${email.trim()} added as ${role}`);
+      toast.success(`${email.trim()} added as ${role}. We've emailed them.`);
       setEmail('');
     } catch (error) {
       toast.error(getErrorMessage(error, 'Could not add them'));

@@ -17,6 +17,7 @@ import type * as bidCore from "../bidCore.js";
 import type * as bidRules from "../bidRules.js";
 import type * as cloudinarySignature from "../cloudinarySignature.js";
 import type * as crons from "../crons.js";
+import type * as emails from "../emails.js";
 import type * as fileCleanup from "../fileCleanup.js";
 import type * as groupDraws from "../groupDraws.js";
 import type * as http from "../http.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   bidRules: typeof bidRules;
   cloudinarySignature: typeof cloudinarySignature;
   crons: typeof crons;
+  emails: typeof emails;
   fileCleanup: typeof fileCleanup;
   groupDraws: typeof groupDraws;
   http: typeof http;

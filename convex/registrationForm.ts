@@ -5,7 +5,7 @@
 // server can never disagree on what is valid.
 import { v } from "convex/values";
 import { isWholeRupees } from "./bidRules";
-import { normalizePhone } from "./validation";
+import { normalizeEmail, normalizePhone } from "./validation";
 
 export const QUESTION_TYPES = [
   "short_text",
@@ -72,7 +72,6 @@ export type Answer = { questionId: string; value: AnswerValue };
 const ID_PATTERN = /^q_[a-z0-9]{1,24}$/;
 // Control characters (except tab and newline) never belong in form text.
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 // Only files uploaded through the form's own signed upload (registrations
 // folder on our Cloudinary account) are accepted as answers.
@@ -188,8 +187,8 @@ function checkAnswer(q: Question, value: AnswerValue): { value: AnswerValue } | 
     }
     case "email": {
       if (typeof value !== "string") return bad("enter an email address");
-      const email = cleanText(value).toLowerCase();
-      return email.length <= 254 && EMAIL.test(email) ? { value: email } : bad("enter a valid email address");
+      const email = normalizeEmail(cleanText(value));
+      return email ? { value: email } : bad("enter a valid email address");
     }
     case "file":
       return typeof value === "string" && value.startsWith(UPLOAD_PREFIX) && value.includes(UPLOAD_FOLDER)
