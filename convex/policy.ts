@@ -46,3 +46,25 @@ export function intentAfterClaimingInvite(user: Doc<"users">): Intent | null {
 export function canUploadTournamentLogo(access: TournamentAccess): boolean {
   return access === "super_admin" || access === "owner";
 }
+
+/** Who is asking to upload: the parts of auth:me and their staff roles. */
+export type Uploader = {
+  isAdmin: boolean;
+  accountType?: Intent;
+  canCreateTournament: boolean;
+  staffRoles: Array<"owner" | "auctioneer">;
+};
+
+/**
+ * Which upload folders (lib/cloudinary UPLOAD_FOLDERS keys) someone may write
+ * to through /api/upload. Tournament images (logo, sponsors, payment QR) are
+ * the owner's; an organiser may upload one while creating a tournament.
+ * Team logos also come from team owners requesting a team.
+ */
+export function canUploadToFolder(who: Uploader, folder: string): boolean {
+  if (who.isAdmin) return true;
+  const isStaff = who.staffRoles.length > 0;
+  if (folder === "tournaments") return who.canCreateTournament || who.staffRoles.includes("owner");
+  if (folder === "teams") return isStaff || who.accountType === "team_owner";
+  return isStaff;
+}

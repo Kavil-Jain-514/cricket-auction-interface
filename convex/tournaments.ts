@@ -26,7 +26,7 @@ import {
 } from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { initialPlan } from "./plans";
-import { canCreateTournament, isSuperAdmin } from "./policy";
+import { canCreateTournament, canUploadTournamentLogo, isSuperAdmin } from "./policy";
 import { takeSnapshot } from "./snapshots";
 import {
   confirmsTournamentName,
@@ -39,6 +39,13 @@ import {
   validateSquadRules,
   validateTournamentName,
 } from "./validation";
+
+/** Logos must come from our own upload (Cloudinary over https). */
+function assertUploadedLogo(logoUrl: string | undefined) {
+  if (logoUrl !== undefined && !logoUrl.startsWith("https://res.cloudinary.com/")) {
+    throw new Error("Upload the logo with the logo button");
+  }
+}
 
 // Who may bid (see schema.ts). Not a locked setting: the auctioneer can fall
 // back to "admin_only" mid-auction.
@@ -87,6 +94,7 @@ export const create = mutation({
     }
     const rulesError = validateRuleSettings(args.settings);
     if (rulesError) throw new Error(rulesError);
+    assertUploadedLogo(args.logoUrl);
 
     const footer = normalizeFooterText(args.settings.footerText);
     if (!footer.ok) throw new Error(footer.error);
@@ -470,6 +478,12 @@ export const update = mutation({
     const tournament = await ctx.db.get(args.id);
     if (!tournament) throw new Error("Tournament not found");
     const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
+    if (args.logoUrl !== undefined && args.logoUrl !== tournament.logoUrl) {
+      if (!canUploadTournamentLogo(await getTournamentRole(ctx, args.id, admin))) {
+        throw new Error("Only the tournament's owner can change its logo");
+      }
+      assertUploadedLogo(args.logoUrl);
+    }
 
     // Cannot edit completed tournaments
     if (tournament.status === "completed") {

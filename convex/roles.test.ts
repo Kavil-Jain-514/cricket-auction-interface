@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import type { Doc } from "./_generated/dataModel";
-import { canCreateTournament, canUploadTournamentLogo, intentOf, type TournamentAccess } from "./policy";
+import { canCreateTournament, canUploadToFolder, canUploadTournamentLogo, intentOf, type TournamentAccess, type Uploader } from "./policy";
 
 // Signup intent and the account-level policy (organiser / team owner / viewer).
 // Fixtures follow auctions.test.ts (see there for why _generated stays in the glob).
@@ -166,5 +166,68 @@ describe("team owner scoping", () => {
     const { token } = await t.withIdentity(ORG).mutation(api.members.createInvite, { teamId });
     await asUser.mutation(api.members.claimInvite, { token });
     expect((await asUser.query(api.tournaments.listForTeamOwner, {})).map((r) => r.teamName)).toEqual(["Strikers"]);
+  });
+});
+
+describe("canUploadToFolder", () => {
+  const who = (over: Partial<Uploader>): Uploader => ({ isAdmin: false, canCreateTournament: false, staffRoles: [], ...over });
+  const cases: Array<[string, Uploader, Record<string, boolean>]> = [
+    ["super-admin", who({ isAdmin: true }), { tournaments: true, teams: true, players: true }],
+    ["organiser creating their first tournament", who({ accountType: "organiser", canCreateTournament: true }), { tournaments: true, teams: false, players: false }],
+    ["a tournament's owner", who({ staffRoles: ["owner"] }), { tournaments: true, teams: true, players: true }],
+    ["an auctioneer only", who({ staffRoles: ["auctioneer"] }), { tournaments: false, teams: true, players: true }],
+    ["a team owner", who({ accountType: "team_owner" }), { tournaments: false, teams: true, players: false }],
+    ["a viewer", who({ accountType: "visitor" }), { tournaments: false, teams: false, players: false }],
+  ];
+  test.each(cases)("%s", (_label, uploader, expected) => {
+    for (const [folder, allowed] of Object.entries(expected)) expect([folder, canUploadToFolder(uploader, folder)]).toEqual([folder, allowed]);
+  });
+});
+
+describe("tournament logo", () => {
+  const OWNER = { email: "owner@test.com", subject: "owner|1" };
+  const AUCTIONEER = { email: "auctioneer@test.com", subject: "auctioneer|1" };
+  const LOGO = "https://res.cloudinary.com/demo/image/upload/v1/cricket-auction/tournaments/logo.png";
+
+  async function seed(t: ReturnType<typeof convexTest>) {
+    return await t.run(async (ctx) => {
+      const now = Date.now();
+      const owner = await ctx.db.insert("users", { email: OWNER.email, accountType: "organiser", accountTypeChosenAt: 1, createdAt: now });
+      const auctioneer = await ctx.db.insert("users", { email: AUCTIONEER.email, createdAt: now });
+      await ctx.db.insert("users", { email: SUPER.email, role: "admin", createdAt: now });
+      const id = await ctx.db.insert("tournaments", { name: "Logo Cup", createdBy: owner, status: "setup", settings: SETTINGS, createdAt: now, updatedAt: now });
+      await ctx.db.insert("tournamentStaff", { tournamentId: id, userId: owner, role: "owner", createdAt: now });
+      await ctx.db.insert("tournamentStaff", { tournamentId: id, userId: auctioneer, role: "auctioneer", createdAt: now });
+      return id;
+    });
+  }
+
+  test("the owner and the super-admin set it; an auctioneer can't", async () => {
+    const t = convexTest(schema, modules);
+    const id = await seed(t);
+    await t.withIdentity(OWNER).mutation(api.tournaments.update, { id, logoUrl: LOGO });
+    await t.withIdentity(SUPER).mutation(api.tournaments.update, { id, logoUrl: LOGO.replace("logo", "logo2") });
+    await expect(t.withIdentity(AUCTIONEER).mutation(api.tournaments.update, { id, logoUrl: LOGO })).rejects.toThrow(/access to this tournament/);
+    expect((await t.run((ctx) => ctx.db.get(id)))?.logoUrl).toBe(LOGO.replace("logo", "logo2"));
+  });
+
+  test.each(["https://evil.example/logo.png", "javascript:alert(1)", "http://res.cloudinary.com/x/logo.png"])(
+    "only uploaded images are accepted: %s",
+    async (logoUrl) => {
+      const t = convexTest(schema, modules);
+      const id = await seed(t);
+      await expect(t.withIdentity(OWNER).mutation(api.tournaments.update, { id, logoUrl })).rejects.toThrow(/Upload the logo/);
+      await expect(
+        t.withIdentity(OWNER).mutation(api.tournaments.create, { name: "Other Cup", logoUrl, settings: SETTINGS }),
+      ).rejects.toThrow(/Upload the logo/);
+    },
+  );
+
+  test("an unchanged legacy logo doesn't block other edits", async () => {
+    const t = convexTest(schema, modules);
+    const id = await seed(t);
+    await t.run((ctx) => ctx.db.patch(id, { logoUrl: "https://old-host.example/logo.png" }));
+    await t.withIdentity(OWNER).mutation(api.tournaments.update, { id, name: "Renamed Cup", logoUrl: "https://old-host.example/logo.png" });
+    expect((await t.run((ctx) => ctx.db.get(id)))?.name).toBe("Renamed Cup");
   });
 });
