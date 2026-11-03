@@ -16,6 +16,9 @@ import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { insertValidatedPlayer } from "./players";
 import { normalizePhone, validatePlayerFields } from "./validation";
 import { cloudinarySignature } from "./cloudinarySignature";
+import { answersValidator, validateAnswers } from "./registrationForm";
+import { customQuestionsEnabled, latestFormVersion } from "./registrationForms";
+import { enqueueRegistrationNotification } from "./notifications";
 
 const MAX_PER_PHONE_PER_DAY = 3;
 // Per tournament, whatever the phone: a spammer rotating numbers is capped,
@@ -48,15 +51,18 @@ function assertKnownCategory(tournament: Doc<"tournaments">, categoryId: string 
 }
 
 /**
- * Name, logo, sponsors, fee, payment QR, categories and whether the form is
- * open. Public and identity-free; nothing private.
+ * Name, logo, sponsors, fee, payment QR, categories, the organiser's own
+ * questions (archived ones left out) and whether the form is open. Public and
+ * identity-free; nothing private.
  */
 export const getPublicInfo = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament || tournament.isActive === false) return null;
+    const form = customQuestionsEnabled() ? await latestFormVersion(ctx, args.tournamentId) : null;
     return {
+      form: form ? { version: form.version, questions: form.questions.filter((q) => !q.archived) } : null,
       name: tournament.name,
       description: tournament.description,
       logoUrl: tournament.logoUrl,
@@ -96,6 +102,27 @@ export const getUploadSignature = action({
 });
 
 /**
+ * Validate the registrant's answers against the live form. They must answer
+ * the version they were shown; an edit since means a reload. Returns what to
+ * store (undefined when the tournament asks nothing of its own).
+ */
+async function checkAnswers(
+  ctx: MutationCtx,
+  tournamentId: Id<"tournaments">,
+  answers: Doc<"registrations">["answers"],
+): Promise<Doc<"registrations">["answers"]> {
+  if (!customQuestionsEnabled()) return undefined;
+  const form = await latestFormVersion(ctx, tournamentId);
+  if (answers && answers.formVersion !== (form?.version ?? 0)) {
+    throw new Error("The organiser just updated this form. Reload the page and fill it in again.");
+  }
+  if (!form) return undefined;
+  const { errors, cleaned } = validateAnswers(form.questions, answers?.values ?? []);
+  if (errors.length > 0) throw new Error(errors[0].message);
+  return cleaned.length > 0 ? { formVersion: form.version, values: cleaned } : undefined;
+}
+
+/**
  * Public, anonymous registration. Only player profile fields are accepted
  * (no auctionStatus, basePrice or category). `website` is a honeypot: humans
  * never see it, so anything in it means a bot, which gets a fake success.
@@ -114,6 +141,8 @@ export const submit = mutation({
     tshirtSize,
     categoryId: v.optional(v.string()),
     consentWhatsApp: v.boolean(),
+    // Answers to the organiser's own questions (registrationForm.ts).
+    answers: v.optional(answersValidator),
     website: v.string(),
   },
   handler: async (ctx, args) => {
@@ -127,7 +156,7 @@ export const submit = mutation({
       throw new Error("Too many registrations right now. Try again in a minute.");
     }
 
-    const { website: _honeypot, consentWhatsApp, tournamentId, categoryId, ...fields } = args;
+    const { website: _honeypot, consentWhatsApp, tournamentId, categoryId, answers: rawAnswers, ...fields } = args;
     const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
     if (errors.length > 0) throw new Error(errors[0].message);
     if (!phoneNumber) throw new Error("Phone number is required");
@@ -136,6 +165,7 @@ export const submit = mutation({
       throw new Error("Upload your photo with the form's photo button");
     }
     assertKnownCategory(tournament, categoryId);
+    const answers = await checkAnswers(ctx, tournamentId, rawAnswers);
 
     const now = Date.now();
     const samePhone = await ctx.db
@@ -168,10 +198,15 @@ export const submit = mutation({
       phoneNumber,
       categoryId,
       consentWhatsApp,
+      answers,
       status: fee > 0 ? "pending_payment" : "paid",
       fee,
       createdAt: now,
     });
+    // Only queues a message (if they opted in); sending happens elsewhere and
+    // can never fail the registration.
+    const registration = await ctx.db.get(registrationId);
+    if (registration) await enqueueRegistrationNotification(ctx, "registration_received", { registration, tournament });
     return { success: true as const, registrationId, needsPayment: fee > 0, fee };
   },
 });
@@ -425,6 +460,7 @@ async function approveOne(ctx: MutationCtx, registration: Doc<"registrations">, 
     consentWhatsApp: registration.consentWhatsApp,
   });
   await ctx.db.patch(registration._id, { status: "approved", playerId, reviewedAt: Date.now() });
+  await enqueueRegistrationNotification(ctx, "registration_approved", { registration, tournament, playerId });
   await logAdminAction(ctx, {
     userId: admin._id,
     userEmail: admin.email,

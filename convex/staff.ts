@@ -4,6 +4,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { getCurrentUser, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
+import { enqueueEmail } from "./emails";
 
 const staffRole = v.union(v.literal("owner"), v.literal("auctioneer"));
 
@@ -60,6 +61,21 @@ export const add = mutation({
       userId: user._id,
       role: args.role,
       createdAt: Date.now(),
+    });
+    // Let them know (queued; an email problem never undoes this).
+    const tournament = await ctx.db.get(args.tournamentId);
+    await enqueueEmail(ctx, {
+      kind: "staff_added",
+      dedupeKey: `staff:${staffId}`,
+      tournamentId: args.tournamentId,
+      to: user.email,
+      payload: {
+        tournamentId: args.tournamentId,
+        tournamentName: tournament?.name ?? "a tournament",
+        inviterName: owner.name || owner.email,
+        inviteeName: user.name,
+        role: args.role,
+      },
     });
     await logAdminAction(ctx, {
       userId: owner._id,

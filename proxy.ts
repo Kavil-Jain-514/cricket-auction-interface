@@ -18,6 +18,8 @@ const isProtectedRoute = createRouteMatcher([
   "/admin(.*)",
   // Owner invite links: sign in first, then the page claims the invite.
   "/join(.*)",
+  // Signup intent step (organiser / team owner / viewer).
+  "/welcome(.*)",
 ]);
 
 // Routes that are always public (auth pages, landing, API routes handled separately)

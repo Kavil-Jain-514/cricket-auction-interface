@@ -7,6 +7,8 @@ import { Id } from '@/convex/_generated/dataModel';
 import { Settings, Info, Trophy, Gavel, ClipboardList, Megaphone, Plus, Trash2, QrCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { AmountInput } from '@/components/ui/amount-input';
+import { parseAmount } from '@/lib/amount';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -17,6 +19,8 @@ import { validateCategories, validateIncrementSlabs, validateSquadRules } from '
 import type { SquadRule } from '@/convex/squadRules';
 import { bidTimerLabel, bidTimerOptions } from '@/lib/bidTimer';
 import { StaffManager } from './StaffManager';
+import { formatRupees } from '@/convex/bidRules';
+import { formatCurrency } from '@/lib/utils';
 import {
   AuctionRulesEditor,
   categoriesFromForm,
@@ -285,14 +289,14 @@ export function TournamentSettingsModal({
         <section>
           <SectionHeading icon={Gavel} title="Auction Settings" hint="base purse changes update every team" />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Base Purse per Team (₹) *" htmlFor="basePurse" error={fieldErrors.basePurse} hint={`₹${((parsed.basePurse || 0) / 100000).toFixed(1)}L per team`}>
-              <Input id="basePurse" type="number" required min="100000" step="100000" value={formData.basePurse} onChange={(e) => patch({ basePurse: e.target.value })} className={formInputCls} />
+            <Field label="Base Purse per Team (₹) *" htmlFor="basePurse" error={fieldErrors.basePurse} hint={`${formatCurrency(parsed.basePurse || 0)} per team`}>
+              <AmountInput id="basePurse" required value={parseAmount(String(formData.basePurse))} onValueChange={(n) => patch({ basePurse: n === undefined ? '' : String(n) })} className={formInputCls} />
             </Field>
-            <Field label="Minimum Bid Increment (₹) *" htmlFor="minBidIncrement" error={fieldErrors.minBidIncrement} hint={`₹${((parsed.minBidIncrement || 0) / 1000).toFixed(0)}K increment`}>
-              <Input id="minBidIncrement" type="number" required min="5000" step="5000" value={formData.minBidIncrement} onChange={(e) => patch({ minBidIncrement: e.target.value })} className={formInputCls} />
+            <Field label="Minimum Bid Increment (₹) *" htmlFor="minBidIncrement" error={fieldErrors.minBidIncrement} hint={`${formatRupees(parsed.minBidIncrement || 0)} increment`}>
+              <AmountInput id="minBidIncrement" required value={parseAmount(String(formData.minBidIncrement))} onValueChange={(n) => patch({ minBidIncrement: n === undefined ? '' : String(n) })} className={formInputCls} />
             </Field>
-            <Field label="Base Player Price (₹) *" htmlFor="basePrice" error={fieldErrors.basePrice} hint={`Default: ₹${((parsed.basePrice || 0) / 100000).toFixed(1)}L`}>
-              <Input id="basePrice" type="number" required value={formData.basePrice} onChange={(e) => patch({ basePrice: e.target.value })} className={formInputCls} />
+            <Field label="Base Player Price (₹) *" htmlFor="basePrice" error={fieldErrors.basePrice} hint={`Default: ${formatCurrency(parsed.basePrice || 0)}`}>
+              <AmountInput id="basePrice" required value={parseAmount(String(formData.basePrice))} onValueChange={(n) => patch({ basePrice: n === undefined ? '' : String(n) })} className={formInputCls} />
             </Field>
             <Field label="Max Players per Team *" htmlFor="maxPlayersPerTeam" error={fieldErrors.maxPlayersPerTeam} hint="Maximum squad size">
               <Input id="maxPlayersPerTeam" type="number" required value={formData.maxPlayersPerTeam} onChange={(e) => patch({ maxPlayersPerTeam: e.target.value })} className={formInputCls} />
@@ -329,7 +333,7 @@ export function TournamentSettingsModal({
                   </span>
                 </label>
                 <Field label="Registration fee (₹, 0 = free)" htmlFor="registrationFee" error={fieldErrors.registrationFee} hint="Players scan your QR and upload a screenshot, or choose to pay you in person.">
-                  <Input id="registrationFee" type="number" min="0" step="50" value={formData.registrationFee} onChange={(e) => patch({ registrationFee: e.target.value })} className={`${formInputCls} max-w-48`} />
+                  <AmountInput id="registrationFee" value={parseAmount(String(formData.registrationFee))} onValueChange={(n) => patch({ registrationFee: n === undefined ? '' : String(n) })} className={`${formInputCls} max-w-48`} />
                 </Field>
               </div>
               <Field label="Payment QR">

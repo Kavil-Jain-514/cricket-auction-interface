@@ -170,6 +170,7 @@ describe("deleteTournament (P1-5)", () => {
       await ctx.db.insert("bidRequests", { auctionRoomId: roomId, playerId: soldId, teamId, userId, amount: 1, status: "pending", createdAt: now });
       await ctx.db.insert("bidRequestsSeen", { key: "placeBid:x", auctionRoomId: roomId, result: {}, createdAt: now });
       await ctx.db.insert("paymentOrders", { tournamentId, tier: "club", amount: 99_900, razorpayOrderId: "order_1", status: "paid", createdBy: userId, createdAt: now });
+      await ctx.db.insert("registrationFormVersions", { tournamentId, version: 1, questions: [], createdBy: userId, createdAt: now });
     });
 
     await t.withIdentity(ADMIN_IDENTITY).mutation(api.tournaments.deleteTournament, { id: tournamentId, confirmName: "Test Cup" });
@@ -181,12 +182,13 @@ describe("deleteTournament (P1-5)", () => {
       invites: await ctx.db.query("teamInvites").collect(),
       requests: await ctx.db.query("bidRequests").collect(),
       seen: await ctx.db.query("bidRequestsSeen").collect(),
+      formVersions: await ctx.db.query("registrationFormVersions").collect(),
       orders: await ctx.db.query("paymentOrders").collect(),
       snapshots: await ctx.db.query("tournamentSnapshots").collect(),
       audit: (await ctx.db.query("auditLogs").collect()).find((l) => l.action === "delete_tournament"),
     }));
     expect(left.tournament).toBeNull();
-    expect([left.staff, left.members, left.invites, left.requests, left.seen].map((rows) => rows.length)).toEqual([0, 0, 0, 0, 0]);
+    expect([left.staff, left.members, left.invites, left.requests, left.seen, left.formVersions].map((rows) => rows.length)).toEqual([0, 0, 0, 0, 0, 0]);
     expect(left.orders).toHaveLength(1);
     expect(left.snapshots).toHaveLength(1);
     expect(left.snapshots[0]).toMatchObject({ reason: "before delete_tournament", tournamentName: "Test Cup" });

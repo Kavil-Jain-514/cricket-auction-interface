@@ -159,6 +159,62 @@ The **frontend (Vercel)** and **backend (Convex)** deploy separately — check w
   preset. Create one with a max file size (e.g. 5 MB) and image formats only.
 - A registrant can open checkout up to 10 times; a second paid fee is listed as *refund due* on /admin/live and
   `registrations:listRefundsDue`.
+- **Own questions:** Registrations → *Edit form & share* (`/tournament/<id>/registration-form`, owner only). The
+  standard player fields always come first and can't be removed. Each save is a new version; answers are stored
+  with the version they answered, so editing later never changes old entries. An answered question can only be
+  archived (hidden, answers kept), and its type is locked. Answers show under each registration, in the
+  player's details and in *Export (.xlsx)*. The same page has the form link and a QR to download.
+- **Off switch:** `npx convex env set REGISTRATION_CUSTOM_QUESTIONS off` hides every custom question and stops
+  requiring them, on every tournament, at once. `npx convex env remove REGISTRATION_CUSTOM_QUESTIONS` turns
+  them back on. Someone with the form already open when you switch it off still registers; their custom
+  answers just aren't saved.
+
+## Invite emails (Resend)
+
+- **What is sent:**
+  - *Teams → Invite team owners*: "add your team", with the tournament's team sign-up link
+    (`/tournament/<id>/join-team`). The owner signs in, confirms they own a team, and registers it; it then waits
+    under *Teams waiting for verification*. The same window has the link to copy or send on WhatsApp. One email
+    per address per day.
+  - *Owners* on an existing team's card → *Email invite*: that team's one-time owner link.
+  - "You've been added" when someone is made an auctioneer or owner (Settings → Staff).
+- **Setup (one time):** create a Resend account, add and verify your sending domain (DNS records Resend shows
+  you), create an API key, then in the **Convex** env:
+  `npx convex env set RESEND_API_KEY re_...`,
+  `npx convex env set EMAIL_FROM "Bid11Pro <no-reply@your-domain>"` (must be on the verified domain), and for any
+  deployment that isn't `https://bid11pro.kaviljain.com`, `npx convex env set APP_URL <its URL>` so links point
+  at the right site (`http://localhost:3000` on dev).
+- Without the key or sender, invites still work; the email is just recorded as *not sent*. Local development:
+  `npx convex env set EMAIL_PROVIDER log` prints emails to the Convex logs instead. Off switch:
+  `npx convex env set EMAIL_ENABLED false`.
+- Sends retry on Resend outages (30 s up to 4 min, 5 tries); a 4xx (bad address, unverified domain) fails at
+  once. The organiser sees *sent / sending / not delivered* on each open invite; queue health is on /admin/live.
+  A failed invite email can't be resent (the link is never stored), so create a new invite.
+- Each organiser can email at most 30 invites an hour. The one-time link is deleted from the outbox as soon as it
+  is sent; an invite revoked before then is never emailed.
+
+## Deleting a tournament
+
+- Owner or super-admin only, never while the auction is live or paused, and only with the name typed. A snapshot
+  is taken first.
+- **At once:** every row goes (teams, players, rooms, bids, registrations, form versions, invites, team requests,
+  staff, WhatsApp outbox rows, presence). Anyone with the auction open sees "This auction isn't available" and is
+  sent home.
+- **Kept for 30 days, then erased** (daily cron `purgeDueTournaments`): the safety snapshot and registrations with
+  a payment reference (refund trail). Only `registrationOrders` (payment reference and amount, no personal data)
+  remain after that.
+- **Files** (logo, sponsor logos, payment QR, team logos, player and captain photos, payment screenshots, form
+  uploads) are deleted from Cloudinary within an hour of that purge (hourly cron `processDue`, 100 per call).
+  A file another tournament still shows is kept (`in_use`). Failures retry with backoff (10 min up to a day,
+  8 tries), then show as **failed** on /admin/live with the error. Needs `CLOUDINARY_CLOUD_NAME`,
+  `CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET` in the **Convex** env (the same ones as registration photos).
+- **Files left by deletions before this existed** (one-off, nothing is deleted without your approval):
+  1. `npx convex run fileCleanup:findOrphans` is a dry run. It lists stored images under `cricket-auction/`
+     that no tournament, team, player, registration, team request or snapshot refers to. Images uploaded in the
+     last 24 hours are never listed (a form may still be in progress).
+  2. Review the list. Then delete exactly the ones you approve:
+     `npx convex run fileCleanup:deleteOrphans '{"publicIds": ["cricket-auction/players/abc", "..."]}'`.
+     Each id is re-checked first; anything referenced again is kept and listed under `kept`.
 
 ## Who to call
 

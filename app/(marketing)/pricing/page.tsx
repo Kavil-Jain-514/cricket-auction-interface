@@ -9,6 +9,7 @@ import { PageIntro } from "@/components/marketing/PageIntro";
 import { PLAN_ORDER, PLAN_TIERS } from "@/convex/planTiers";
 import { softwareApplicationJsonLd } from "@/lib/seo/jsonld";
 import { cn } from "@/lib/utils";
+import { formatRupees } from "@/convex/bidRules";
 
 export const metadata: Metadata = {
   title: "Pricing: Free, Club, League and Pro Plans",
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "/pricing" },
 };
 
-const rupees = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+const rupees = formatRupees;
 
 export default function PricingPage() {
   return (

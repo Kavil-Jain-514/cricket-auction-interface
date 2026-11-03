@@ -25,7 +25,7 @@ const team = (tournamentId: Id<"tournaments">, i: number) => ({
 async function users(t: ReturnType<typeof convexTest>) {
   await t.run(async (ctx) => {
     await ctx.db.insert("users", { email: SUPER.email, role: "admin", createdAt: Date.now() });
-    await ctx.db.insert("users", { email: ORG.email, createdAt: Date.now() });
+    await ctx.db.insert("users", { email: ORG.email, accountType: "organiser", accountTypeChosenAt: 1, createdAt: Date.now() });
   });
 }
 

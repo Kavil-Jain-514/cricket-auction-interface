@@ -1,16 +1,20 @@
 // convex/notifications.ts
-// Outbound player notifications (WhatsApp via the Meta Cloud API).
+// Outbound player notifications on WhatsApp: "you're registered", "you're
+// approved" and "you were sold".
 //
 // WhatsApp platform rule: a business-initiated message to someone who has NOT
 // messaged us in the last 24h MUST use a pre-approved template. We therefore
-// send a "template" message with numbered body parameters rather than free-form
-// text. See the setup steps in WHATSAPP_NOTIFICATIONS.md.
+// send "template" messages with numbered body parameters rather than
+// free-form text. Template texts and setup: WHATSAPP_NOTIFICATIONS.md.
 //
-// Outbox (AUDIT 2026-10 P1-14): finalizePlayerSale only inserts a row
-// (enqueueSoldNotification) in its own transaction, so a messaging problem
-// can never touch the sale. processQueue sends at most BATCH_SIZE a second,
+// Outbox (AUDIT 2026-10 P1-14): the sale or registration only inserts a row
+// in its own transaction, so a messaging problem can never touch it.
+// processQueue sends at most BATCH_SIZE a second through a
+// NotificationProvider (Meta Cloud API, or a log-only one for development),
 // retries with backoff up to MAX_ATTEMPTS, and reclaims rows a crashed run
-// left in "sending". Phone numbers are masked in logs.
+// left in "sending". One row per event and person (dedupeKey), so nothing is
+// ever sent twice. The signed webhook in http.ts marks rows delivered and
+// records STOP/START replies (whatsappOptOuts). Phone numbers are masked in logs.
 
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -19,11 +23,12 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  mutation,
   query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { requireAdmin } from "./auth";
+import { logAdminAction, OWNER_ONLY, requireAdmin, requireTournamentRole } from "./auth";
 import { formatRupees } from "./bidRules";
 
 /**
@@ -57,11 +62,32 @@ const BATCH_SIZE = 10; // per second: far below Meta's per-number throughput
 const RETRY_BASE_MS = 30_000; // 30s, 60s, 2m, 4m
 const STUCK_SENDING_MS = 5 * 60_000;
 
-type SoldPayload = Doc<"notifications">["payload"];
+type Kind = Doc<"notifications">["kind"];
+type Payload = Doc<"notifications">["payload"];
+type SoldPayload = Extract<Payload, { soldPrice: number }>;
+
+const defaultCountryCode = () => process.env.WHATSAPP_DEFAULT_COUNTRY_CODE ?? "91";
 
 /** "+91•••••3210": enough to tell numbers apart in logs, no more. */
 function maskPhone(e164: string): string {
   return `+${e164.slice(0, 2)}•••••${e164.slice(-4)}`;
+}
+
+/** Insert one outbox row unless this event was already queued, and wake the worker. */
+async function enqueue(
+  ctx: MutationCtx,
+  row: Pick<Doc<"notifications">, "kind" | "dedupeKey" | "tournamentId" | "payload"> &
+    Partial<Pick<Doc<"notifications">, "playerId" | "registrationId">>,
+): Promise<Id<"notifications"> | null> {
+  const existing = await ctx.db
+    .query("notifications")
+    .withIndex("by_dedupe", (q) => q.eq("dedupeKey", row.dedupeKey))
+    .first();
+  if (existing) return null;
+  const now = Date.now();
+  const id = await ctx.db.insert("notifications", { ...row, status: "queued", attempts: 0, nextAttemptAt: now, createdAt: now });
+  await ctx.scheduler.runAfter(0, internal.notifications.processQueue, {});
+  return id;
 }
 
 /**
@@ -81,17 +107,9 @@ export async function enqueueSoldNotification(
 ): Promise<Id<"notifications"> | null> {
   const { player, team, tournament } = args;
   if (!player.phoneNumber?.trim() || player.consentWhatsApp === false) return null;
-  const dedupeKey = `sold:${player._id}:${team._id}`;
-  const existing = await ctx.db
-    .query("notifications")
-    .withIndex("by_dedupe", (q) => q.eq("dedupeKey", dedupeKey))
-    .first();
-  if (existing) return null;
-
-  const now = Date.now();
-  const id = await ctx.db.insert("notifications", {
+  return await enqueue(ctx, {
     kind: "player_sold",
-    dedupeKey,
+    dedupeKey: `sold:${player._id}:${team._id}`,
     tournamentId: tournament._id,
     playerId: player._id,
     payload: {
@@ -103,13 +121,29 @@ export async function enqueueSoldNotification(
       captainName: team.captainName,
       soldPrice: args.soldPrice,
     },
-    status: "queued",
-    attempts: 0,
-    nextAttemptAt: now,
-    createdAt: now,
   });
-  await ctx.scheduler.runAfter(0, internal.notifications.processQueue, {});
-  return id;
+}
+
+/**
+ * Queue "registration received" (on submit) or "registration approved" (on
+ * approval). Only for registrants who ticked the WhatsApp box; once per
+ * registration and event.
+ */
+export async function enqueueRegistrationNotification(
+  ctx: MutationCtx,
+  kind: "registration_received" | "registration_approved",
+  args: { registration: Doc<"registrations">; tournament: Doc<"tournaments">; playerId?: Id<"players"> },
+): Promise<Id<"notifications"> | null> {
+  const { registration, tournament } = args;
+  if (!registration.consentWhatsApp || !registration.phoneNumber) return null;
+  return await enqueue(ctx, {
+    kind,
+    dedupeKey: `${kind === "registration_received" ? "registered" : "approved"}:${registration._id}`,
+    tournamentId: tournament._id,
+    registrationId: registration._id,
+    playerId: args.playerId,
+    payload: { playerName: registration.name, phoneNumber: registration.phoneNumber, tournamentName: tournament.name },
+  });
 }
 
 /** Claim up to BATCH_SIZE due rows (and any stuck in "sending"). */
@@ -127,11 +161,19 @@ export const claimDue = internalMutation({
         .withIndex("by_status_next", (q) => q.eq("status", "sending"))
         .take(BATCH_SIZE)
     ).filter((n) => (n.claimedAt ?? 0) < now - STUCK_SENDING_MS);
-    const claimed = [...due, ...stuck].slice(0, BATCH_SIZE);
-    await Promise.all(
-      claimed.map((n) => ctx.db.patch(n._id, { status: "sending", claimedAt: now, attempts: n.attempts + 1 })),
-    );
-    return claimed.map((n) => ({ _id: n._id, payload: n.payload }));
+    const claimed: Array<{ _id: Id<"notifications">; kind: Kind; payload: Payload }> = [];
+    for (const n of [...due, ...stuck].slice(0, BATCH_SIZE)) {
+      // Replied STOP: never messaged, not even a retry.
+      const e164 = normalizePhone(n.payload.phoneNumber, defaultCountryCode());
+      const optedOut = e164 && (await ctx.db.query("whatsappOptOuts").withIndex("by_phone", (q) => q.eq("phone", e164)).first());
+      if (optedOut) {
+        await ctx.db.patch(n._id, { status: "skipped", lastError: "opted_out" });
+        continue;
+      }
+      await ctx.db.patch(n._id, { status: "sending", claimedAt: now, attempts: n.attempts + 1 });
+      claimed.push({ _id: n._id, kind: n.kind, payload: n.payload });
+    }
+    return claimed;
   },
 });
 
@@ -174,54 +216,92 @@ export const recordResult = internalMutation({
   },
 });
 
-/** Send one template message. Never throws. */
-async function sendSoldTemplate(
-  payload: SoldPayload,
-): Promise<{ outcome: "sent" | "skipped" | "error"; detail?: string }> {
-  if (process.env.WHATSAPP_NOTIFICATIONS_ENABLED === "false") {
-    return { outcome: "skipped", detail: "notifications_disabled" };
-  }
+type SendResult = { outcome: "sent" | "skipped" | "error"; detail?: string };
+
+/**
+ * Where messages go. The Meta Cloud API in production; a log-only provider
+ * (WHATSAPP_PROVIDER=log) for local development, which sends nothing.
+ */
+export interface NotificationProvider {
+  send(to: string, template: { name: string; params: string[] }): Promise<SendResult>;
+}
+
+const metaCloudProvider = (phoneNumberId: string, accessToken: string): NotificationProvider => ({
+  async send(to, template) {
+    const graphVersion = process.env.WHATSAPP_GRAPH_VERSION ?? "v21.0";
+    const language = process.env.WHATSAPP_TEMPLATE_LANG ?? "en";
+    try {
+      const res = await fetch(`https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to,
+          type: "template",
+          template: {
+            name: template.name,
+            language: { code: language },
+            components: [{ type: "body", parameters: template.params.map((text) => ({ type: "text", text })) }],
+          },
+        }),
+      });
+      if (!res.ok) {
+        const text = (await res.text()).slice(0, 300);
+        console.error(`[whatsapp] Meta error ${res.status} for ${maskPhone(to)}: ${text}`);
+        return { outcome: "error", detail: `meta_${res.status}: ${text}` };
+      }
+      const data = (await res.json()) as { messages?: Array<{ id?: string }> };
+      return { outcome: "sent", detail: data.messages?.[0]?.id };
+    } catch (err) {
+      console.error(`[whatsapp] Network error for ${maskPhone(to)}:`, err);
+      return { outcome: "error", detail: `network_error: ${String(err).slice(0, 200)}` };
+    }
+  },
+});
+
+const logProvider: NotificationProvider = {
+  async send(to, template) {
+    console.log(`[whatsapp:log] ${template.name} to ${maskPhone(to)}: ${template.params.join(" | ")}`);
+    return { outcome: "sent", detail: `log-${Date.now()}` };
+  },
+};
+
+/** The configured provider, or why nothing can be sent. */
+function providerFromEnv(): NotificationProvider | { skip: string } {
+  if (process.env.WHATSAPP_NOTIFICATIONS_ENABLED === "false") return { skip: "notifications_disabled" };
+  if (process.env.WHATSAPP_PROVIDER === "log") return logProvider;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (!phoneNumberId || !accessToken) return { outcome: "skipped", detail: "not_configured" };
-  const templateName = process.env.WHATSAPP_TEMPLATE_NAME ?? "player_sold";
-  const templateLang = process.env.WHATSAPP_TEMPLATE_LANG ?? "en";
-  const graphVersion = process.env.WHATSAPP_GRAPH_VERSION ?? "v21.0";
-  const e164 = normalizePhone(payload.phoneNumber, process.env.WHATSAPP_DEFAULT_COUNTRY_CODE ?? "91");
-  if (!e164) return { outcome: "skipped", detail: "invalid_phone" };
+  if (!phoneNumberId || !accessToken) return { skip: "not_configured" };
+  return metaCloudProvider(phoneNumberId, accessToken);
+}
 
-  // Ordered body parameters — must match {{1}}..{{6}} in the approved template.
-  const bodyParams = [
-    payload.playerName,
-    payload.tournamentName,
-    payload.teamName,
-    payload.ownerName,
-    payload.captainName?.trim() || "—",
-    formatRupees(payload.soldPrice),
-  ].map((text) => ({ type: "text" as const, text }));
-
-  try {
-    const res = await fetch(`https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: e164,
-        type: "template",
-        template: { name: templateName, language: { code: templateLang }, components: [{ type: "body", parameters: bodyParams }] },
-      }),
-    });
-    if (!res.ok) {
-      const text = (await res.text()).slice(0, 300);
-      console.error(`[whatsapp] Meta error ${res.status} for ${maskPhone(e164)}: ${text}`);
-      return { outcome: "error", detail: `meta_${res.status}: ${text}` };
-    }
-    const data = (await res.json()) as { messages?: Array<{ id?: string }> };
-    return { outcome: "sent", detail: data.messages?.[0]?.id };
-  } catch (err) {
-    console.error(`[whatsapp] Network error for ${maskPhone(e164)}:`, err);
-    return { outcome: "error", detail: `network_error: ${String(err).slice(0, 200)}` };
+/**
+ * The approved template for each message and its ordered body parameters,
+ * which must match {{1}}, {{2}}, … in WHATSAPP_NOTIFICATIONS.md.
+ */
+export function templateFor(kind: Kind, payload: Payload): { name: string; params: string[] } {
+  if (kind === "player_sold") {
+    const p = payload as SoldPayload;
+    return {
+      name: process.env.WHATSAPP_TEMPLATE_NAME ?? "player_sold",
+      params: [p.playerName, p.tournamentName, p.teamName, p.ownerName, p.captainName?.trim() || "—", formatRupees(p.soldPrice)],
+    };
   }
+  const name =
+    kind === "registration_received"
+      ? (process.env.WHATSAPP_TEMPLATE_REGISTERED ?? "registration_received")
+      : (process.env.WHATSAPP_TEMPLATE_APPROVED ?? "registration_approved");
+  return { name, params: [payload.playerName, payload.tournamentName] };
+}
+
+/** Send one outbox row. Never throws. */
+async function sendOne(kind: Kind, payload: Payload): Promise<SendResult> {
+  const provider = providerFromEnv();
+  if ("skip" in provider) return { outcome: "skipped", detail: provider.skip };
+  const e164 = normalizePhone(payload.phoneNumber, defaultCountryCode());
+  if (!e164) return { outcome: "skipped", detail: "invalid_phone" };
+  return await provider.send(e164, templateFor(kind, payload));
 }
 
 /**
@@ -234,10 +314,10 @@ export const processQueue = internalAction({
   // Explicit types: this action calls back into its own module through
   // `internal`, which would otherwise make the generated API types circular.
   handler: async (ctx): Promise<{ processed: number }> => {
-    const claimed: Array<{ _id: Id<"notifications">; payload: SoldPayload }> =
+    const claimed: Array<{ _id: Id<"notifications">; kind: Kind; payload: Payload }> =
       await ctx.runMutation(internal.notifications.claimDue, {});
     for (const row of claimed) {
-      const result = await sendSoldTemplate(row.payload);
+      const result = await sendOne(row.kind, row.payload);
       await ctx.runMutation(internal.notifications.recordResult, { id: row._id, ...result });
     }
     if (claimed.length === BATCH_SIZE) {
@@ -249,6 +329,93 @@ export const processQueue = internalAction({
       }
     }
     return { processed: claimed.length };
+  },
+});
+
+/**
+ * Delivery receipts from the webhook. "delivered" and "read" mark the row
+ * delivered; a late "failed" (Meta accepted, then couldn't deliver) marks it
+ * failed so the organiser can resend. Never moves a row backwards.
+ */
+export const applyStatuses = internalMutation({
+  args: { statuses: v.array(v.object({ id: v.string(), status: v.string(), error: v.optional(v.string()) })) },
+  handler: async (ctx, args) => {
+    for (const s of args.statuses) {
+      const row = await ctx.db
+        .query("notifications")
+        .withIndex("by_messageId", (q) => q.eq("messageId", s.id))
+        .first();
+      if (!row) continue;
+      if ((s.status === "delivered" || s.status === "read") && row.status === "sent") {
+        await ctx.db.patch(row._id, { status: "delivered", deliveredAt: Date.now() });
+      } else if (s.status === "failed" && (row.status === "sent" || row.status === "delivered")) {
+        await ctx.db.patch(row._id, { status: "failed", lastError: `meta_status: ${s.error ?? "failed"}`.slice(0, 300) });
+      }
+    }
+  },
+});
+
+/** A STOP (opt out) or START (opt back in) reply from a number we message. */
+export const setOptOut = internalMutation({
+  args: { phone: v.string(), optedOut: v.boolean() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("whatsappOptOuts")
+      .withIndex("by_phone", (q) => q.eq("phone", args.phone))
+      .first();
+    if (args.optedOut && !existing) await ctx.db.insert("whatsappOptOuts", { phone: args.phone, at: Date.now() });
+    if (!args.optedOut && existing) await ctx.db.delete(existing._id);
+  },
+});
+
+/**
+ * Message status per registration and player, for the organiser's
+ * registrations page. Owners only; no phone numbers.
+ */
+export const listForTournament = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    const rows = await ctx.db
+      .query("notifications")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+      .collect();
+    return rows.map((r) => ({
+      _id: r._id,
+      kind: r.kind,
+      registrationId: r.registrationId,
+      playerId: r.playerId,
+      status: r.status,
+      lastError: r.lastError,
+      createdAt: r.createdAt,
+    }));
+  },
+});
+
+/**
+ * Send a failed message again. Owners only. Re-queues the same row, so a
+ * double click (or a resend racing the first one) can't send twice.
+ */
+export const resend = mutation({
+  args: { notificationId: v.id("notifications") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.notificationId);
+    if (!row) throw new Error("Message not found");
+    const owner = await requireTournamentRole(ctx, row.tournamentId, OWNER_ONLY);
+    if (row.status !== "failed") throw new Error("Only failed messages can be resent");
+    await ctx.db.patch(row._id, { status: "queued", attempts: 0, nextAttemptAt: Date.now(), lastError: undefined, claimedAt: undefined });
+    await ctx.scheduler.runAfter(0, internal.notifications.processQueue, {});
+    await logAdminAction(ctx, {
+      userId: owner._id,
+      userEmail: owner.email,
+      action: "resend_whatsapp",
+      targetType: "notification",
+      targetId: row._id,
+      previousData: { status: row.status, lastError: row.lastError },
+      newData: { kind: row.kind },
+      tournamentId: row.tournamentId,
+    });
+    return { success: true };
   },
 });
 

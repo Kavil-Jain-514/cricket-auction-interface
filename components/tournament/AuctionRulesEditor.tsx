@@ -3,6 +3,8 @@
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { AmountInput } from '@/components/ui/amount-input';
+import { parseAmount } from '@/lib/amount';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
 import type { IncrementSlab, PlayerCategory } from '@/convex/bidRules';
@@ -178,7 +180,7 @@ export function AuctionRulesEditor({ value, onChange, minBidIncrement, error }: 
             </div>
             <div>
               <Label htmlFor={`cat-price-${c.id}`} className="text-xs">Base price (₹)</Label>
-              <Input id={`cat-price-${c.id}`} type="number" min="1" value={c.basePrice} onChange={(e) => patchCategory(i, { basePrice: e.target.value })} className="mt-1" />
+              <AmountInput id={`cat-price-${c.id}`} value={parseAmount(c.basePrice)} onValueChange={(n) => patchCategory(i, { basePrice: n === undefined ? '' : String(n) })} className="mt-1" />
             </div>
             <button type="button" aria-label={`Remove ${c.name || 'category'}`} onClick={() => setCategories(value.categories.filter((_, j) => j !== i))} className="mb-1 p-2 text-slate-400 hover:text-red-400">
               <Trash2 className="w-4 h-4" />
@@ -233,11 +235,11 @@ export function AuctionRulesEditor({ value, onChange, minBidIncrement, error }: 
           <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
             <div>
               <Label htmlFor={`slab-from-${i}`} className="text-xs">From bid (₹)</Label>
-              <Input id={`slab-from-${i}`} type="number" min="0" value={s.fromAmount} onChange={(e) => patchSlab(i, { fromAmount: e.target.value })} className="mt-1" />
+              <AmountInput id={`slab-from-${i}`} value={parseAmount(s.fromAmount)} onValueChange={(n) => patchSlab(i, { fromAmount: n === undefined ? '' : String(n) })} className="mt-1" />
             </div>
             <div>
               <Label htmlFor={`slab-inc-${i}`} className="text-xs">Increment (₹)</Label>
-              <Input id={`slab-inc-${i}`} type="number" min="5000" step="5000" value={s.increment} onChange={(e) => patchSlab(i, { increment: e.target.value })} className="mt-1" />
+              <AmountInput id={`slab-inc-${i}`} value={parseAmount(s.increment)} onValueChange={(n) => patchSlab(i, { increment: n === undefined ? '' : String(n) })} className="mt-1" />
             </div>
             <button type="button" aria-label="Remove slab" onClick={() => setSlabs(value.slabs.filter((_, j) => j !== i))} className="mb-1 p-2 text-slate-400 hover:text-red-400">
               <Trash2 className="w-4 h-4" />

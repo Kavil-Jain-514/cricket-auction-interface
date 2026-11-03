@@ -9,6 +9,7 @@ import {
   sponsorValidator,
   squadRuleValidator,
 } from "./ruleValidators";
+import { answersValidator, questionValidator } from "./registrationForm";
 
 export default defineSchema({
   // Users table with roles
@@ -16,11 +17,21 @@ export default defineSchema({
     email: v.string(),
     name: v.optional(v.string()),
     role: v.optional(v.union(v.literal("admin"), v.literal("user"))), // Default: user
-    // Asked once after sign-up. "team_owner" can request a team in a
-    // tournament (teamRequests). Absent = not asked yet.
-    accountType: v.optional(v.union(v.literal("team_owner"), v.literal("visitor"))),
+    // Asked once after sign-up (convex/policy.ts). "organiser" can create
+    // tournaments; "team_owner" can request a team in one (teamRequests).
+    accountType: v.optional(
+      v.union(v.literal("organiser"), v.literal("team_owner"), v.literal("visitor")),
+    ),
+    // When accountType was chosen. Absent = choose again: choices made before
+    // organisers existed don't count (intentOf).
+    accountTypeChosenAt: v.optional(v.number()),
+    // Set by the super-admin (auth:setUserActive). A deactivated account is
+    // refused everywhere (getCurrentUser / requireUser) until reactivated.
+    deactivatedAt: v.optional(v.number()),
     createdAt: v.number(),
-  }).index("by_email", ["email"]),
+  })
+    .index("by_email", ["email"])
+    .index("by_accountType", ["accountType"]),
 
   // Audit Log for tracking admin actions
   auditLogs: defineTable({
@@ -233,12 +244,26 @@ export default defineSchema({
     paymentProofUrl: v.optional(v.string()),
     rejectReason: v.optional(v.string()),
     playerId: v.optional(v.id("players")),
+    // Answers to the organiser's own questions, with the form version they
+    // were given against (registrationFormVersions). Absent = none asked.
+    answers: v.optional(answersValidator),
     createdAt: v.number(),
     reviewedAt: v.optional(v.number()),
   })
     .index("by_tournament", ["tournamentId"])
     .index("by_tournament_phone", ["tournamentId", "phoneNumber"])
     .index("by_order", ["razorpayOrderId"]),
+
+  // The organiser's own registration questions (convex/registrationForm.ts),
+  // one row per saved version so answers always resolve to the question they
+  // answered. The latest version is the live form; none = core fields only.
+  registrationFormVersions: defineTable({
+    tournamentId: v.id("tournaments"),
+    version: v.number(), // 1, 2, …
+    questions: v.array(questionValidator),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_tournament_version", ["tournamentId", "version"]),
 
   // Teams requested by self-declared team owners (users.accountType
   // "team_owner"). The tournament's owner approves, which creates the team
@@ -281,28 +306,34 @@ export default defineSchema({
     .index("by_order", ["razorpayOrderId"])
     .index("by_tournament", ["tournamentId"]),
 
-  // WhatsApp outbox (convex/notifications.ts). One row per player and team,
-  // so a restart or a re-sale to the same team never messages twice. A
-  // worker sends, retries with backoff up to MAX_ATTEMPTS, and never touches
-  // the sale itself.
+  // WhatsApp outbox (convex/notifications.ts). One row per event and person
+  // (dedupeKey), so a restart, a re-sale to the same team, a retry or a
+  // double click never messages twice. A worker sends, retries with backoff
+  // up to MAX_ATTEMPTS, and never touches the sale or registration itself.
   notifications: defineTable({
-    kind: v.literal("player_sold"),
-    dedupeKey: v.string(), // "sold:<playerId>:<teamId>"
+    kind: v.union(v.literal("player_sold"), v.literal("registration_received"), v.literal("registration_approved")),
+    // "sold:<playerId>:<teamId>", "registered:<registrationId>", "approved:<registrationId>"
+    dedupeKey: v.string(),
     tournamentId: v.id("tournaments"),
-    playerId: v.id("players"),
-    payload: v.object({
-      playerName: v.string(),
-      phoneNumber: v.string(),
-      tournamentName: v.string(),
-      teamName: v.string(),
-      ownerName: v.string(),
-      captainName: v.optional(v.string()),
-      soldPrice: v.number(),
-    }),
+    playerId: v.optional(v.id("players")), // absent for "registration_received"
+    registrationId: v.optional(v.id("registrations")),
+    payload: v.union(
+      v.object({
+        playerName: v.string(),
+        phoneNumber: v.string(),
+        tournamentName: v.string(),
+        teamName: v.string(),
+        ownerName: v.string(),
+        captainName: v.optional(v.string()),
+        soldPrice: v.number(),
+      }),
+      v.object({ playerName: v.string(), phoneNumber: v.string(), tournamentName: v.string() }),
+    ),
     status: v.union(
       v.literal("queued"),
       v.literal("sending"),
       v.literal("sent"),
+      v.literal("delivered"), // from the delivery webhook
       v.literal("failed"),
       v.literal("skipped"),
     ),
@@ -313,8 +344,109 @@ export default defineSchema({
     messageId: v.optional(v.string()),
     createdAt: v.number(),
     sentAt: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
   })
     .index("by_dedupe", ["dedupeKey"])
+    .index("by_status_next", ["status", "nextAttemptAt"])
+    // Deleting a tournament deletes its outbox rows (they hold phone numbers).
+    .index("by_tournament", ["tournamentId"])
+    .index("by_messageId", ["messageId"]),
+
+  // Email outbox (convex/emails.ts), sent through Resend by a worker. One row
+  // per invite or staff addition (dedupeKey). A team-owner invite's one-time
+  // link sits in `payload.link` only until it is sent or abandoned.
+  emails: defineTable({
+    kind: v.union(v.literal("team_owner_invite"), v.literal("staff_added"), v.literal("team_signup_invite")),
+    // "invite:<inviteId>", "staff:<tournamentStaffId>",
+    // "team-signup:<tournamentId>:<email>:<YYYY-MM-DD>" (one a day per address)
+    dedupeKey: v.string(),
+    tournamentId: v.id("tournaments"),
+    to: v.string(),
+    inviteId: v.optional(v.id("teamInvites")),
+    payload: v.union(
+      v.object({
+        teamName: v.string(),
+        tournamentName: v.string(),
+        inviterName: v.string(),
+        link: v.optional(v.string()),
+        expiresAt: v.number(),
+      }),
+      v.object({
+        tournamentId: v.id("tournaments"),
+        tournamentName: v.string(),
+        inviterName: v.string(),
+        inviteeName: v.optional(v.string()),
+        role: v.union(v.literal("owner"), v.literal("auctioneer")),
+      }),
+      // team_signup_invite: "add your team" (link to /tournament/<id>/join-team)
+      v.object({
+        tournamentId: v.id("tournaments"),
+        tournamentName: v.string(),
+        inviterName: v.string(),
+      }),
+    ),
+    status: v.union(v.literal("queued"), v.literal("sending"), v.literal("sent"), v.literal("failed"), v.literal("skipped")),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    providerId: v.optional(v.string()),
+    createdAt: v.number(),
+    sentAt: v.optional(v.number()),
+  })
+    .index("by_dedupe", ["dedupeKey"])
+    .index("by_status_next", ["status", "nextAttemptAt"])
+    .index("by_tournament", ["tournamentId"]),
+
+  // Numbers that replied STOP to our WhatsApp messages (E.164 digits). Never
+  // messaged again until they reply START.
+  whatsappOptOuts: defineTable({
+    phone: v.string(),
+    at: v.number(),
+  }).index("by_phone", ["phone"]),
+
+  // ── Deleting a tournament (convex/fileCleanup.ts) ─────────────────────────
+  // Rows go at once. The safety snapshot and paid registrations are kept for
+  // the retention period (a mistaken delete can be recovered, refunds
+  // settled), then purged here; only registrationOrders (payment reference
+  // and amount, no personal data) outlive it.
+  tournamentPurges: defineTable({
+    tournamentId: v.id("tournaments"), // already deleted
+    tournamentName: v.string(),
+    purgeAt: v.number(),
+    status: v.union(v.literal("scheduled"), v.literal("done")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    doneAt: v.optional(v.number()),
+  }).index("by_status_purgeAt", ["status", "purgeAt"]),
+
+  // Stored files to delete from Cloudinary, one row per URL. "waiting" until
+  // the tournament's purge (its snapshot still points at them), then
+  // "pending" for the hourly worker, which retries with backoff up to
+  // MAX_ATTEMPTS ("failed" = dead letter, shown on /admin/live). "in_use":
+  // another tournament still shows the file, so it is kept. "skipped": not a
+  // file we stored (another host, a legacy URL).
+  fileCleanup: defineTable({
+    url: v.string(),
+    purgeId: v.id("tournamentPurges"),
+    status: v.union(
+      v.literal("waiting"),
+      v.literal("pending"),
+      v.literal("deleting"),
+      v.literal("done"),
+      v.literal("in_use"),
+      v.literal("skipped"),
+      v.literal("failed"),
+    ),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    doneAt: v.optional(v.number()),
+  })
+    .index("by_url", ["url"])
+    .index("by_purge", ["purgeId"])
     .index("by_status_next", ["status", "nextAttemptAt"]),
 
   // ── Live-ops panel (convex/ops.ts) ─────────────────────────────────────────
@@ -396,6 +528,8 @@ export default defineSchema({
     usedBy: v.optional(v.id("users")),
     usedAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
+    // Where the link was emailed, when the organiser gave an address (emails table).
+    email: v.optional(v.string()),
   })
     .index("by_tokenHash", ["tokenHash"])
     .index("by_team", ["teamId"]),

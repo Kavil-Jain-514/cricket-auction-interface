@@ -20,7 +20,10 @@ async function setup(t: T, maxTeams = 4) {
   return await t.run(async (ctx) => {
     const now = Date.now();
     const organiser = await ctx.db.insert("users", { email: ORGANISER.email, createdAt: now });
-    await ctx.db.insert("users", { email: OUTSIDER.email, createdAt: now });
+    // Both chose "I own a team" (teamRequests:submit refuses anyone else).
+    const teamOwner = { accountType: "team_owner" as const, accountTypeChosenAt: now, createdAt: now };
+    await ctx.db.insert("users", { email: OWNER.email, ...teamOwner });
+    await ctx.db.insert("users", { email: OUTSIDER.email, ...teamOwner });
     const tournamentId = await ctx.db.insert("tournaments", {
       name: "Open Cup",
       createdBy: organiser,

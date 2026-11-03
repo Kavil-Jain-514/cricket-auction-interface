@@ -186,6 +186,12 @@ export function normalizePhone(
   return { ok: true, phone: digits };
 }
 
+/** Lower-cased, trimmed email address, or null when it doesn't look like one. */
+export function normalizeEmail(raw: string): string | null {
+  const email = raw.trim().toLowerCase();
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) ? email : null;
+}
+
 export type FieldError = { field: string; message: string };
 
 /**

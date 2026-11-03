@@ -40,6 +40,7 @@ import { applyOptimisticBid, newRequestId } from '@/lib/optimisticBid';
 import { ownerInsights } from '@/lib/insights';
 import { SetBanner } from '@/components/auction/SetBanner';
 import { ConsoleMoreMenu } from '@/components/auction/ConsoleMoreMenu';
+import { AuctionUnavailable } from '@/components/auction/AuctionUnavailable';
 import { bidTimerSeconds, categoryFor, incrementFor } from '@/convex/bidRules';
 
 // Lazy-load heavy components that are only used conditionally
@@ -735,6 +736,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   // Wait for both the hot payload and the initial roster before first paint so
   // teams/current-player aren't momentarily empty. Subsequent bid/timer updates
   // only touch `liveData`, so the roster stays warm and never re-triggers this.
+  // The room is gone (tournament deleted) or its tournament was hidden.
+  if (auctionData === null) {
+    return <AuctionUnavailable homeHref={isSignedIn ? '/dashboard' : '/'} />;
+  }
+
   if (!auctionData || rosterData === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -1264,7 +1270,6 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               minNextBid={minNextBid}
               maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15}
               tournamentBasePrice={auctionData.tournament?.settings.basePrice ?? 100000}
-              minBidIncrement={bidIncrement}
               bidding={bidding}
               getCustomBidAmount={getCustomBidAmount}
               setCustomBidAmount={setCustomBidAmount}

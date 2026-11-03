@@ -9,6 +9,8 @@ import { Id } from '@/convex/_generated/dataModel';
 import { teamPurseTotal } from '@/convex/bidRules';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { AmountInput } from '@/components/ui/amount-input';
+import { parseAmount } from '@/lib/amount';
 import { Label } from '@/components/ui/label';
 import { ReconciliationBadge } from '@/components/auction/ReconciliationBadge';
 import { formatCurrency, getErrorMessage } from '@/lib/utils';
@@ -133,7 +135,7 @@ export function PurseTools({ team, players }: PurseToolsProps) {
           </div>
           <div className="flex-1 min-w-32">
             <Label htmlFor="purse-amount" className="text-xs">Amount (₹)</Label>
-            <Input id="purse-amount" type="number" min="1" step="1000" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1" />
+            <AmountInput id="purse-amount" value={parseAmount(amount)} onValueChange={(n) => setAmount(n === undefined ? '' : String(n))} className="mt-1" />
           </div>
           <Button type="button" disabled={signed === 0 || !reasonOk || adjustedRemaining < 0} onClick={() => open('adjust')}>
             Adjust purse…
