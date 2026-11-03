@@ -28,6 +28,20 @@ export function canCreateTournament(user: Doc<"users"> | null): boolean {
   return isSuperAdmin(user) || intentOf(user) === "organiser";
 }
 
+/** Asking for a team in a tournament (teamRequests:submit). */
+export function canRequestTeam(user: Doc<"users"> | null): boolean {
+  return intentOf(user) === "team_owner";
+}
+
+/**
+ * The intent to record when someone claims a team-owner invite: they own a
+ * team now, unless they organise (organisers keep that). Null = unchanged.
+ */
+export function intentAfterClaimingInvite(user: Doc<"users">): Intent | null {
+  const current = intentOf(user);
+  return current === null || current === "visitor" ? "team_owner" : null;
+}
+
 /** Auctioneers run the day; the logo is the owner's call. */
 export function canUploadTournamentLogo(access: TournamentAccess): boolean {
   return access === "super_admin" || access === "owner";

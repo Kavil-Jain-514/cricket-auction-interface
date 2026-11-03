@@ -7,12 +7,13 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUser, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
 import { getOrCreateUser } from "./members";
+import { canRequestTeam } from "./policy";
 import { insertValidatedTeam } from "./teams";
 import { validateOwnerName, validateTeamColours, validateTeamName } from "./validation";
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
-/** Ask for a team in a tournament. Any signed-in user; one open request each. */
+/** Ask for a team in a tournament. Team owners only; one open request each. */
 export const submit = mutation({
   args: {
     tournamentId: v.id("tournaments"),
@@ -27,6 +28,7 @@ export const submit = mutation({
     const user = await getOrCreateUser(ctx);
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament || tournament.isActive === false) throw new Error("Tournament not found");
+    if (!canRequestTeam(user)) throw new Error('Only team owners can register a team. Choose "I own a team" on your dashboard first.');
     if (tournament.status === "completed") throw new Error("This tournament is closed");
 
     const error =

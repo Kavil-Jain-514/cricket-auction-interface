@@ -27,6 +27,7 @@ import type * as payments from "../payments.js";
 import type * as planTiers from "../planTiers.js";
 import type * as plans from "../plans.js";
 import type * as players from "../players.js";
+import type * as policy from "../policy.js";
 import type * as presentation from "../presentation.js";
 import type * as projections from "../projections.js";
 import type * as rateLimit from "../rateLimit.js";
@@ -68,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   planTiers: typeof planTiers;
   plans: typeof plans;
   players: typeof players;
+  policy: typeof policy;
   presentation: typeof presentation;
   projections: typeof projections;
   rateLimit: typeof rateLimit;

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { paginationOptsValidator, type PaginationResult } from "convex/server";
+import { mutation, query, type QueryCtx } from "./_generated/server";
 import {
   getCurrentUser,
   getTournamentRole,
@@ -25,7 +26,7 @@ import {
 } from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { initialPlan } from "./plans";
-import { canCreateTournament } from "./policy";
+import { canCreateTournament, isSuperAdmin } from "./policy";
 import { takeSnapshot } from "./snapshots";
 import {
   confirmsTournamentName,
@@ -198,6 +199,168 @@ export const listMine = query({
     return tournaments
       .filter((t): t is NonNullable<typeof t> => t !== null)
       .sort((a, b) => b.createdAt - a.createdAt);
+  },
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DASHBOARD LISTINGS (one per role, paginated on the server)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** What a dashboard card shows. Never settings an organiser keeps private. */
+function tournamentCard(t: Doc<"tournaments">, isLive: boolean) {
+  return {
+    _id: t._id,
+    name: t.name,
+    description: t.description,
+    logoUrl: t.logoUrl,
+    status: t.status,
+    isActive: t.isActive,
+    createdAt: t.createdAt,
+    basePurse: t.settings.basePurse,
+    maxPlayersPerTeam: t.settings.maxPlayersPerTeam,
+    isLive,
+  };
+}
+export type TournamentCard = ReturnType<typeof tournamentCard>;
+
+/**
+ * Tournaments with an auction running now (live or paused, rehearsals
+ * excluded). Reads only the live/paused slice of auctionRooms, which changes
+ * once per player, never per bid (bids go to liveBids).
+ */
+async function liveTournamentIds(ctx: QueryCtx): Promise<Set<Id<"tournaments">>> {
+  const rooms = await Promise.all(
+    (["live", "paused"] as const).map((status) =>
+      ctx.db.query("auctionRooms").withIndex("by_status", (q) => q.eq("status", status)).take(200),
+    ),
+  );
+  return new Set(rooms.flat().filter((r) => !r.rehearsal).map((r) => r.tournamentId));
+}
+
+const dashboardStatus = v.optional(v.union(v.literal("live"), v.literal("upcoming"), v.literal("completed")));
+type DashboardStatus = "live" | "upcoming" | "completed" | "inactive" | undefined;
+
+/**
+ * One page of tournaments for a status filter. "live" is the (small) set of
+ * running auctions, returned whole; other filters leave live ones out,
+ * because the dashboard shows those on top ("inactive" keeps them).
+ * "upcoming" = not completed.
+ */
+async function pageTournaments(
+  ctx: QueryCtx,
+  args: {
+    status: DashboardStatus;
+    includeDeactivated: boolean;
+    paginationOpts: { numItems: number; cursor: string | null };
+  },
+): Promise<PaginationResult<TournamentCard>> {
+  const live = await liveTournamentIds(ctx);
+  const shown = (t: Doc<"tournaments">) => args.includeDeactivated || t.isActive !== false;
+
+  if (args.status === "live") {
+    const docs = await Promise.all([...live].map((id) => ctx.db.get(id)));
+    const page = docs
+      .filter((t): t is Doc<"tournaments"> => t !== null && shown(t))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((t) => tournamentCard(t, true));
+    return { page, isDone: true, continueCursor: "" };
+  }
+
+  // "inactive" is an admin lookup, not a section under the live strip.
+  const liveIds = args.status === "inactive" ? [] : [...live];
+  const status = args.status;
+  const base =
+    status === "completed"
+      ? ctx.db.query("tournaments").withIndex("by_status", (q) => q.eq("status", "completed"))
+      : ctx.db.query("tournaments");
+  const result = await base
+    .order("desc")
+    .filter((q) =>
+      q.and(
+        args.includeDeactivated ? true : q.neq(q.field("isActive"), false),
+        status === "inactive" ? q.eq(q.field("isActive"), false) : true,
+        status === "upcoming" ? q.neq(q.field("status"), "completed") : true,
+        ...liveIds.map((id) => q.neq(q.field("_id"), id)),
+      ),
+    )
+    .paginate(args.paginationOpts);
+  return { ...result, page: result.page.map((t) => tournamentCard(t, false)) };
+}
+
+/**
+ * Public tournaments for viewers and the organiser's "All" tab. Reads no
+ * identity, so every viewer shares one cached result; deactivated
+ * tournaments never appear (their staff see them under "My").
+ */
+export const listPublic = query({
+  args: { status: dashboardStatus, paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) =>
+    await pageTournaments(ctx, { status: args.status, includeDeactivated: false, paginationOpts: args.paginationOpts }),
+});
+
+/** The organiser's "My" tab: tournaments they're on the staff of, with their role. */
+export const listMinePaged = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return { page: [], isDone: true, continueCursor: "" };
+    const live = await liveTournamentIds(ctx);
+    const result = await ctx.db
+      .query("tournamentStaff")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .order("desc")
+      .paginate(args.paginationOpts);
+    const page = await Promise.all(
+      result.page.map(async (row) => {
+        const t = await ctx.db.get(row.tournamentId);
+        return t ? { ...tournamentCard(t, live.has(t._id)), myRole: row.role } : null;
+      }),
+    );
+    return { ...result, page: page.filter((c) => c !== null) };
+  },
+});
+
+/** Every tournament, deactivated included, for the super-admin. Others get nothing. */
+export const listForAdmin = query({
+  args: {
+    status: v.optional(v.union(v.literal("live"), v.literal("upcoming"), v.literal("completed"), v.literal("inactive"))),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    if (!isSuperAdmin(await getCurrentUser(ctx))) return { page: [], isDone: true, continueCursor: "" };
+    return await pageTournaments(ctx, { status: args.status, includeDeactivated: true, paginationOpts: args.paginationOpts });
+  },
+});
+
+/**
+ * A team owner's tournaments: where they own a team (teamMembers) or asked
+ * for one (teamRequests). A handful per user, so no paging.
+ */
+export const listForTeamOwner = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return [];
+    const [memberships, requests, live] = await Promise.all([
+      ctx.db.query("teamMembers").withIndex("by_user", (q) => q.eq("userId", user._id)).take(100),
+      ctx.db.query("teamRequests").withIndex("by_user", (q) => q.eq("userId", user._id)).take(100),
+      liveTournamentIds(ctx),
+    ]);
+    const byTournament = new Map<Id<"tournaments">, { teamName: string; teamStatus: "owner" | "viewer" | Doc<"teamRequests">["status"] }>();
+    for (const r of requests) {
+      if (r.status !== "approved") byTournament.set(r.tournamentId, { teamName: r.name, teamStatus: r.status });
+    }
+    for (const m of memberships) {
+      const team = await ctx.db.get(m.teamId);
+      if (team) byTournament.set(m.tournamentId, { teamName: team.name, teamStatus: m.role });
+    }
+    const rows = await Promise.all(
+      [...byTournament].map(async ([id, team]) => {
+        const t = await ctx.db.get(id);
+        return t && t.isActive !== false ? { ...tournamentCard(t, live.has(id)), ...team } : null;
+      }),
+    );
+    return rows.filter((r) => r !== null).sort((a, b) => b.createdAt - a.createdAt);
   },
 });
 

@@ -204,7 +204,7 @@ const NOT_STAFF_SCOPED: Record<string, string> = {
   "registrations:recordOrder": "anonymous registrant's fee order; only the signed webhook marks it paid",
   "registrations:submitPaymentProof": "anonymous registrant's QR screenshot; the owner checks it before approving",
   "registrations:chooseOfflinePayment": "anonymous registrant chooses to pay in person; only the owner marks it paid",
-  "teamRequests:submit": "any signed-in user asks for a team; the tournament's owner approves it (tested in teamRequests.test.ts)",
+  "teamRequests:submit": "team owners only (policy.canRequestTeam, roles.test.ts) ask for a team; the tournament's owner approves it (tested in teamRequests.test.ts)",
   "tournaments:create": "organisers only (policy.canCreateTournament, roles.test.ts); they become the owner",
 };
 

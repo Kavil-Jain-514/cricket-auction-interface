@@ -102,3 +102,69 @@ describe("signup intent", () => {
     expect(await t.run((ctx) => ctx.db.query("tournaments").collect())).toHaveLength(2);
   });
 });
+
+describe("team owner scoping", () => {
+  const ORG = { email: "org@test.com", subject: "org|1" };
+  const TEAM = { name: "Strikers", ownerName: "Owen", colorPrimary: "#111111", colorSecondary: "#222222" };
+
+  async function seedTournament(t: ReturnType<typeof convexTest>, userFields: Partial<User> = {}) {
+    return await t.run(async (ctx) => {
+      const now = Date.now();
+      const org = await ctx.db.insert("users", { email: ORG.email, accountType: "organiser", accountTypeChosenAt: 1, createdAt: now });
+      await ctx.db.insert("users", { email: USER.email, createdAt: now, ...userFields });
+      const tournamentId = await ctx.db.insert("tournaments", { name: "Cup", createdBy: org, status: "setup", settings: SETTINGS, createdAt: now, updatedAt: now });
+      await ctx.db.insert("tournamentStaff", { tournamentId, userId: org, role: "owner", createdAt: now });
+      const teamId = await ctx.db.insert("teams", { tournamentId, ...TEAM, purseRemaining: 1_000_000, purseSpent: 0, createdAt: now, updatedAt: now });
+      return { tournamentId, teamId };
+    });
+  }
+
+  test.each([
+    ["no choice yet", {}],
+    ["viewer", { accountType: "visitor" as const, accountTypeChosenAt: 1 }],
+    ["organiser", { accountType: "organiser" as const, accountTypeChosenAt: 1 }],
+  ])("teamRequests.submit refuses a %s", async (_label, fields) => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await seedTournament(t, fields);
+    await expect(
+      t.withIdentity(USER).mutation(api.teamRequests.submit, { tournamentId, ...TEAM, name: "Mine" }),
+    ).rejects.toThrow(/Only team owners can register a team/);
+    expect(await t.run((ctx) => ctx.db.query("teamRequests").collect())).toHaveLength(0);
+  });
+
+  test("teamRequests.submit accepts a team owner", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await seedTournament(t, { accountType: "team_owner", accountTypeChosenAt: 1 });
+    await t.withIdentity(USER).mutation(api.teamRequests.submit, { tournamentId, ...TEAM, name: "Mine" });
+    expect(await t.run((ctx) => ctx.db.query("teamRequests").collect())).toHaveLength(1);
+  });
+
+  test.each([
+    ["no choice yet", {}, "team_owner"],
+    ["viewer", { accountType: "visitor" as const, accountTypeChosenAt: 1 }, "team_owner"],
+    ["organiser", { accountType: "organiser" as const, accountTypeChosenAt: 1 }, "organiser"],
+  ])("claiming an owner invite as a %s sets the right intent", async (_label, fields, expected) => {
+    const t = convexTest(schema, modules);
+    const { teamId } = await seedTournament(t, fields);
+    const { token } = await t.withIdentity(ORG).mutation(api.members.createInvite, { teamId });
+    const asUser = t.withIdentity(USER);
+    expect(await asUser.mutation(api.members.claimInvite, { token })).toMatchObject({ success: true });
+    expect((await asUser.query(api.auth.me, {}))?.accountType).toBe(expected);
+    // Single use: nobody else can claim the same link.
+    const other = { email: "other@test.com", subject: "other|1" };
+    expect(await t.withIdentity(other).mutation(api.members.claimInvite, { token })).toEqual({
+      success: false,
+      reason: "This invite was already used",
+    });
+  });
+
+  test("a team owner with no team sees no tournaments; after claiming, only that one", async () => {
+    const t = convexTest(schema, modules);
+    const { teamId } = await seedTournament(t, { accountType: "team_owner", accountTypeChosenAt: 1 });
+    const asUser = t.withIdentity(USER);
+    expect(await asUser.query(api.tournaments.listForTeamOwner, {})).toEqual([]);
+    const { token } = await t.withIdentity(ORG).mutation(api.members.createInvite, { teamId });
+    await asUser.mutation(api.members.claimInvite, { token });
+    expect((await asUser.query(api.tournaments.listForTeamOwner, {})).map((r) => r.teamName)).toEqual(["Strikers"]);
+  });
+});

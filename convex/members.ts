@@ -9,6 +9,7 @@ import {
   OWNER_ONLY,
   requireTournamentRole,
 } from "./auth";
+import { intentAfterClaimingInvite } from "./policy";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -159,6 +160,9 @@ export const claimInvite = mutation({
       }),
       ctx.db.patch(invite._id, { usedBy: user._id, usedAt: now }),
     ]);
+    // Someone who signed up through the link skips the intent step.
+    const intent = intentAfterClaimingInvite(user);
+    if (intent) await ctx.db.patch(user._id, { accountType: intent, accountTypeChosenAt: now });
 
     return joined;
   },
