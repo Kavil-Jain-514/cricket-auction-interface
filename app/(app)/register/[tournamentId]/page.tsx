@@ -17,6 +17,7 @@ import { openRazorpayCheckout } from '@/lib/razorpayCheckout';
 import { formatRupees } from '@/convex/bidRules';
 import { validateAnswers } from '@/convex/registrationForm';
 import { CustomQuestions, answersToSubmit, type AnswerMap } from '@/components/registration/CustomQuestions';
+import { SponsorBand } from '@/components/registration/SponsorBand';
 
 // Same limits as /api/upload.
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -218,19 +219,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
               {info?.description && <p className="mt-1 text-sm text-slate-300 line-clamp-3">{info.description}</p>}
             </div>
           </div>
-          {sponsors.length > 0 && (
-            <div className="border-t border-white/10 bg-black/20 px-5 py-3">
-              <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-widest text-slate-400 sm:text-left">Supported by</p>
-              <ul className="flex flex-wrap items-center justify-center gap-3 sm:justify-start">
-                {sponsors.map((s) => (
-                  <li key={s.name} className="flex items-center gap-2 rounded-lg bg-white/5 px-2.5 py-1.5">
-                    {s.logoUrl && <ImgWithFallback src={s.logoUrl} alt="" className="h-7 w-7 rounded object-contain" fallback={null} />}
-                    <span className="text-sm font-medium text-slate-200">{s.name}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <SponsorBand sponsors={sponsors} />
         </header>
         {children}
       </div>
