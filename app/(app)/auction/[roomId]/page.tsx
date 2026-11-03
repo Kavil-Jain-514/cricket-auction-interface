@@ -1264,7 +1264,6 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               minNextBid={minNextBid}
               maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15}
               tournamentBasePrice={auctionData.tournament?.settings.basePrice ?? 100000}
-              minBidIncrement={bidIncrement}
               bidding={bidding}
               getCustomBidAmount={getCustomBidAmount}
               setCustomBidAmount={setCustomBidAmount}

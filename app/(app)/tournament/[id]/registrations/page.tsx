@@ -13,6 +13,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { getErrorMessage, getRoleDisplay } from '@/lib/utils';
+import { formatRupees } from '@/convex/bidRules';
 
 type Status = 'pending_payment' | 'paid' | 'approved' | 'rejected';
 const FILTERS: Array<{ key: Status | 'all'; label: string }> = [
@@ -101,7 +102,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
             <h1 className="text-2xl sm:text-3xl font-bold">Registrations</h1>
             <p className="text-sm text-slate-400">
               Registration is {tournament?.settings.registrationOpen ? 'open' : 'closed'}
-              {tournament?.settings.registrationFee ? ` · fee ₹${tournament.settings.registrationFee.toLocaleString('en-IN')}` : ' · free'}. Change it in Settings.
+              {tournament?.settings.registrationFee ? ` · fee ${formatRupees(tournament.settings.registrationFee)}` : ' · free'}. Change it in Settings.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

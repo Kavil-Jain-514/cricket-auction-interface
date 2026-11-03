@@ -7,15 +7,17 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Gavel, Info, Trophy } from 'lucide-react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
+import { AmountInput } from '@/components/ui/amount-input';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Field, FormDivider, FormShell, SectionHeading, formInputCls } from '@/components/ui/form-modal';
-import { cn } from '@/lib/utils';
+import { cn, formatCurrency } from '@/lib/utils';
 import { toast } from 'sonner';
 import { DEFAULT_BID_TIMER_SECONDS } from '@/convex/bidRules';
 import { BID_TIMER_OPTIONS, bidTimerLabel } from '@/lib/bidTimer';
 import { useIntentGate } from '@/hooks/useIntentGate';
+import { formatRupees } from '@/convex/bidRules';
 
 export default function CreateTournamentPage() {
   const router = useRouter();
@@ -200,14 +202,13 @@ export default function CreateTournamentPage() {
                   label="Base Purse (₹) *"
                   htmlFor="basePurse"
                   error={errors.basePurse}
-                  hint={`₹${(formData.basePurse / 100000).toFixed(1)}L per team`}
+                  hint={`${formatCurrency(formData.basePurse)} per team`}
                 >
-                  <Input
+                  <AmountInput
                     id="basePurse"
-                    type="number"
                     required
-                    value={formData.basePurse}
-                    onChange={(e) => patch({ basePurse: parseInt(e.target.value) || 0 })}
+                    value={formData.basePurse || undefined}
+                    onValueChange={(n) => patch({ basePurse: n ?? 0 })}
                     className={cn(formInputCls, errors.basePurse && 'border-red-500')}
                   />
                 </Field>
@@ -215,28 +216,26 @@ export default function CreateTournamentPage() {
                   label="Min Bid Increment (₹) *"
                   htmlFor="minBidIncrement"
                   error={errors.minBidIncrement}
-                  hint={`₹${(formData.minBidIncrement / 1000).toFixed(0)}K`}
+                  hint={formatRupees(formData.minBidIncrement)}
                 >
-                  <Input
+                  <AmountInput
                     id="minBidIncrement"
-                    type="number"
                     required
-                    value={formData.minBidIncrement}
-                    onChange={(e) => patch({ minBidIncrement: parseInt(e.target.value) || 0 })}
+                    value={formData.minBidIncrement || undefined}
+                    onValueChange={(n) => patch({ minBidIncrement: n ?? 0 })}
                     className={cn(formInputCls, errors.minBidIncrement && 'border-red-500')}
                   />
                 </Field>
                 <Field
                   label="Base Player Price (₹) *"
                   htmlFor="basePrice"
-                  hint={`₹${(formData.basePrice / 100000).toFixed(1)}L`}
+                  hint={formatCurrency(formData.basePrice)}
                 >
-                  <Input
+                  <AmountInput
                     id="basePrice"
-                    type="number"
                     required
-                    value={formData.basePrice}
-                    onChange={(e) => patch({ basePrice: parseInt(e.target.value) || 0 })}
+                    value={formData.basePrice || undefined}
+                    onValueChange={(n) => patch({ basePrice: n ?? 0 })}
                     className={formInputCls}
                   />
                 </Field>

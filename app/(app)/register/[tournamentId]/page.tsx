@@ -14,6 +14,7 @@ import { Field, FormDivider, SectionHeading, formInputCls } from '@/components/u
 import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { PLAYER_ROLES, cn, getErrorMessage, getRoleBadgeBg } from '@/lib/utils';
 import { openRazorpayCheckout } from '@/lib/razorpayCheckout';
+import { formatRupees } from '@/convex/bidRules';
 
 // Same limits as /api/upload.
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -225,7 +226,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   }
 
   if (done) {
-    const fee = `₹${done.fee.toLocaleString('en-IN')}`;
+    const fee = formatRupees(done.fee);
     return shell(
       <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4 text-center">
         {done.step === 'paid' && (
@@ -289,7 +290,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
     <form onSubmit={handleSubmit} className="space-y-5 rounded-2xl border border-slate-800 bg-slate-900 p-5">
       {info.fee > 0 && (
         <p className="rounded-lg bg-blue-500/10 px-3 py-2 text-sm text-blue-200">
-          Registration fee: ₹{info.fee.toLocaleString('en-IN')}, paid after you submit{info.paymentQrUrl ? ' by scanning the organiser’s QR' : ''} or in person.
+          Registration fee: {formatRupees(info.fee)}, paid after you submit{info.paymentQrUrl ? ' by scanning the organiser’s QR' : ''} or in person.
         </p>
       )}
 

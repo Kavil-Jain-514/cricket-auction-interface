@@ -3,6 +3,7 @@
 import type { ReactNode, FormEvent } from 'react';
 import { UserRound, Activity, Tag, Check, UserPlus, Pencil, IndianRupee } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { AmountInput } from '@/components/ui/amount-input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Field, FormModal, SectionHeading } from '@/components/ui/form-modal';
 import { Label } from '@/components/ui/label';
@@ -268,14 +269,11 @@ export function PlayerFormFields({
           >
             <div className="relative">
               <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
+              <AmountInput
                 id="basePrice"
-                type="number"
-                value={values.basePrice ?? ''}
+                value={values.basePrice}
                 placeholder={basePricePlaceholder}
-                onChange={(e) =>
-                  onChange({ basePrice: e.target.value ? parseInt(e.target.value) : undefined })
-                }
+                onValueChange={(n) => onChange({ basePrice: n })}
                 className={cn(inputCls, 'pl-9')}
               />
             </div>

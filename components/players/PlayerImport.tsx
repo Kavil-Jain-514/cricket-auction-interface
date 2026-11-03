@@ -9,7 +9,7 @@ import { Upload, FileSpreadsheet, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
-import { PLAYER_ROLES } from '@/lib/utils';
+import { formatCurrency, PLAYER_ROLES } from '@/lib/utils';
 import type { PlayerCategory } from '@/convex/bidRules';
 
 interface PlayerImportProps {
@@ -531,7 +531,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                         {player.category || '-'}
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold">
-                        {player.basePrice ? `₹${(player.basePrice / 100000).toFixed(1)}L` : 'Default'}
+                        {player.basePrice ? formatCurrency(player.basePrice) : 'Default'}
                       </td>
                     </tr>
                   ))}
