@@ -7,6 +7,7 @@ import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { diffFields } from '@/lib/jsonDiff';
 
 const PAGE_SIZE = 25;
@@ -70,17 +71,17 @@ export default function AdminAuditPage() {
       <div className="grid gap-3 rounded-xl border border-slate-800 bg-slate-900 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_10rem_10rem_auto] lg:items-end">
         <div>
           <Label htmlFor="audit-tournament" className="text-xs">Tournament</Label>
-          <select id="audit-tournament" value={tournamentId} onChange={(e) => setTournamentId(e.target.value)} className={selectCls}>
+          <NativeSelect id="audit-tournament" value={tournamentId} onChange={(e) => setTournamentId(e.target.value)} className="mt-1 h-9">
             <option value="">All tournaments</option>
             {(tournaments ?? []).map((t) => <option key={t._id} value={t._id}>{t.name}</option>)}
-          </select>
+          </NativeSelect>
         </div>
         <div>
           <Label htmlFor="audit-action" className="text-xs">Action</Label>
-          <select id="audit-action" value={action} onChange={(e) => setAction(e.target.value)} className={selectCls}>
+          <NativeSelect id="audit-action" value={action} onChange={(e) => setAction(e.target.value)} className="mt-1 h-9">
             <option value="">All actions</option>
             {ACTIONS.map((a) => <option key={a} value={a}>{label(a)}</option>)}
-          </select>
+          </NativeSelect>
         </div>
         <div>
           <Label htmlFor="audit-from" className="text-xs">From</Label>

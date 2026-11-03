@@ -9,6 +9,7 @@ import { Id } from '@/convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getErrorMessage } from '@/lib/utils';
 
@@ -31,8 +32,8 @@ export function StaffManager({ tournamentId }: { tournamentId: Id<"tournaments">
 
   const ownerCount = (staff ?? []).filter((s) => s.role === 'owner').length;
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Not a <form>: this sits inside the settings form.
+  const handleAdd = async () => {
     if (!email.trim()) return;
     setBusy(true);
     try {
@@ -100,25 +101,38 @@ export function StaffManager({ tournamentId }: { tournamentId: Id<"tournaments">
         {staff === undefined && <li className="px-3 py-3 text-sm text-slate-500">Loading…</li>}
       </ul>
 
-      <form onSubmit={handleAdd} className="space-y-2">
+      <div className="space-y-2">
         <div className="grid gap-2 sm:grid-cols-[1fr_9rem_auto] sm:items-end">
           <div>
             <Label htmlFor="staff-email" className="text-xs">Email</Label>
-            <Input id="staff-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="auctioneer@example.com" className="mt-1" />
+            <Input
+              id="staff-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAdd();
+                }
+              }}
+              placeholder="auctioneer@example.com"
+              className="mt-1"
+            />
           </div>
           <div>
             <Label htmlFor="staff-role" className="text-xs">Role</Label>
-            <select id="staff-role" value={role} onChange={(e) => setRole(e.target.value as StaffRole)} className="mt-1 h-9 w-full rounded-md border border-slate-600 bg-slate-800 px-2 text-sm text-white">
+            <NativeSelect id="staff-role" value={role} onChange={(e) => setRole(e.target.value as StaffRole)} className="mt-1 h-9">
               <option value="auctioneer">Auctioneer</option>
               <option value="owner">Owner</option>
-            </select>
+            </NativeSelect>
           </div>
-          <Button type="submit" disabled={busy || !email.trim()}>
+          <Button type="button" onClick={handleAdd} disabled={busy || !email.trim()}>
             <UserPlus className="w-4 h-4" /> Add
           </Button>
         </div>
         <p className="text-xs text-slate-500">{ROLE_HINT[role]}</p>
-      </form>
+      </div>
     </div>
   );
 }

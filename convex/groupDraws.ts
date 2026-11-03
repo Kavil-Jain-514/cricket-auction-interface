@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
+import { isTournamentStaff, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
 import {
   computeGroupAssignments,
   validateGroupConfig,
@@ -9,6 +9,11 @@ import {
 export const getByTournament = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
+    // Deactivated tournaments are hidden from everyone but its staff.
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (tournament?.isActive === false && !(await isTournamentStaff(ctx, args.tournamentId))) {
+      return null;
+    }
     return await ctx.db
       .query("groupDraws")
       .withIndex("by_tournament", (q) =>

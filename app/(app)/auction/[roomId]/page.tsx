@@ -29,6 +29,7 @@ import { AdminTeamsPanel } from '@/components/auction/AdminTeamsPanel';
 import { OwnerPaddle } from '@/components/auction/OwnerPaddle';
 import { IncomingRaisesTray } from '@/components/auction/IncomingRaisesTray';
 import { ConnectionStatus } from '@/components/ui/connection-status';
+import { useWakeLock } from '@/lib/wakeLock';
 import { ReconciliationBadge } from '@/components/auction/ReconciliationBadge';
 import { BidTimerRing } from '@/components/auction/BidTimerRing';
 import { GoingOnceHelper } from '@/components/auction/GoingOnceHelper';
@@ -76,16 +77,6 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const liveData = useQuery(api.auctions.getLiveAuction, {
     auctionRoomId
   });
-  const rosterData = useQuery(
-    api.auctions.getAuctionRoster,
-    liveData
-      ? {
-          tournamentId: liveData.auctionRoom.tournamentId,
-          currentPlayerId: liveData.auctionRoom.currentPlayerId,
-        }
-      : 'skip'
-  );
-
   // Console vs viewer is per tournament: its owners and auctioneers (and the
   // super-admin) get the console; everyone else, including other organisers,
   // watches. The tournament id arrives with the hot query.
@@ -94,6 +85,19 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     canManage,
     isLoading: isRoleLoading,
   } = useTournamentRole(liveData?.auctionRoom.tournamentId);
+
+  // Viewers leave out the sold list (it grows with every sale and was most of
+  // this payload); they load it from getSoldPlayers only when it's shown.
+  const rosterData = useQuery(
+    api.auctions.getAuctionRoster,
+    liveData
+      ? {
+          tournamentId: liveData.auctionRoom.tournamentId,
+          currentPlayerId: liveData.auctionRoom.currentPlayerId,
+          ...(isConsole ? {} : { includeSoldPlayers: false }),
+        }
+      : 'skip'
+  );
 
   // Latest SOLD/UNSOLD event — authoritative trigger + data for the viewer
   // result popup (replaces the racy client-side ref reconstruction). Skipped
@@ -108,6 +112,17 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const paddle = useQuery(
     api.auctions.getMyPaddle,
     isSignedIn && !isConsole && !isRoleLoading ? { auctionRoomId } : 'skip',
+  );
+
+  // Viewer sold list: only for the teams sheet, the complete screen and owner
+  // insights (the console gets it with the roster).
+  const viewerSoldPlayers = useQuery(
+    api.auctions.getSoldPlayers,
+    !isConsole &&
+      liveData &&
+      (activeSheet === 'teams' || liveData.auctionRoom.status === 'completed' || paddle)
+      ? { tournamentId: liveData.auctionRoom.tournamentId }
+      : 'skip',
   );
 
   // Sold/unsold history — fetched lazily, only while a history sheet is open.
@@ -141,7 +156,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       serverTime: liveData.serverTime,
       teams: rosterData?.teams ?? [],
       tournament,
-      soldPlayers: rosterData?.soldPlayers ?? [],
+      soldPlayers: isConsole ? (rosterData?.soldPlayers ?? []) : (viewerSoldPlayers ?? []),
       minBasePrice: rosterData?.minBasePrice,
       stats: rosterData?.stats ?? {
         total: 0,
@@ -151,7 +166,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         inAuction: 0,
       },
     };
-  }, [liveData, rosterData]);
+  }, [liveData, rosterData, isConsole, viewerSoldPlayers]);
 
   // Optimistic: the console shows the bid the moment it's tapped. Convex drops
   // the guess when placeBid returns, so a rejected bid rolls back by itself.
@@ -179,6 +194,37 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const resumeAuction = useMutation(api.auctions.resumeAuction);
   const restartAuction = useMutation(api.auctions.restartAuction);
   const resolveStalledRound = useMutation(api.auctions.resolveStalledRound);
+  const startRehearsal = useMutation(api.snapshots.startRehearsal);
+  const heartbeat = useMutation(api.ops.heartbeat);
+  const reportClientError = useMutation(api.ops.reportClientError);
+  // Exceptions (not rule refusals) go to the super-admin live-ops panel.
+  const reportError = useCallback((fn: string, error: unknown) => {
+    void reportClientError({ auctionRoomId, fn, message: getErrorMessage(error, 'Unknown error') }).catch(() => {});
+  }, [reportClientError, auctionRoomId]);
+  const endRehearsal = useMutation(api.snapshots.endRehearsal);
+
+  // Consoles and owner paddles tell the live-ops panel they are connected
+  // (viewers never do: too many writes at 2,500 viewers).
+  const sendsHeartbeat = isConsole || Boolean(paddle);
+  useEffect(() => {
+    if (!sendsHeartbeat) return;
+    const beat = () => void heartbeat({ auctionRoomId }).catch(() => {});
+    beat();
+    const id = setInterval(beat, 30_000);
+    return () => clearInterval(id);
+  }, [sendsHeartbeat, heartbeat, auctionRoomId]);
+
+  // Keep the projector / console screen on while the auction is running.
+  const roomStatus = liveData?.auctionRoom.status;
+  useWakeLock(roomStatus === 'live' || roomStatus === 'paused');
+
+  // The player and top bid this console is showing (optimistic bids included,
+  // since this client's mutations apply in order). Sent with every console
+  // action so a stale one is refused instead of landing on the next player.
+  const expectedState = useCallback(() => ({
+    expectedPlayerId: liveData?.auctionRoom.currentPlayerId,
+    expectedCurrentBid: liveData?.currentBidAmount ?? null,
+  }), [liveData]);
 
   const [bidding, setBidding] = useState<Id<"teams"> | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -240,7 +286,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     const playerPhotoUrl = auctionData?.currentPlayer?.photoUrl;
     try {
       // requestId: a retried finalize (dropped socket) settles only once.
-      const res = (await finalizePlayer({ auctionRoomId, requestId: newRequestId() })) as {
+      const res = (await finalizePlayer({ auctionRoomId, requestId: newRequestId(), ...expectedState() })) as {
         playerName?: string;
         teamName?: string | null;
         amount?: number;
@@ -274,9 +320,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       });
       setShowResult(true);
     } catch (error) {
+      reportError('auctions:finalizePlayerSale', error);
       toast.error(getErrorMessage(error, "Failed to finalize"));
     }
-  }, [isConsole, showResult, finalizePlayer, auctionRoomId, auctionData]);
+  }, [isConsole, showResult, finalizePlayer, auctionRoomId, auctionData, expectedState, reportError]);
 
   // Advisory bid countdown, ticked locally from the hot query's
   // bidTimerEndsAt + serverTime. Never auto-finalises.
@@ -557,6 +604,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         amount,
         // One id per tap: a retry of this same bid can never land twice.
         requestId: newRequestId(),
+        ...expectedState(),
       });
 
       if (res && typeof res === 'object' && 'success' in res) {
@@ -565,9 +613,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         }
       }
     } catch (error) {
+      reportError('auctions:placeBid', error);
       toast.error(getErrorMessage(error, "Failed to place bid"));
     }
-  }, [bidding, auctionData?.auctionRoom?.status, placeBid, auctionRoomId]);
+  }, [bidding, auctionData?.auctionRoom?.status, placeBid, auctionRoomId, expectedState, reportError]);
 
 
   const handleNextPlayer = useCallback(async () => {
@@ -594,13 +643,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         toast.success("Auction completed! All players have been auctioned.");
       }
     } catch (error) {
+      reportError('auctions:startNextPlayer', error);
       toast.error(getErrorMessage(error, "Failed to load next player"));
     } finally {
       loadingNextRef.current = false;
     }
-  }, [startNext, auctionRoomId]);
+  }, [startNext, auctionRoomId, reportError]);
 
   const handleRevertBid = useCallback(async () => {
+    const expected = expectedState();
     if (!(await confirm({
       title: "Revert the last bid?",
       description: "The most recent bid will be removed from this player.",
@@ -608,14 +659,19 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     }))) return;
 
     try {
-      await revertBid({ auctionRoomId });
+      const res = await revertBid({ auctionRoomId, ...expected });
+      if (!res.success) {
+        toast.error(res.reason);
+        return;
+      }
       toast.success("Last bid reverted successfully");
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to revert bid"));
     }
-  }, [revertBid, auctionRoomId, confirm]);
+  }, [revertBid, auctionRoomId, confirm, expectedState]);
 
   const handleFinalUnsold = useCallback(async () => {
+    const { expectedPlayerId } = expectedState();
     if (!(await confirm({
       title: "Mark player as FINAL UNSOLD?",
       description:
@@ -625,7 +681,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       return;
 
     try {
-      const res = await markFinalUnsold({ auctionRoomId });
+      const res = await markFinalUnsold({ auctionRoomId, expectedPlayerId });
       if (res.success === false) {
         toast.error(res.reason || "Could not mark player as final unsold");
       } else {
@@ -634,7 +690,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to mark player as final unsold"));
     }
-  }, [markFinalUnsold, auctionRoomId, confirm]);
+  }, [markFinalUnsold, auctionRoomId, confirm, expectedState]);
 
   // Resolve a stalled unsold round (infinite-loop guard). The backend clears
   // `roundStalled`, which reactively hides the modal on every client.
@@ -745,7 +801,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     : 'Main Round';
   const stats = auctionData.stats;
   const progressTotal = isUnsoldRound
-    ? (auctionRoom.unsoldRoundTotal ?? auctionRoom.unsoldQueue?.length ?? 0)
+    ? (auctionRoom.unsoldRoundTotal ?? 0)
     : (stats?.total ?? 0);
   const progressCurrent = isUnsoldRound
     ? Math.min(progressTotal, Math.max(0, auctionRoom.unsoldCursor ?? 0))
@@ -756,7 +812,15 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   return (
     <div className={`${isConsole ? 'min-h-screen' : 'h-[100dvh] flex flex-col'} bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden`}>
       {/* Reconnecting indicator — surfaces silent socket drops (P1-1) */}
-      <ConnectionStatus />
+      <ConnectionStatus showLive={isConsole} />
+      {auctionRoom.rehearsal && (
+        <div
+          role="status"
+          className="fixed top-0 inset-x-0 z-[90] bg-sky-600/95 py-1 text-center text-xs font-bold uppercase tracking-widest text-white"
+        >
+          Rehearsal · nothing here is kept
+        </div>
+      )}
 
       {/* Cricket Stadium Background Effects */}
       <div className="fixed inset-0 pointer-events-none">
@@ -852,13 +916,18 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 {/* Restart Current Player */}
                 <Button
                   onClick={async () => {
+                    const { expectedPlayerId } = expectedState();
                     if (!(await confirm({
                       title: "Restart bidding for this player?",
                       description: "All bids placed on the current player will be cleared.",
                       confirmText: "Restart Bidding",
                     }))) return;
                     try {
-                      await restartCurrentPlayer({ auctionRoomId });
+                      const res = await restartCurrentPlayer({ auctionRoomId, expectedPlayerId });
+                      if (!res.success) {
+                        toast.error(res.reason);
+                        return;
+                      }
                       toast.success('Player bidding restarted!');
                     } catch (error) {
                       toast.error(getErrorMessage(error, 'Failed to restart player'));
@@ -896,6 +965,53 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   >
                     <Play className="w-4 h-4 sm:w-5 sm:h-5 sm:mr-2" />
                     <span className="hidden sm:inline">Start</span>
+                  </Button>
+                )}
+
+                {/* Rehearsal: a practice run that is rewound afterwards (owners) */}
+                {auctionRoom.status === 'waiting' && canManage && (
+                  <Button
+                    onClick={async () => {
+                      if (!(await confirm({
+                        title: 'Start a rehearsal?',
+                        description: 'Run the auction for practice. No WhatsApp messages are sent, and End rehearsal puts every player, purse and bid back exactly as it is now.',
+                        confirmText: 'Start rehearsal',
+                        variant: 'default',
+                      }))) return;
+                      try {
+                        await startRehearsal({ auctionRoomId });
+                        toast.success('Rehearsal started');
+                      } catch (error) {
+                        toast.error(getErrorMessage(error, 'Failed to start the rehearsal'));
+                      }
+                    }}
+                    variant="outline"
+                    size="lg"
+                    className="border-sky-500/50 text-sky-300 hover:bg-sky-500/10 h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
+                  >
+                    Rehearsal
+                  </Button>
+                )}
+                {auctionRoom.rehearsal && canManage && (
+                  <Button
+                    onClick={async () => {
+                      if (!(await confirm({
+                        title: 'End the rehearsal?',
+                        description: 'Every player, purse and bid goes back to how it was before the rehearsal started.',
+                        confirmText: 'End rehearsal',
+                      }))) return;
+                      try {
+                        await endRehearsal({ auctionRoomId });
+                        toast.success('Rehearsal ended and reset');
+                      } catch (error) {
+                        toast.error(getErrorMessage(error, 'Failed to end the rehearsal'));
+                      }
+                    }}
+                    variant="outline"
+                    size="lg"
+                    className="border-sky-500/50 text-sky-300 hover:bg-sky-500/10 h-10 sm:h-11 px-3 sm:px-4 text-sm touch-target"
+                  >
+                    End rehearsal
                   </Button>
                 )}
 
@@ -940,13 +1056,19 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 {canManage && (
                 <Button
                   onClick={async () => {
+                    if (auctionRoom.status === 'live') {
+                      toast.error('Pause the auction before restarting it');
+                      return;
+                    }
+                    const tournamentName = auctionData.tournament?.name ?? '';
                     if (!(await confirm({
                       title: "Restart the entire auction?",
-                      description: "This will reset ALL players, team purses, and bid history. This action cannot be undone.",
+                      description: "This will reset ALL players, team purses, and bid history. A snapshot is saved first.",
                       confirmText: "Restart Auction",
+                      requireTypedText: tournamentName,
                     }))) return;
                     try {
-                      await restartAuction({ auctionRoomId });
+                      await restartAuction({ auctionRoomId, confirmName: tournamentName });
                       toast.success('Auction has been reset!');
                     } catch (error) {
                       toast.error(getErrorMessage(error, 'Failed to restart auction'));
@@ -1487,7 +1609,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       {!isConsole && (
         <>
           <ViewerActionBar
-            soldCount={soldPlayers?.length ?? 0}
+            soldCount={auctionData?.stats?.sold ?? 0}
             unsoldCount={auctionData?.stats?.unsold ?? 0}
             teamsCount={teams?.length ?? 0}
             active={activeSheet}
@@ -1498,7 +1620,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   auctionRoomId={auctionRoomId}
                   paddle={paddle}
                   biddingOpen={auctionRoom.status === 'live' && !!currentPlayer}
-                  insights={rosterData ? ownerInsights(rosterData, paddle.team._id) : null}
+                  insights={rosterData ? ownerInsights({ ...rosterData, soldPlayers }, paddle.team._id) : null}
                 />
               ) : undefined
             }
@@ -1512,7 +1634,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                 : undefined
             }
             teams={teams ?? []}
-            soldPlayers={soldPlayers}
+            soldPlayers={viewerSoldPlayers}
             maxPlayersPerTeam={auctionData.tournament?.settings.maxPlayersPerTeam || 15}
             currentBidTeamId={currentBidTeam?._id}
           />

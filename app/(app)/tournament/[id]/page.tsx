@@ -5,16 +5,18 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import Link from 'next/link';
-import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye, Layers, Link2, EyeOff, ClipboardList } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Trophy, Settings, Play, Trash2, RotateCcw, Eye, Layers, Link2, EyeOff, ClipboardList, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { formatCurrency, getErrorMessage, getCaptainPlayerIds } from '@/lib/utils';
 import { TournamentSettingsModal } from '@/components/tournament/TournamentSettingsModal';
+import { TeamRequestForm } from '@/components/teams/TeamRequestForm';
 import { ExportResultsButton } from '@/components/results/ExportResultsButton';
 import { ShareResultsButton } from '@/components/results/ShareResultsButton';
 import { PlanCard } from '@/components/plans/PlanCard';
+import { SnapshotsCard } from '@/components/tournament/SnapshotsCard';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
@@ -28,6 +30,11 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const confirm = useConfirm();
 
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
+  // Team owners (signed up as one) can ask for their team here.
+  const me = useQuery(api.auth.me, {});
+  const isTeamOwner = me?.accountType === 'team_owner';
+  const myTeamRequest = useQuery(api.teamRequests.getMineForTournament, isTeamOwner ? { tournamentId } : 'skip');
+  const [showTeamRequest, setShowTeamRequest] = useState(false);
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
   const players = useQuery(api.players.listByTournament, { tournamentId });
   const canModify = useQuery(api.tournaments.canModify, { id: tournamentId });
@@ -120,20 +127,19 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   };
 
   const handleDelete = async () => {
-    const liveWarning = tournament?.status === 'active'
-      ? 'This auction is currently LIVE — viewers may be watching right now.\n\n'
-      : '';
+    const tournamentName = tournament?.name ?? '';
     if (!(await confirm({
-      title: `Delete "${tournament?.name}"?`,
-      description: `${liveWarning}This will permanently delete all teams, players, and auction data. This action cannot be undone.`,
+      title: `Delete "${tournamentName}"?`,
+      description: 'This will permanently delete all teams, players, and auction data. A snapshot is saved first. A running auction must be restarted or finished before the tournament can be deleted.',
       confirmText: 'Delete Tournament',
+      requireTypedText: tournamentName,
     }))) {
       return;
     }
 
     setDeleting(true);
     try {
-      await deleteTournament({ id: tournamentId });
+      await deleteTournament({ id: tournamentId, confirmName: tournamentName });
       toast.success('Tournament deleted successfully');
       router.push('/dashboard');
     } catch (error) {
@@ -172,18 +178,24 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
       return;
     }
 
+    const activeRoom = auctionRooms[0];
+    if (activeRoom.status === 'live') {
+      toast.error('Pause the auction before restarting it');
+      return;
+    }
+    const tournamentName = tournament?.name ?? '';
     if (!(await confirm({
       title: 'Restart auction?',
-      description: 'This will reset all player sales, team purses, and auction history. This action cannot be undone.',
+      description: 'This will reset all player sales, team purses, and auction history. A snapshot is saved first.',
       confirmText: 'Restart Auction',
+      requireTypedText: tournamentName,
     }))) {
       return;
     }
 
     setRestarting(true);
     try {
-      const activeRoom = auctionRooms[0];
-      await restartAuction({ auctionRoomId: activeRoom._id });
+      await restartAuction({ auctionRoomId: activeRoom._id, confirmName: tournamentName });
       toast.success('Auction restarted successfully! All players and teams have been reset.');
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to restart auction'));
@@ -285,6 +297,21 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                   <Eye className="w-4 h-4 text-blue-400" />
                   <span className="text-sm text-slate-300">Viewer Mode</span>
                 </div>
+              )}
+
+              {/* Team owners: register a team, or see where their request is */}
+              {isTeamOwner && !canRunAuction && tournament.status !== 'completed' && (
+                myTeamRequest?.status === 'pending' || myTeamRequest?.status === 'approved' ? (
+                  <div className={`flex items-center gap-2 px-4 rounded-lg border h-11 text-sm ${myTeamRequest.status === 'approved' ? 'border-green-600/40 bg-green-600/10 text-green-300' : 'border-amber-600/40 bg-amber-600/10 text-amber-300'}`}>
+                    <ShieldCheck className="w-4 h-4" />
+                    {myTeamRequest.name}: {myTeamRequest.status === 'approved' ? 'verified' : 'waiting for verification'}
+                  </div>
+                ) : (
+                  <Button onClick={() => setShowTeamRequest(true)} className="h-11 px-4 sm:px-5 text-sm">
+                    <ShieldCheck className="w-4 h-4 mr-2" />
+                    Register your team
+                  </Button>
+                )
               )}
 
               {/* Admin-only controls */}
@@ -468,6 +495,13 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
           </div>
         )}
 
+        {/* Automatic snapshots; owners can rewind to one */}
+        {canManage && (
+          <div className="mb-6 sm:mb-8 max-w-md">
+            <SnapshotsCard tournamentId={tournamentId} tournamentName={tournament.name} />
+          </div>
+        )}
+
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 lg:gap-6 mb-6 sm:mb-8">
           <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-5 lg:p-6">
@@ -633,10 +667,20 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             name: tournament.name,
             description: tournament.description,
             logoUrl: tournament.logoUrl,
+            sponsors: tournament.sponsors,
             settings: tournament.settings,
             status: tournament.status,
           }}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {showTeamRequest && (
+        <TeamRequestForm
+          tournamentId={tournamentId}
+          tournamentName={tournament.name}
+          defaultOwnerName={me?.name}
+          onClose={() => setShowTeamRequest(false)}
         />
       )}
     </div>

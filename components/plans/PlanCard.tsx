@@ -8,6 +8,7 @@ import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { PLAN_ORDER, PLAN_TIERS, upgradePrice, type PlanTier } from '@/convex/planTiers';
 import { Button } from '@/components/ui/button';
+import { NativeSelect } from '@/components/ui/native-select';
 import { openRazorpayCheckout } from '@/lib/razorpayCheckout';
 
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN')}`;
@@ -108,9 +109,9 @@ export function PlanCard({
       {isSuperAdmin && (
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-700 pt-3 text-xs">
           <span className="text-slate-400">Grant (offline payment):</span>
-          <select value={grantTier} onChange={(e) => setGrantTier(e.target.value as PlanTier)} className="h-8 rounded-md border border-slate-600 bg-slate-800 px-2 text-white" aria-label="Plan to grant">
+          <NativeSelect value={grantTier} onChange={(e) => setGrantTier(e.target.value as PlanTier)} className="h-8 w-auto" aria-label="Plan to grant">
             {PLAN_ORDER.map((tier) => <option key={tier} value={tier}>{PLAN_TIERS[tier].label}</option>)}
-          </select>
+          </NativeSelect>
           <input value={grantReason} onChange={(e) => setGrantReason(e.target.value)} placeholder="Reason, e.g. bank transfer #123" className="h-8 flex-1 min-w-40 rounded-md border border-slate-600 bg-slate-800 px-2 text-white" aria-label="Reason" />
           <Button size="sm" variant="outline" disabled={!grantReason.trim()} onClick={grant} className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">Grant</Button>
         </div>

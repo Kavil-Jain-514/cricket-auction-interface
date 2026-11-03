@@ -3,12 +3,13 @@
 import { use, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery } from 'convex/react';
-import { ArrowLeft, Copy, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Copy, AlertTriangle, ImageIcon, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { Navbar } from '@/components/layout/Navbar';
 import { Button } from '@/components/ui/button';
+import { NativeSelect } from '@/components/ui/native-select';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { getErrorMessage, getRoleDisplay } from '@/lib/utils';
@@ -21,6 +22,7 @@ const FILTERS: Array<{ key: Status | 'all'; label: string }> = [
   { key: 'rejected', label: 'Rejected' },
   { key: 'all', label: 'All' },
 ];
+const PAYMENT_LABEL = { razorpay: 'paid online', qr: 'paid by QR', offline: 'paying offline' } as const;
 const STATUS_LABEL: Record<Status, string> = {
   pending_payment: 'Awaiting payment',
   paid: 'Ready',
@@ -38,6 +40,10 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   const approve = useMutation(api.registrations.approve);
   const reject = useMutation(api.registrations.reject);
   const bulkApprove = useMutation(api.registrations.bulkApprove);
+  const markPaid = useMutation(api.registrations.markPaid);
+  const setCategory = useMutation(api.registrations.setCategory);
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const categories = [...(tournament?.settings.categories ?? [])].sort((a, b) => a.order - b.order);
   const confirm = useConfirm();
   const [filter, setFilter] = useState<Status | 'all'>('paid');
   const [busy, setBusy] = useState<string | null>(null);
@@ -134,12 +140,35 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                 <div className="text-xs text-slate-400">
                   {getRoleDisplay(r.role)} · {r.age} yrs · {r.phoneNumber}
                   {r.consentWhatsApp ? ' · WhatsApp OK' : ''}
-                  {r.paymentRef ? ` · paid (${r.paymentRef})` : ''}
+                  {r.paymentMethod ? ` · ${PAYMENT_LABEL[r.paymentMethod]}` : ''}
+                  {r.paymentRef ? ` (${r.paymentRef})` : ''}
                   {r.rejectReason ? ` · ${r.rejectReason}` : ''}
                 </div>
               </div>
+              {r.paymentProofUrl && (
+                <Button size="sm" variant="outline" onClick={() => setProofUrl(r.paymentProofUrl!)} className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
+                  <ImageIcon className="w-4 h-4" /> Screenshot
+                </Button>
+              )}
+              {categories.length > 0 && r.status !== 'approved' && r.status !== 'rejected' && (
+                <NativeSelect
+                  aria-label={`Category for ${r.name}`}
+                  value={r.categoryId ?? ''}
+                  disabled={busy !== null}
+                  onChange={(e) => run(r._id, () => setCategory({ registrationId: r._id, categoryId: e.target.value || undefined }), 'Category updated')}
+                  className="h-8 w-40"
+                >
+                  <option value="">No category</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </NativeSelect>
+              )}
               {(r.status === 'paid' || r.status === 'pending_payment') && (
                 <div className="flex gap-2">
+                  {r.status === 'pending_payment' && (
+                    <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => run(r._id, () => markPaid({ registrationId: r._id }), `${r.name}'s fee marked received`)} className="border-green-700 bg-green-900/30 text-green-300 hover:bg-green-800/50 hover:text-white">
+                      Mark paid
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => { setReason(''); setRejecting({ id: r._id, name: r.name }); }} className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
                     Reject
                   </Button>
@@ -154,6 +183,19 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
           {rows === undefined && <li className="p-6 text-center text-sm text-slate-500">Loading…</li>}
         </ul>
       </main>
+
+      {proofUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setProofUrl(null)}>
+          <div role="dialog" aria-modal="true" aria-label="Payment screenshot" className="relative max-h-[90dvh] w-full max-w-md overflow-hidden rounded-xl border border-slate-700 bg-slate-900 p-3" onClick={(e) => e.stopPropagation()}>
+            <button type="button" onClick={() => setProofUrl(null)} aria-label="Close" className="absolute right-2 top-2 rounded-lg bg-black/50 p-1.5 text-slate-200 hover:text-white">
+              <X className="w-4 h-4" />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={proofUrl} alt="Payment screenshot" className="max-h-[80dvh] w-full rounded-lg object-contain" />
+            <p className="mt-2 text-center text-xs text-slate-400">Check the amount and payee before approving.</p>
+          </div>
+        </div>
+      )}
 
       {rejecting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setRejecting(null)}>

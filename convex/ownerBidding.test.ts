@@ -630,13 +630,14 @@ describe("confirm mode", () => {
     const accept = await t.withIdentity(ADMIN_IDENTITY).mutation(api.auctions.acceptBidRequest, {
       requestId: requestIdOf(raise),
     });
-    expect(accept).toMatchObject({ success: false, reason: "Minimum bid is 175000" });
+    // The console bid moved the price, which expired the raise.
+    expect(accept).toMatchObject({ success: false, reason: "Request is no longer pending" });
 
     const bids = await liveBidsFor(t, playerId);
     expect(bids).toHaveLength(1);
     expect(bids[0].teamId).toBe(teamB);
     const [request] = await requestsFor(t, playerId);
-    expect(request).toMatchObject({ status: "rejected", reason: "Minimum bid is 175000" });
+    expect(request).toMatchObject({ status: "superseded", reason: "Price moved" });
   });
 
   test("two owners raise: both are pending, accepting the higher supersedes the lower", async () => {
@@ -660,18 +661,6 @@ describe("confirm mode", () => {
     const bids = await liveBidsFor(t, playerId);
     expect(bids).toHaveLength(1);
     expect(bids[0]).toMatchObject({ teamId: teamB, amount: 125_000 });
-  });
-
-  test("accepting the lower raise keeps the higher one pending", async () => {
-    const t = convexTest(schema, modules);
-    const { roomId, playerId } = await setupBidding(t, { bidMode: "confirm" });
-
-    const a = await t.withIdentity(OWNER_A).mutation(api.auctions.raiseBid, { auctionRoomId: roomId, amount: 100_000 });
-    const b = await t.withIdentity(OWNER_B).mutation(api.auctions.raiseBid, { auctionRoomId: roomId, amount: 150_000 });
-    await t.withIdentity(ADMIN_IDENTITY).mutation(api.auctions.acceptBidRequest, { requestId: requestIdOf(a) });
-
-    const byId = new Map((await requestsFor(t, playerId)).map((r) => [r._id, r]));
-    expect(byId.get(requestIdOf(b))?.status).toBe("pending");
   });
 
   test("a team's newer raise supersedes its pending one; rapid repeats are spaced", async () => {
@@ -864,5 +853,86 @@ describe("getPendingBidRequests", () => {
       auctionRoomId: roomId,
     });
     expect(asOwner.requests).toHaveLength(0);
+  });
+});
+
+describe("expected state and stale raises (AUDIT 2026-10 P0-1, check 4)", () => {
+  test("open mode: a raise priced from an old bid is refused with the current price", async () => {
+    const t = convexTest(schema, modules);
+    const { roomId, playerId, teamB } = await setupBidding(t, { bidMode: "open" });
+    await t.withIdentity(ADMIN_IDENTITY).mutation(api.auctions.placeBid, { auctionRoomId: roomId, teamId: teamB, amount: 100_000 });
+
+    const res = await t.withIdentity(OWNER_A).mutation(api.auctions.raiseBid, {
+      auctionRoomId: roomId,
+      amount: 150_000,
+      expectedPlayerId: playerId,
+      expectedCurrentBid: null,
+    });
+
+    expect(res).toEqual({ success: false, reason: "Price changed, current bid is ₹1,00,000" });
+    expect(await liveBidsFor(t, playerId)).toHaveLength(1);
+  });
+
+  test("getMyPaddle reports the top bid the paddle priced from", async () => {
+    const t = convexTest(schema, modules);
+    const { roomId, teamB } = await setupBidding(t, { bidMode: "open" });
+    await t.withIdentity(ADMIN_IDENTITY).mutation(api.auctions.placeBid, { auctionRoomId: roomId, teamId: teamB, amount: 100_000 });
+
+    const paddle = await t.withIdentity(OWNER_A).query(api.auctions.getMyPaddle, { auctionRoomId: roomId });
+
+    expect(paddle).toMatchObject({ currentBid: 100_000, minNextBid: 125_000 });
+  });
+
+  test("confirm mode: pending raises expire when the price moves", async () => {
+    const t = convexTest(schema, modules);
+    const { roomId, playerId, teamB } = await setupBidding(t, { bidMode: "confirm" });
+    const raise = await t.withIdentity(OWNER_A).mutation(api.auctions.raiseBid, { auctionRoomId: roomId, amount: 150_000 });
+
+    await t.withIdentity(ADMIN_IDENTITY).mutation(api.auctions.placeBid, { auctionRoomId: roomId, teamId: teamB, amount: 100_000 });
+
+    const [request] = await requestsFor(t, playerId);
+    expect(request).toMatchObject({ _id: requestIdOf(raise), status: "superseded" });
+    const tray = await t.withIdentity(ADMIN_IDENTITY).query(api.auctions.getPendingBidRequests, { auctionRoomId: roomId });
+    expect(tray.requests).toHaveLength(0);
+  });
+
+  test("confirm mode: accepting one raise expires the others priced from the same bid", async () => {
+    const t = convexTest(schema, modules);
+    const { roomId, playerId } = await setupBidding(t, { bidMode: "confirm" });
+    const a = await t.withIdentity(OWNER_A).mutation(api.auctions.raiseBid, { auctionRoomId: roomId, amount: 100_000 });
+    const b = await t.withIdentity(OWNER_B).mutation(api.auctions.raiseBid, { auctionRoomId: roomId, amount: 150_000 });
+
+    const accepted = await t.withIdentity(ADMIN_IDENTITY).mutation(api.auctions.acceptBidRequest, { requestId: requestIdOf(a) });
+
+    expect(accepted).toMatchObject({ success: true });
+    const byId = new Map((await requestsFor(t, playerId)).map((r) => [r._id, r]));
+    expect(byId.get(requestIdOf(a))?.status).toBe("accepted");
+    expect(byId.get(requestIdOf(b))?.status).toBe("superseded");
+  });
+
+  test("confirm mode: a raise still pending after the price moved can't be accepted", async () => {
+    const t = convexTest(schema, modules);
+    const { roomId, playerId, teamB } = await setupBidding(t, { bidMode: "confirm" });
+    const raise = await t.withIdentity(OWNER_A).mutation(api.auctions.raiseBid, { auctionRoomId: roomId, amount: 150_000 });
+    // A bid that bypassed the expiry (legacy data): the raise is still pending.
+    await t.run((ctx) =>
+      ctx.db.insert("liveBids", { auctionRoomId: roomId, playerId, teamId: teamB, amount: 100_000, timestamp: Date.now() }),
+    );
+
+    const res = await t.withIdentity(ADMIN_IDENTITY).mutation(api.auctions.acceptBidRequest, { requestId: requestIdOf(raise) });
+
+    expect(res).toEqual({ success: false, reason: "Price changed, current bid is ₹1,00,000" });
+    expect(await liveBidsFor(t, playerId)).toHaveLength(1);
+  });
+
+  test("confirm mode: pending raises expire when the player leaves the block", async () => {
+    const t = convexTest(schema, modules);
+    const { roomId, playerId } = await setupBidding(t, { bidMode: "confirm" });
+    await t.withIdentity(OWNER_A).mutation(api.auctions.raiseBid, { auctionRoomId: roomId, amount: 150_000 });
+
+    await t.withIdentity(ADMIN_IDENTITY).mutation(api.auctions.finalizePlayerSale, { auctionRoomId: roomId });
+
+    const [request] = await requestsFor(t, playerId);
+    expect(request.status).toBe("superseded");
   });
 });

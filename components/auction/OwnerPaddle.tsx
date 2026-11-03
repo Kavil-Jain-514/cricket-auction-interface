@@ -20,6 +20,8 @@ export interface PaddleState {
   maxAllowedBid: number;
   ruleBlock: string | null;
   minNextBid: number | null;
+  /** Top live bid the paddle is showing; null = no bids yet. */
+  currentBid: number | null;
   minBidIncrement: number;
   incrementSlabs: IncrementSlab[];
   isLeading: boolean;
@@ -64,6 +66,7 @@ function buzz(pattern: number | number[]) {
  */
 export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen, insights }: OwnerPaddleProps) {
   const raiseBid = useMutation(api.auctions.raiseBid);
+  const reportClientError = useMutation(api.ops.reportClientError);
   const [step, setStep] = useState<(typeof STEPS)[number]>(1);
   const [sending, setSending] = useState(false);
   const [flash, setFlash] = useState<Flash | null>(null);
@@ -123,7 +126,14 @@ export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen, insights }: Ow
     if (blockedLabel || amount === null || sending) return;
     setSending(true);
     try {
-      const res = await raiseBid({ auctionRoomId, amount });
+      // The player and price this raise was priced from: if either moved,
+      // the server refuses it ("Price changed, current bid is …").
+      const res = await raiseBid({
+        auctionRoomId,
+        amount,
+        expectedPlayerId: (paddle.currentPlayerId ?? undefined) as Id<"players"> | undefined,
+        expectedCurrentBid: paddle.currentBid,
+      });
       if (!res.success) {
         showFlash('bad', res.reason);
       } else if ('pending' in res && res.pending) {
@@ -132,6 +142,8 @@ export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen, insights }: Ow
         showFlash('good', `Bid placed at ${formatCurrency(res.amount)}`);
       }
     } catch (error) {
+      // An exception, not a rule refusal: tell the live-ops panel.
+      void reportClientError({ auctionRoomId, fn: 'auctions:raiseBid', message: getErrorMessage(error, 'Raise failed') }).catch(() => {});
       showFlash('bad', getErrorMessage(error, 'Raise failed'));
     } finally {
       setSending(false);

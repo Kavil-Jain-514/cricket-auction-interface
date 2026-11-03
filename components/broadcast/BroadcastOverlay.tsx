@@ -10,6 +10,8 @@ import { useBidCountdown } from '@/hooks/useBidCountdown';
 import { playerAvatarSrc } from '@/components/ui/player-avatar';
 import type { OverlayParams } from '@/lib/overlayParams';
 import { OverlayStage, STAGE_HEIGHT, STAGE_WIDTH } from './OverlayStage';
+import { useConnectionView } from '@/lib/useConnectionView';
+import { useWakeLock } from '@/lib/wakeLock';
 
 const PlayerResultPopup = dynamic(() => import('@/components/auction/PlayerResultPopup').then(m => ({ default: m.PlayerResultPopup })), { ssr: false });
 
@@ -45,7 +47,12 @@ export function BroadcastOverlay({ roomId, mode, theme, safe }: BroadcastOverlay
   const latestSaleEvent = useQuery(api.auctions.getLatestSaleEvent, { auctionRoomId });
 
   useTransparentPage();
+  useWakeLock(true);
   const scale = useStageScale();
+  // On a stream a frozen price is worse than nothing: hide the card while
+  // the socket has been down for a few seconds; it returns resynced.
+  const connection = useConnectionView();
+  const stale = connection.kind === 'reconnecting' && connection.secondsStale >= 3;
   const stinger = useSaleStinger(latestSaleEvent);
 
   const settings = rosterData?.tournament?.settings;
@@ -69,7 +76,7 @@ export function BroadcastOverlay({ roomId, mode, theme, safe }: BroadcastOverlay
   return (
     <div data-broadcast-overlay className="fixed inset-0 overflow-hidden bg-transparent">
       <div style={{ width: STAGE_WIDTH, height: STAGE_HEIGHT, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
-        {liveData && rosterData && !stinger && (
+        {liveData && rosterData && !stinger && !stale && (
           <OverlayStage
             mode={mode}
             theme={theme}
