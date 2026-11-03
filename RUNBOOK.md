@@ -159,6 +159,15 @@ The **frontend (Vercel)** and **backend (Convex)** deploy separately — check w
   preset. Create one with a max file size (e.g. 5 MB) and image formats only.
 - A registrant can open checkout up to 10 times; a second paid fee is listed as *refund due* on /admin/live and
   `registrations:listRefundsDue`.
+- **Own questions:** Registrations → *Edit form & share* (`/tournament/<id>/registration-form`, owner only). The
+  standard player fields always come first and can't be removed. Each save is a new version; answers are stored
+  with the version they answered, so editing later never changes old entries. An answered question can only be
+  archived (hidden, answers kept), and its type is locked. Answers show under each registration, in the
+  player's details and in *Export (.xlsx)*. The same page has the form link and a QR to download.
+- **Off switch:** `npx convex env set REGISTRATION_CUSTOM_QUESTIONS off` hides every custom question and stops
+  requiring them, on every tournament, at once. `npx convex env remove REGISTRATION_CUSTOM_QUESTIONS` turns
+  them back on. Someone with the form already open when you switch it off still registers; their custom
+  answers just aren't saved.
 
 ## Who to call
 

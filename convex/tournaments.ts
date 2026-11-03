@@ -783,7 +783,7 @@ export const deleteTournament = mutation({
     const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     // Fetch all related data in parallel
-    const [teams, players, auctionRooms, groupDraws, staff, registrations, registrationOrders] = await Promise.all([
+    const [teams, players, auctionRooms, groupDraws, staff, registrations, registrationOrders, formVersions] = await Promise.all([
       ctx.db
         .query("teams")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
@@ -811,6 +811,10 @@ export const deleteTournament = mutation({
       ctx.db
         .query("registrationOrders")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("registrationFormVersions")
+        .withIndex("by_tournament_version", (q) => q.eq("tournamentId", args.id))
         .collect(),
     ]);
 
@@ -910,6 +914,7 @@ export const deleteTournament = mutation({
     // Keep registrations that carry a payment reference (refund trail).
     await deleteInChunks(registrations.filter((r) => !r.paymentRef));
     await deleteInChunks(registrationOrders.filter((o) => o.status !== "paid"));
+    await deleteInChunks(formVersions);
 
     // 2. Mid-level: group draws, players, teams, auction rooms
     await deleteInChunks(groupDraws);

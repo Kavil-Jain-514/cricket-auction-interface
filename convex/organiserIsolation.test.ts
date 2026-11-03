@@ -169,6 +169,12 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "registrations:markPaid": (as, fx) => as.mutation(api.registrations.markPaid, { registrationId: fx.registration }),
   "registrations:setCategory": (as, fx) => as.mutation(api.registrations.setCategory, { registrationId: fx.registration }),
   "registrations:reject": (as, fx) => as.mutation(api.registrations.reject, { registrationId: fx.registration, reason: "x" }),
+  "registrationForms:save": (as, fx) =>
+    as.mutation(api.registrationForms.save, {
+      tournamentId: fx.tA,
+      questions: [{ id: "q_club", type: "short_text", label: "Club", required: false }],
+      expectedVersion: 0,
+    }),
   "players:create": (as, fx) => as.mutation(api.players.create, { tournamentId: fx.tA, ...newPlayer }),
   "players:bulkImport": (as, fx) => as.mutation(api.players.bulkImport, { tournamentId: fx.tA, players: [newPlayer] }),
   "players:update": (as, fx) => as.mutation(api.players.update, { id: fx.pending, name: "Renamed" }),

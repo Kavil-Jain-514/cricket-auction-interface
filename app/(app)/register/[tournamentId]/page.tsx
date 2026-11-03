@@ -2,7 +2,7 @@
 
 import { use, useState } from 'react';
 import { useAction, useMutation, useQuery } from 'convex/react';
-import { Activity, Check, CheckCircle2, ImageUp, QrCode, Tag, Trophy, Upload, UserRound, Wallet } from 'lucide-react';
+import { Activity, Check, CheckCircle2, ClipboardList, ImageUp, QrCode, Tag, Trophy, Upload, UserRound, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -15,6 +15,8 @@ import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { PLAYER_ROLES, cn, getErrorMessage, getRoleBadgeBg } from '@/lib/utils';
 import { openRazorpayCheckout } from '@/lib/razorpayCheckout';
 import { formatRupees } from '@/convex/bidRules';
+import { validateAnswers } from '@/convex/registrationForm';
+import { CustomQuestions, answersToSubmit, type AnswerMap } from '@/components/registration/CustomQuestions';
 
 // Same limits as /api/upload.
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -49,6 +51,8 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
     website: '', // honeypot: hidden from people, filled by bots
   });
   const [photoUrl, setPhotoUrl] = useState<string | undefined>();
+  const [answers, setAnswers] = useState<AnswerMap>({});
+  const [answerErrors, setAnswerErrors] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState<'photo' | 'proof' | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<Done | null>(null);
@@ -124,6 +128,17 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (form.role.length === 0) return toast.error('Choose at least one role');
+    // The organiser's questions: the same check the server runs.
+    const customForm = info?.form ?? null;
+    const values = customForm ? answersToSubmit(customForm.questions, answers) : [];
+    if (customForm) {
+      const { errors } = validateAnswers(customForm.questions, values);
+      setAnswerErrors(Object.fromEntries(errors.map((err) => [err.questionId, err.message])));
+      if (errors.length > 0) {
+        document.getElementById(`cq-${errors[0].questionId}`)?.focus();
+        return toast.error(errors[0].message);
+      }
+    }
     setSubmitting(true);
     try {
       const res = await submit({
@@ -139,6 +154,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         categoryId: form.categoryId || undefined,
         photoUrl,
         consentWhatsApp: form.consentWhatsApp,
+        answers: customForm ? { formVersion: customForm.version, values } : undefined,
         website: form.website,
       });
       setDone({ registrationId: res.registrationId, needsPayment: res.needsPayment, fee: res.fee, step: res.needsPayment ? 'choose' : 'paid' });
@@ -414,6 +430,25 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
           </Field>
         </div>
       </section>
+
+      {info.form && info.form.questions.length > 0 && (
+        <>
+          <FormDivider />
+          <section className="space-y-4">
+            <SectionHeading icon={ClipboardList} title="More details" />
+            <CustomQuestions
+              questions={info.form.questions}
+              answers={answers}
+              errors={answerErrors}
+              onChange={(id, value) => {
+                setAnswers((a) => ({ ...a, [id]: value }));
+                setAnswerErrors(({ [id]: _cleared, ...rest }) => rest);
+              }}
+              uploadFile={uploadImage}
+            />
+          </section>
+        </>
+      )}
 
       {/* Honeypot: off-screen and skipped by keyboards and screen readers. */}
       <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">

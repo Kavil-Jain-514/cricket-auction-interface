@@ -9,6 +9,7 @@ import {
   sponsorValidator,
   squadRuleValidator,
 } from "./ruleValidators";
+import { answersValidator, questionValidator } from "./registrationForm";
 
 export default defineSchema({
   // Users table with roles
@@ -238,12 +239,26 @@ export default defineSchema({
     paymentProofUrl: v.optional(v.string()),
     rejectReason: v.optional(v.string()),
     playerId: v.optional(v.id("players")),
+    // Answers to the organiser's own questions, with the form version they
+    // were given against (registrationFormVersions). Absent = none asked.
+    answers: v.optional(answersValidator),
     createdAt: v.number(),
     reviewedAt: v.optional(v.number()),
   })
     .index("by_tournament", ["tournamentId"])
     .index("by_tournament_phone", ["tournamentId", "phoneNumber"])
     .index("by_order", ["razorpayOrderId"]),
+
+  // The organiser's own registration questions (convex/registrationForm.ts),
+  // one row per saved version so answers always resolve to the question they
+  // answered. The latest version is the live form; none = core fields only.
+  registrationFormVersions: defineTable({
+    tournamentId: v.id("tournaments"),
+    version: v.number(), // 1, 2, …
+    questions: v.array(questionValidator),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_tournament_version", ["tournamentId", "version"]),
 
   // Teams requested by self-declared team owners (users.accountType
   // "team_owner"). The tournament's owner approves, which creates the team

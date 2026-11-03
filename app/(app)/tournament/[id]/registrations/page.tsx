@@ -3,7 +3,7 @@
 import { use, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery } from 'convex/react';
-import { ArrowLeft, Copy, AlertTriangle, ImageIcon, X } from 'lucide-react';
+import { ArrowLeft, Copy, AlertTriangle, FileSpreadsheet, ImageIcon, ListChecks, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -14,6 +14,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { getErrorMessage, getRoleDisplay } from '@/lib/utils';
 import { formatRupees } from '@/convex/bidRules';
+import { buildRegistrationRows, formatAnswer } from '@/lib/registrationsWorkbook';
 
 type Status = 'pending_payment' | 'paid' | 'approved' | 'rejected';
 const FILTERS: Array<{ key: Status | 'all'; label: string }> = [
@@ -38,6 +39,8 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   const { canManage, isLoading } = useTournamentRole(tournamentId);
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const rows = useQuery(api.registrations.list, canManage ? { tournamentId } : 'skip');
+  const form = useQuery(api.registrationForms.get, canManage ? { tournamentId } : 'skip');
+  const labels = form?.labels ?? {};
   const approve = useMutation(api.registrations.approve);
   const reject = useMutation(api.registrations.reject);
   const bulkApprove = useMutation(api.registrations.bulkApprove);
@@ -54,6 +57,22 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   const shown = useMemo(() => (rows ?? []).filter((r) => filter === 'all' || r.status === filter), [rows, filter]);
   const readyCount = (rows ?? []).filter((r) => r.status === 'paid').length;
   const link = typeof window !== 'undefined' ? `${window.location.origin}/register/${tournamentId}` : '';
+
+  const exportRows = async () => {
+    if (!rows) return;
+    try {
+      const XLSX = await import('xlsx');
+      const data = buildRegistrationRows(rows, labels);
+      const workbook = XLSX.utils.book_new();
+      const sheet = XLSX.utils.aoa_to_sheet(data);
+      sheet['!cols'] = data[0].map((_, col) => ({ wch: Math.min(40, Math.max(...data.map((r) => String(r[col] ?? '').length), 8) + 2) }));
+      XLSX.utils.book_append_sheet(workbook, sheet, 'Registrations');
+      const safeName = (tournament?.name ?? 'tournament').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '') || 'tournament';
+      XLSX.writeFile(workbook, `${safeName}_registrations.xlsx`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to export registrations'));
+    }
+  };
 
   const run = async (key: string, fn: () => Promise<unknown>, ok: string) => {
     setBusy(key);
@@ -113,6 +132,14 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
             >
               <Copy className="w-4 h-4" /> Copy form link
             </Button>
+            <Button asChild variant="outline" className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
+              <Link href={`/tournament/${tournamentId}/registration-form`}>
+                <ListChecks className="w-4 h-4" /> Edit form &amp; share
+              </Link>
+            </Button>
+            <Button variant="outline" onClick={exportRows} disabled={!rows || rows.length === 0} className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
+              <FileSpreadsheet className="w-4 h-4" /> Export (.xlsx)
+            </Button>
             <Button onClick={handleBulk} disabled={readyCount === 0 || busy !== null}>Approve all ready ({readyCount})</Button>
           </div>
         </div>
@@ -145,6 +172,28 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                   {r.paymentRef ? ` (${r.paymentRef})` : ''}
                   {r.rejectReason ? ` · ${r.rejectReason}` : ''}
                 </div>
+                {r.answers && r.answers.values.length > 0 && (
+                  <details className="mt-2 text-sm">
+                    <summary className="cursor-pointer text-xs font-medium text-blue-300 hover:text-blue-200">Answers ({r.answers.values.length})</summary>
+                    <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-[auto_1fr]">
+                      {r.answers.values.map((a) => {
+                        const q = labels[a.questionId];
+                        return (
+                          <div key={a.questionId} className="contents">
+                            <dt className="text-slate-400">{q?.label ?? 'Removed question'}{q?.archived ? ' (archived)' : ''}</dt>
+                            <dd className="min-w-0 break-words text-slate-200">
+                              {q?.type === 'file' && typeof a.value === 'string' ? (
+                                <a href={a.value} target="_blank" rel="noopener noreferrer" className="text-blue-300 underline">View image</a>
+                              ) : (
+                                formatAnswer(a.value, q?.type)
+                              )}
+                            </dd>
+                          </div>
+                        );
+                      })}
+                    </dl>
+                  </details>
+                )}
               </div>
               {r.paymentProofUrl && (
                 <Button size="sm" variant="outline" onClick={() => setProofUrl(r.paymentProofUrl!)} className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
