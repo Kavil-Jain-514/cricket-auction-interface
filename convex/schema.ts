@@ -335,6 +335,52 @@ export default defineSchema({
     sentAt: v.optional(v.number()),
   })
     .index("by_dedupe", ["dedupeKey"])
+    .index("by_status_next", ["status", "nextAttemptAt"])
+    // Deleting a tournament deletes its outbox rows (they hold phone numbers).
+    .index("by_tournament", ["tournamentId"]),
+
+  // ── Deleting a tournament (convex/fileCleanup.ts) ─────────────────────────
+  // Rows go at once. The safety snapshot and paid registrations are kept for
+  // the retention period (a mistaken delete can be recovered, refunds
+  // settled), then purged here; only registrationOrders (payment reference
+  // and amount, no personal data) outlive it.
+  tournamentPurges: defineTable({
+    tournamentId: v.id("tournaments"), // already deleted
+    tournamentName: v.string(),
+    purgeAt: v.number(),
+    status: v.union(v.literal("scheduled"), v.literal("done")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    doneAt: v.optional(v.number()),
+  }).index("by_status_purgeAt", ["status", "purgeAt"]),
+
+  // Stored files to delete from Cloudinary, one row per URL. "waiting" until
+  // the tournament's purge (its snapshot still points at them), then
+  // "pending" for the hourly worker, which retries with backoff up to
+  // MAX_ATTEMPTS ("failed" = dead letter, shown on /admin/live). "in_use":
+  // another tournament still shows the file, so it is kept. "skipped": not a
+  // file we stored (another host, a legacy URL).
+  fileCleanup: defineTable({
+    url: v.string(),
+    purgeId: v.id("tournamentPurges"),
+    status: v.union(
+      v.literal("waiting"),
+      v.literal("pending"),
+      v.literal("deleting"),
+      v.literal("done"),
+      v.literal("in_use"),
+      v.literal("skipped"),
+      v.literal("failed"),
+    ),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    doneAt: v.optional(v.number()),
+  })
+    .index("by_url", ["url"])
+    .index("by_purge", ["purgeId"])
     .index("by_status_next", ["status", "nextAttemptAt"]),
 
   // ── Live-ops panel (convex/ops.ts) ─────────────────────────────────────────

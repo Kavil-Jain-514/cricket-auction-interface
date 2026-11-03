@@ -169,6 +169,29 @@ The **frontend (Vercel)** and **backend (Convex)** deploy separately — check w
   them back on. Someone with the form already open when you switch it off still registers; their custom
   answers just aren't saved.
 
+## Deleting a tournament
+
+- Owner or super-admin only, never while the auction is live or paused, and only with the name typed. A snapshot
+  is taken first.
+- **At once:** every row goes (teams, players, rooms, bids, registrations, form versions, invites, team requests,
+  staff, WhatsApp outbox rows, presence). Anyone with the auction open sees "This auction isn't available" and is
+  sent home.
+- **Kept for 30 days, then erased** (daily cron `purgeDueTournaments`): the safety snapshot and registrations with
+  a payment reference (refund trail). Only `registrationOrders` (payment reference and amount, no personal data)
+  remain after that.
+- **Files** (logo, sponsor logos, payment QR, team logos, player and captain photos, payment screenshots, form
+  uploads) are deleted from Cloudinary within an hour of that purge (hourly cron `processDue`, 100 per call).
+  A file another tournament still shows is kept (`in_use`). Failures retry with backoff (10 min up to a day,
+  8 tries), then show as **failed** on /admin/live with the error. Needs `CLOUDINARY_CLOUD_NAME`,
+  `CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET` in the **Convex** env (the same ones as registration photos).
+- **Files left by deletions before this existed** (one-off, nothing is deleted without your approval):
+  1. `npx convex run fileCleanup:findOrphans` is a dry run. It lists stored images under `cricket-auction/`
+     that no tournament, team, player, registration, team request or snapshot refers to. Images uploaded in the
+     last 24 hours are never listed (a form may still be in progress).
+  2. Review the list. Then delete exactly the ones you approve:
+     `npx convex run fileCleanup:deleteOrphans '{"publicIds": ["cricket-auction/players/abc", "..."]}'`.
+     Each id is re-checked first; anything referenced again is kept and listed under `kept`.
+
 ## Who to call
 
 | Role | Name | Contact |

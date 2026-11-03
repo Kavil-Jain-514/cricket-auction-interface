@@ -28,6 +28,7 @@ import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { initialPlan } from "./plans";
 import { canCreateTournament, canUploadTournamentLogo, isSuperAdmin } from "./policy";
 import { takeSnapshot } from "./snapshots";
+import { scheduleTournamentPurge } from "./fileCleanup";
 import {
   confirmsTournamentName,
   normalizeFooterText,
@@ -787,7 +788,8 @@ export const setActive = mutation({
  * Delete a tournament and everything under it. Never while its auction is
  * live or paused, only with the tournament name typed, and always after a
  * snapshot (AUDIT 2026-10 P1-5). Payment records stay: paymentOrders and any
- * registration with a payment reference.
+ * registration with a payment reference. That snapshot, those registrations
+ * and every stored file are purged after RETENTION_MS (convex/fileCleanup.ts).
  */
 export const deleteTournament = mutation({
   args: { id: v.id("tournaments"), confirmName: v.string() },
@@ -797,7 +799,7 @@ export const deleteTournament = mutation({
     const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     // Fetch all related data in parallel
-    const [teams, players, auctionRooms, groupDraws, staff, registrations, registrationOrders, formVersions] = await Promise.all([
+    const [teams, players, auctionRooms, groupDraws, staff, registrations, registrationOrders, formVersions, teamRequests, notifications] = await Promise.all([
       ctx.db
         .query("teams")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
@@ -829,6 +831,14 @@ export const deleteTournament = mutation({
       ctx.db
         .query("registrationFormVersions")
         .withIndex("by_tournament_version", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("teamRequests")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+        .collect(),
+      ctx.db
+        .query("notifications")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
         .collect(),
     ]);
 
@@ -868,6 +878,10 @@ export const deleteTournament = mutation({
           ctx.db
             .query("bidRequestsSeen")
             .withIndex("by_room_key", (q) => q.eq("auctionRoomId", room._id))
+            .collect(),
+          ctx.db
+            .query("presence")
+            .withIndex("by_room", (q) => q.eq("auctionRoomId", room._id))
             .collect(),
         ]),
       ),
@@ -923,12 +937,16 @@ export const deleteTournament = mutation({
     await deleteInChunks(allLiveBids);
     await deleteInChunks(roomRelated.flatMap(([, , , requests]) => requests));
     await deleteInChunks(roomRelated.flatMap(([, , , , seen]) => seen));
+    await deleteInChunks(roomRelated.flatMap(([, , , , , presence]) => presence));
     await deleteInChunks(teamRelated.flatMap(([members, invites]) => [...members, ...invites]));
     await deleteInChunks(staff);
-    // Keep registrations that carry a payment reference (refund trail).
+    // Keep registrations that carry a payment reference (refund trail) until
+    // the purge.
     await deleteInChunks(registrations.filter((r) => !r.paymentRef));
     await deleteInChunks(registrationOrders.filter((o) => o.status !== "paid"));
     await deleteInChunks(formVersions);
+    await deleteInChunks(teamRequests);
+    await deleteInChunks(notifications); // they hold phone numbers
 
     // 2. Mid-level: group draws, players, teams, auction rooms
     await deleteInChunks(groupDraws);
@@ -936,7 +954,14 @@ export const deleteTournament = mutation({
     await deleteInChunks(teams);
     await deleteInChunks(auctionRooms);
 
-    // 3. Tournament itself
+    // 3. Tournament itself. Its files (logo, sponsors, QR, team logos, photos,
+    // payment screenshots, form uploads) are queued for deletion, after the
+    // retention period, with the snapshot and the kept registrations.
+    await scheduleTournamentPurge(ctx, {
+      tournament,
+      rows: [teams, players, registrations, teamRequests],
+      userId: admin._id,
+    });
     await ctx.db.delete(args.id);
 
     return { success: true };
