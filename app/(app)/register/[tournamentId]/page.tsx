@@ -448,9 +448,9 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
 
       <label className="flex items-start gap-2 text-sm text-slate-300">
         <input type="checkbox" checked={form.consentWhatsApp} onChange={(e) => patch({ consentWhatsApp: e.target.checked })} className="mt-1 accent-blue-600" />
-        <span>I agree to get WhatsApp messages about this tournament from the organiser and Bid11Pro, such as which team bought me.</span>
+        <span>Send me WhatsApp updates on this number: that I&apos;m registered, when I&apos;m approved, and which team bought me.</span>
       </label>
-      <p className="text-xs text-slate-500">Your phone number is only shared with the organiser.</p>
+      <p className="text-xs text-slate-500">Your phone number is only shared with the organiser. Reply STOP on WhatsApp at any time to stop the messages.</p>
 
       <Button type="submit" disabled={submitting || uploading !== null} className="w-full h-11">
         {submitting ? 'Submitting…' : 'Register'}

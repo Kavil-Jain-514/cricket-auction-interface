@@ -125,7 +125,18 @@ async function seed(t: T) {
       counts: { players: 0, teams: 0, bids: 0, events: 0 }, createdAt: now,
     });
     await syncTournamentAuctionCounts(ctx, tA);
-    return { teamRequest, snapshotA, registration, orgA, orgB, auctioneerA, tA, tB, teamA1, teamA2, pending, sold, onBlock, roomA, request, member, invite, staffAuctioneer };
+    const notification = await ctx.db.insert("notifications", {
+      kind: "registration_received",
+      dedupeKey: `registered:${registration}`,
+      tournamentId: tA,
+      registrationId: registration,
+      payload: { playerName: "Player", phoneNumber: "9876543210", tournamentName: "A Cup" },
+      status: "failed",
+      attempts: 5,
+      nextAttemptAt: now,
+      createdAt: now,
+    });
+    return { notification, teamRequest, snapshotA, registration, orgA, orgB, auctioneerA, tA, tB, teamA1, teamA2, pending, sold, onBlock, roomA, request, member, invite, staffAuctioneer };
   });
 }
 
@@ -169,6 +180,7 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "registrations:markPaid": (as, fx) => as.mutation(api.registrations.markPaid, { registrationId: fx.registration }),
   "registrations:setCategory": (as, fx) => as.mutation(api.registrations.setCategory, { registrationId: fx.registration }),
   "registrations:reject": (as, fx) => as.mutation(api.registrations.reject, { registrationId: fx.registration, reason: "x" }),
+  "notifications:resend": (as, fx) => as.mutation(api.notifications.resend, { notificationId: fx.notification }),
   "registrationForms:save": (as, fx) =>
     as.mutation(api.registrationForms.save, {
       tournamentId: fx.tA,

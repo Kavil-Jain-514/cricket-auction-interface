@@ -301,28 +301,34 @@ export default defineSchema({
     .index("by_order", ["razorpayOrderId"])
     .index("by_tournament", ["tournamentId"]),
 
-  // WhatsApp outbox (convex/notifications.ts). One row per player and team,
-  // so a restart or a re-sale to the same team never messages twice. A
-  // worker sends, retries with backoff up to MAX_ATTEMPTS, and never touches
-  // the sale itself.
+  // WhatsApp outbox (convex/notifications.ts). One row per event and person
+  // (dedupeKey), so a restart, a re-sale to the same team, a retry or a
+  // double click never messages twice. A worker sends, retries with backoff
+  // up to MAX_ATTEMPTS, and never touches the sale or registration itself.
   notifications: defineTable({
-    kind: v.literal("player_sold"),
-    dedupeKey: v.string(), // "sold:<playerId>:<teamId>"
+    kind: v.union(v.literal("player_sold"), v.literal("registration_received"), v.literal("registration_approved")),
+    // "sold:<playerId>:<teamId>", "registered:<registrationId>", "approved:<registrationId>"
+    dedupeKey: v.string(),
     tournamentId: v.id("tournaments"),
-    playerId: v.id("players"),
-    payload: v.object({
-      playerName: v.string(),
-      phoneNumber: v.string(),
-      tournamentName: v.string(),
-      teamName: v.string(),
-      ownerName: v.string(),
-      captainName: v.optional(v.string()),
-      soldPrice: v.number(),
-    }),
+    playerId: v.optional(v.id("players")), // absent for "registration_received"
+    registrationId: v.optional(v.id("registrations")),
+    payload: v.union(
+      v.object({
+        playerName: v.string(),
+        phoneNumber: v.string(),
+        tournamentName: v.string(),
+        teamName: v.string(),
+        ownerName: v.string(),
+        captainName: v.optional(v.string()),
+        soldPrice: v.number(),
+      }),
+      v.object({ playerName: v.string(), phoneNumber: v.string(), tournamentName: v.string() }),
+    ),
     status: v.union(
       v.literal("queued"),
       v.literal("sending"),
       v.literal("sent"),
+      v.literal("delivered"), // from the delivery webhook
       v.literal("failed"),
       v.literal("skipped"),
     ),
@@ -333,11 +339,20 @@ export default defineSchema({
     messageId: v.optional(v.string()),
     createdAt: v.number(),
     sentAt: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
   })
     .index("by_dedupe", ["dedupeKey"])
     .index("by_status_next", ["status", "nextAttemptAt"])
     // Deleting a tournament deletes its outbox rows (they hold phone numbers).
-    .index("by_tournament", ["tournamentId"]),
+    .index("by_tournament", ["tournamentId"])
+    .index("by_messageId", ["messageId"]),
+
+  // Numbers that replied STOP to our WhatsApp messages (E.164 digits). Never
+  // messaged again until they reply START.
+  whatsappOptOuts: defineTable({
+    phone: v.string(),
+    at: v.number(),
+  }).index("by_phone", ["phone"]),
 
   // ── Deleting a tournament (convex/fileCleanup.ts) ─────────────────────────
   // Rows go at once. The safety snapshot and paid registrations are kept for

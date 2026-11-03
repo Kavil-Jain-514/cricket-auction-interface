@@ -3,7 +3,7 @@
 import { use, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery } from 'convex/react';
-import { ArrowLeft, Copy, AlertTriangle, FileSpreadsheet, ImageIcon, ListChecks, X } from 'lucide-react';
+import { ArrowLeft, Copy, AlertTriangle, FileSpreadsheet, ImageIcon, ListChecks, MessageCircle, RotateCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -25,6 +25,14 @@ const FILTERS: Array<{ key: Status | 'all'; label: string }> = [
   { key: 'all', label: 'All' },
 ];
 const PAYMENT_LABEL = { razorpay: 'paid online', qr: 'paid by QR', offline: 'paying offline' } as const;
+const MESSAGE_STATUS = {
+  queued: { label: 'sending', cls: 'bg-slate-800 text-slate-300' },
+  sending: { label: 'sending', cls: 'bg-slate-800 text-slate-300' },
+  sent: { label: 'sent', cls: 'bg-blue-500/15 text-blue-300' },
+  delivered: { label: 'delivered', cls: 'bg-green-500/15 text-green-300' },
+  failed: { label: 'failed', cls: 'bg-red-500/15 text-red-300' },
+  skipped: { label: 'not sent', cls: 'bg-slate-800 text-slate-400' },
+} as const;
 const STATUS_LABEL: Record<Status, string> = {
   pending_payment: 'Awaiting payment',
   paid: 'Ready',
@@ -40,6 +48,17 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
   const rows = useQuery(api.registrations.list, canManage ? { tournamentId } : 'skip');
   const form = useQuery(api.registrationForms.get, canManage ? { tournamentId } : 'skip');
+  const messages = useQuery(api.notifications.listForTournament, canManage ? { tournamentId } : 'skip');
+  const resendMessage = useMutation(api.notifications.resend);
+  // WhatsApp messages per registration ("received", then "approved").
+  const messagesByRegistration = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof messages>>();
+    for (const m of messages ?? []) {
+      if (!m.registrationId) continue;
+      map.set(m.registrationId, [...(map.get(m.registrationId) ?? []), m]);
+    }
+    return map;
+  }, [messages]);
   const labels = form?.labels ?? {};
   const approve = useMutation(api.registrations.approve);
   const reject = useMutation(api.registrations.reject);
@@ -172,6 +191,26 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                   {r.paymentRef ? ` (${r.paymentRef})` : ''}
                   {r.rejectReason ? ` · ${r.rejectReason}` : ''}
                 </div>
+                {(messagesByRegistration.get(r._id) ?? []).length > 0 && (
+                  <ul className="mt-1 flex flex-wrap gap-1.5" aria-label={`WhatsApp messages to ${r.name}`}>
+                    {(messagesByRegistration.get(r._id) ?? []).map((m) => (
+                      <li key={m._id} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${MESSAGE_STATUS[m.status].cls}`} title={m.lastError}>
+                        <MessageCircle className="h-3 w-3" aria-hidden />
+                        {m.kind === 'registration_approved' ? 'Approval' : m.kind === 'registration_received' ? 'Confirmation' : 'Sold'}: {MESSAGE_STATUS[m.status].label}
+                        {m.status === 'failed' && (
+                          <button
+                            type="button"
+                            disabled={busy !== null}
+                            onClick={() => run(m._id, () => resendMessage({ notificationId: m._id }), 'Message queued again')}
+                            className="ml-1 inline-flex items-center gap-0.5 font-semibold underline-offset-2 hover:underline"
+                          >
+                            <RotateCw className="h-3 w-3" aria-hidden /> Resend
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {r.answers && r.answers.values.length > 0 && (
                   <details className="mt-2 text-sm">
                     <summary className="cursor-pointer text-xs font-medium text-blue-300 hover:text-blue-200">Answers ({r.answers.values.length})</summary>

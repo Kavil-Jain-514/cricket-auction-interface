@@ -18,6 +18,7 @@ import { normalizePhone, validatePlayerFields } from "./validation";
 import { cloudinarySignature } from "./cloudinarySignature";
 import { answersValidator, validateAnswers } from "./registrationForm";
 import { customQuestionsEnabled, latestFormVersion } from "./registrationForms";
+import { enqueueRegistrationNotification } from "./notifications";
 
 const MAX_PER_PHONE_PER_DAY = 3;
 // Per tournament, whatever the phone: a spammer rotating numbers is capped,
@@ -202,6 +203,10 @@ export const submit = mutation({
       fee,
       createdAt: now,
     });
+    // Only queues a message (if they opted in); sending happens elsewhere and
+    // can never fail the registration.
+    const registration = await ctx.db.get(registrationId);
+    if (registration) await enqueueRegistrationNotification(ctx, "registration_received", { registration, tournament });
     return { success: true as const, registrationId, needsPayment: fee > 0, fee };
   },
 });
@@ -455,6 +460,7 @@ async function approveOne(ctx: MutationCtx, registration: Doc<"registrations">, 
     consentWhatsApp: registration.consentWhatsApp,
   });
   await ctx.db.patch(registration._id, { status: "approved", playerId, reviewedAt: Date.now() });
+  await enqueueRegistrationNotification(ctx, "registration_approved", { registration, tournament, playerId });
   await logAdminAction(ctx, {
     userId: admin._id,
     userEmail: admin.email,
