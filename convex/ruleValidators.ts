@@ -28,6 +28,11 @@ export const squadRuleValidator = v.object({
   max: v.optional(v.number()),
 });
 
+export const sponsorValidator = v.object({
+  name: v.string(),
+  logoUrl: v.optional(v.string()),
+});
+
 export const planTierValidator = v.union(
   v.literal("free"),
   v.literal("club"),

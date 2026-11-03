@@ -37,6 +37,7 @@ import type * as ruleValidators from "../ruleValidators.js";
 import type * as snapshots from "../snapshots.js";
 import type * as squadRules from "../squadRules.js";
 import type * as staff from "../staff.js";
+import type * as teamRequests from "../teamRequests.js";
 import type * as teams from "../teams.js";
 import type * as tournaments from "../tournaments.js";
 import type * as validation from "../validation.js";
@@ -77,6 +78,7 @@ declare const fullApi: ApiFromModules<{
   snapshots: typeof snapshots;
   squadRules: typeof squadRules;
   staff: typeof staff;
+  teamRequests: typeof teamRequests;
   teams: typeof teams;
   tournaments: typeof tournaments;
   validation: typeof validation;

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import Link from 'next/link';
@@ -8,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useUser } from '@clerk/nextjs';
 import { redirect } from 'next/navigation';
+import { AccountTypePrompt } from '@/components/onboarding/AccountTypePrompt';
+import { TeamOwnerPanel } from '@/components/teams/TeamOwnerPanel';
 
 // Cricket Ball SVG Component
 function CricketBall({ className }: { className?: string }) {
@@ -37,6 +40,11 @@ export default function DashboardPage() {
   const isRoleLoading = myTournaments === undefined;
   const isOrganiser = (myTournaments?.length ?? 0) > 0;
   const tournaments = isOrganiser ? myTournaments : allTournaments;
+  const me = useQuery(api.auth.me, {});
+  const [changingType, setChangingType] = useState(false);
+  // Asked once after sign-up; organisers and super-admins are never asked.
+  const needsAccountType = me !== undefined && me !== null && me.accountType === undefined && !isOrganiser && !me.isAdmin;
+  const isTeamOwner = me?.accountType === 'team_owner';
 
   // Redirect if not signed in
   if (isLoaded && !isSignedIn) {
@@ -72,8 +80,19 @@ export default function DashboardPage() {
               Dashboard
             </span>
           </h1>
-          <p className="text-slate-400 text-sm sm:text-base">Manage your cricket auction tournaments</p>
+          <p className="text-slate-400 text-sm sm:text-base">
+            {isOrganiser ? 'Manage your cricket auction tournaments' : isTeamOwner ? 'Signed in as a team owner' : 'Follow cricket auction tournaments'}
+            {me?.accountType && !isOrganiser && (
+              <button type="button" onClick={() => setChangingType(true)} className="ml-2 text-orange-400 hover:underline">
+                Change
+              </button>
+            )}
+          </p>
         </div>
+
+        {isTeamOwner && !isOrganiser && allTournaments && (
+          <TeamOwnerPanel tournaments={allTournaments} ownerName={me?.name} />
+        )}
 
         {/* Stats Overview */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5 lg:gap-6 mb-6 sm:mb-8">
@@ -224,6 +243,10 @@ export default function DashboardPage() {
           </div>
         )}
       </main>
+
+      {(needsAccountType || changingType) && (
+        <AccountTypePrompt current={me?.accountType} onClose={changingType ? () => setChangingType(false) : undefined} />
+      )}
     </div>
   );
 }

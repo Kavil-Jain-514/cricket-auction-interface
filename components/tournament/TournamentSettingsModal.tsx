@@ -4,12 +4,13 @@ import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
-import { X, Settings, AlertTriangle } from 'lucide-react';
+import { Settings, Info, Trophy, Gavel, ClipboardList, Megaphone, Plus, Trash2, QrCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/ui/image-upload';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Field, FormDivider, FormModal, FormTabs, SectionHeading, formInputCls } from '@/components/ui/form-modal';
 import { toast } from 'sonner';
 import { bidTimerSeconds, type IncrementSlab, type PlayerCategory } from '@/convex/bidRules';
 import { validateCategories, validateIncrementSlabs, validateSquadRules } from '@/convex/validation';
@@ -26,6 +27,7 @@ import {
 } from './AuctionRulesEditor';
 
 type BidMode = 'admin_only' | 'confirm' | 'open';
+type Tab = 'general' | 'auction' | 'registration' | 'rules' | 'staff';
 
 const BID_MODE_OPTIONS: Array<{ value: BidMode; label: string; hint: string }> = [
   { value: 'admin_only', label: 'Auctioneer only', hint: 'Only admins place bids (owners watch).' },
@@ -39,6 +41,7 @@ interface TournamentSettingsModalProps {
     name: string;
     description?: string;
     logoUrl?: string;
+    sponsors?: Array<{ name: string; logoUrl?: string }>;
     settings: {
       basePurse: number;
       minBidIncrement: number;
@@ -53,6 +56,7 @@ interface TournamentSettingsModalProps {
       squadRules?: SquadRule[];
       registrationOpen?: boolean;
       registrationFee?: number;
+      paymentQrUrl?: string;
     };
     status?: string;
   };
@@ -66,7 +70,8 @@ export function TournamentSettingsModal({
 }: TournamentSettingsModalProps) {
   const updateTournament = useMutation(api.tournaments.update);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<'general' | 'rules' | 'staff'>('general');
+  const [tab, setTab] = useState<Tab>('general');
+  const [sponsors, setSponsors] = useState(() => (currentSettings.sponsors ?? []).map((sp) => ({ name: sp.name, logoUrl: sp.logoUrl ?? '' })));
   const [rules, setRules] = useState<RulesFormValues>(() => rulesFormFromSettings(currentSettings.settings));
 
   // Numeric fields are kept as the raw input strings so an empty or partial
@@ -84,6 +89,7 @@ export function TournamentSettingsModal({
     bidTimerSeconds: bidTimerSeconds(currentSettings.settings),
     registrationOpen: currentSettings.settings.registrationOpen ?? false,
     registrationFee: String(currentSettings.settings.registrationFee ?? 0),
+    paymentQrUrl: currentSettings.settings.paymentQrUrl ?? '',
   });
 
   const parsed = {
@@ -122,6 +128,12 @@ export function TournamentSettingsModal({
   if (formData.footerText.trim().length > 120) {
     fieldErrors.footerText = 'Keep it to 120 characters or fewer';
   }
+  // Mirrors normalizeSponsors in convex/validation.ts.
+  const sponsorsError = sponsors.length > 12
+    ? 'Add at most 12 sponsors'
+    : sponsors.some((sp) => sp.name.trim() === '' || sp.name.trim().length > 60)
+      ? 'Every sponsor needs a name (up to 60 characters)'
+      : null;
   const nextCategories = categoriesFromForm(rules.categories);
   const nextSlabs = slabsFromForm(rules.slabs);
   // Same validators the server runs (convex/validation.ts).
@@ -130,7 +142,10 @@ export function TournamentSettingsModal({
     validateCategories(nextCategories, parsed.basePurse) ??
     validateIncrementSlabs(nextSlabs, parsed.basePurse) ??
     validateSquadRules(nextSquadRules, nextCategories.map((c) => c.id), parsed.maxPlayersPerTeam);
-  const hasErrors = Object.keys(fieldErrors).length > 0 || rulesError !== null;
+  const generalError = Boolean(fieldErrors.name || fieldErrors.footerText);
+  const auctionError = Boolean(fieldErrors.basePurse || fieldErrors.minBidIncrement || fieldErrors.basePrice || fieldErrors.maxPlayersPerTeam);
+  const registrationError = Boolean(fieldErrors.registrationFee) || sponsorsError !== null;
+  const hasErrors = Object.keys(fieldErrors).length > 0 || rulesError !== null || sponsorsError !== null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,7 +177,11 @@ export function TournamentSettingsModal({
     // Nor is the public registration form.
     const registrationChanged =
       formData.registrationOpen !== (current.registrationOpen ?? false) ||
-      registrationFee !== (current.registrationFee ?? 0);
+      registrationFee !== (current.registrationFee ?? 0) ||
+      formData.paymentQrUrl !== (current.paymentQrUrl ?? '');
+    // Sponsors aren't settings: sent on their own, only when they changed.
+    const nextSponsors = sponsors.map((sp) => (sp.logoUrl ? { name: sp.name.trim(), logoUrl: sp.logoUrl } : { name: sp.name.trim() }));
+    const sponsorsChanged = JSON.stringify(nextSponsors) !== JSON.stringify(currentSettings.sponsors ?? []);
 
     try {
       await updateTournament({
@@ -170,6 +189,7 @@ export function TournamentSettingsModal({
         name: formData.name,
         description: formData.description || undefined,
         logoUrl: formData.logoUrl || undefined,
+        ...(sponsorsChanged ? { sponsors: nextSponsors } : {}),
         ...(settingsChanged || rulesChanged || footerChanged || bidModeChanged || registrationChanged
           ? {
               settings: {
@@ -181,7 +201,7 @@ export function TournamentSettingsModal({
                 ...(slabsChanged ? { incrementSlabs: nextSlabs } : {}),
                 ...(orderChanged ? { presentationOrder: rules.presentationOrder } : {}),
                 ...(squadRulesChanged ? { squadRules: nextSquadRules } : {}),
-                ...(registrationChanged ? { registrationOpen: formData.registrationOpen, registrationFee } : {}),
+                ...(registrationChanged ? { registrationOpen: formData.registrationOpen, registrationFee, paymentQrUrl: formData.paymentQrUrl } : {}),
               },
             }
           : {}),
@@ -198,279 +218,186 @@ export function TournamentSettingsModal({
     }
   };
 
-  const fieldError = (field: keyof typeof formData) =>
-    fieldErrors[field] ? (
-      <p className="text-xs text-red-400 mt-1">{fieldErrors[field]}</p>
-    ) : null;
+  const patch = (p: Partial<typeof formData>) => setFormData((prev) => ({ ...prev, ...p }));
+  const patchSponsor = (i: number, p: Partial<(typeof sponsors)[number]>) =>
+    setSponsors((prev) => prev.map((sp, j) => (j === i ? { ...sp, ...p } : sp)));
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
-      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full p-6 my-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <Settings className="w-6 h-6 text-blue-500" />
-            <h2 className="text-2xl font-bold">Tournament Settings</h2>
+    <FormModal
+      icon={Settings}
+      title="Tournament Settings"
+      subtitle="Money and squad settings lock while the auction is live"
+      width="3xl"
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      submitLabel="Save Changes"
+      loadingLabel="Saving…"
+      loading={loading}
+      submitDisabled={hasErrors}
+      nav={
+        <FormTabs
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { key: 'general', label: 'General', error: generalError },
+            { key: 'auction', label: 'Auction', error: auctionError },
+            { key: 'registration', label: 'Registration', error: registrationError },
+            { key: 'rules', label: 'Categories & Rules', error: rulesError !== null },
+            { key: 'staff', label: 'Staff' },
+          ]}
+        />
+      }
+    >
+      {tab === 'general' && (
+        <section>
+          <SectionHeading icon={Trophy} title="Basic Information" />
+          <div className="grid grid-cols-[6.5rem_1fr] gap-4 sm:grid-cols-[8.5rem_1fr] sm:gap-5">
+            <Field label="Logo">
+              <ImageUpload
+                value={formData.logoUrl || undefined}
+                onChange={(url) => patch({ logoUrl: url || '' })}
+                folder="tournaments"
+                aspectRatio="square"
+              />
+            </Field>
+            <div className="space-y-3">
+              <Field label="Tournament Name *" htmlFor="name" error={fieldErrors.name}>
+                <Input id="name" required value={formData.name} onChange={(e) => patch({ name: e.target.value })} placeholder="e.g., IPL 2026" className={formInputCls} />
+              </Field>
+              <Field label="Description" htmlFor="description">
+                <Textarea id="description" rows={2} value={formData.description} onChange={(e) => patch({ description: e.target.value })} placeholder="Shown on the registration form" className="min-h-16 resize-none" />
+              </Field>
+            </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-slate-800 rounded-lg transition"
+          <Field
+            label="Viewer Footer Text"
+            htmlFor="footerText"
+            error={fieldErrors.footerText}
+            hint="Optional. Shown under the Bid11Pro name on the live viewer page."
+            className="mt-3"
           >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+            <Input id="footerText" value={formData.footerText} onChange={(e) => patch({ footerText: e.target.value })} placeholder="e.g., Hosted by Sunrise Cricket Club" maxLength={120} className={formInputCls} />
+          </Field>
+        </section>
+      )}
 
-        <div className="flex items-start gap-3 bg-blue-500/10 border border-blue-500/40 rounded-lg p-4 mb-6">
-          <AlertTriangle className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
-          <p className="text-sm text-blue-200">
-            These settings apply across the whole tournament. Changing the base purse updates
-            every team&apos;s purse. Settings are locked while the auction is live — restart the
-            auction to change them.
-          </p>
-        </div>
-
-        <div role="tablist" aria-label="Settings sections" className="mb-6 flex gap-1 rounded-lg bg-slate-800 p-1">
-          {([
-            ['general', 'General'],
-            ['rules', 'Categories & Rules'],
-            ['staff', 'Staff'],
-          ] as const).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={tab === key}
-              onClick={() => setTab(key)}
-              className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold transition ${tab === key ? 'bg-slate-950 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              {label}
-              {(key === 'rules' ? rulesError !== null : key === 'general' && Object.keys(fieldErrors).length > 0) && (
-                <span className="ml-2 inline-block h-2 w-2 rounded-full bg-red-500" aria-label="has errors" />
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Staff changes save immediately, outside the settings form. */}
-        {tab === 'staff' && <StaffManager tournamentId={tournamentId} />}
-
-        <form onSubmit={handleSubmit} className={tab === 'staff' ? 'hidden' : 'space-y-6'}>
-          {tab === 'rules' && (
-            <AuctionRulesEditor
-              value={rules}
-              onChange={setRules}
-              minBidIncrement={parsed.minBidIncrement || currentSettings.settings.minBidIncrement}
-              error={rulesError}
-            />
-          )}
-
-          <div className={tab === 'general' ? 'space-y-6' : 'hidden'}>
-          {/* Basic Info Section */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-slate-300 border-b border-slate-700 pb-2">
-              Basic Information
-            </h3>
-
-            <div>
-              <Label htmlFor="name">Tournament Name *</Label>
-              <Input
-                id="name"
-                required
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g., IPL 2026"
-                className="mt-2"
-              />
-              {fieldError('name')}
-            </div>
-
-            <div>
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Enter tournament description..."
-                className="mt-2 min-h-20"
-              />
-            </div>
-
-            <div>
-              <Label>Tournament Logo</Label>
-              <div className="mt-2">
-                <ImageUpload
-                  value={formData.logoUrl || undefined}
-                  onChange={(url) => setFormData({ ...formData, logoUrl: url || '' })}
-                  folder="tournaments"
-                  aspectRatio="square"
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="footerText">Viewer Footer Text</Label>
-              <Input
-                id="footerText"
-                value={formData.footerText}
-                onChange={(e) => setFormData({ ...formData, footerText: e.target.value })}
-                placeholder="e.g., Hosted by Sunrise Cricket Club"
-                maxLength={120}
-                className="mt-2"
-              />
-              <p className="text-xs text-slate-400 mt-1">
-                Optional. Shown under the Bid11Pro name on the live viewer page. Leave empty to hide.
-              </p>
-              {fieldError('footerText')}
-            </div>
-
-            <div className="rounded-lg border border-slate-700 p-3 space-y-3">
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <input type="checkbox" checked={formData.registrationOpen} onChange={(e) => setFormData({ ...formData, registrationOpen: e.target.checked })} />
-                Open player registration
-              </label>
-              <p className="text-xs text-slate-400 -mt-1">
-                Players sign up at /register/&lt;tournament&gt;; you approve each one under Registrations. Can be changed any time.
-              </p>
-              <div className="max-w-48">
-                <Label htmlFor="registrationFee">Registration fee (₹, 0 = free)</Label>
-                <Input id="registrationFee" type="number" min="0" step="50" value={formData.registrationFee} onChange={(e) => setFormData({ ...formData, registrationFee: e.target.value })} className="mt-2" />
-                {fieldError('registrationFee')}
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="bidMode">Who can bid</Label>
-              <select
-                id="bidMode"
-                value={formData.bidMode}
-                onChange={(e) => setFormData({ ...formData, bidMode: e.target.value as BidMode })}
-                className="mt-2 w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
-              >
+      {tab === 'auction' && (
+        <section>
+          <SectionHeading icon={Gavel} title="Auction Settings" hint="base purse changes update every team" />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Base Purse per Team (₹) *" htmlFor="basePurse" error={fieldErrors.basePurse} hint={`₹${((parsed.basePurse || 0) / 100000).toFixed(1)}L per team`}>
+              <Input id="basePurse" type="number" required min="100000" step="100000" value={formData.basePurse} onChange={(e) => patch({ basePurse: e.target.value })} className={formInputCls} />
+            </Field>
+            <Field label="Minimum Bid Increment (₹) *" htmlFor="minBidIncrement" error={fieldErrors.minBidIncrement} hint={`₹${((parsed.minBidIncrement || 0) / 1000).toFixed(0)}K increment`}>
+              <Input id="minBidIncrement" type="number" required min="5000" step="5000" value={formData.minBidIncrement} onChange={(e) => patch({ minBidIncrement: e.target.value })} className={formInputCls} />
+            </Field>
+            <Field label="Base Player Price (₹) *" htmlFor="basePrice" error={fieldErrors.basePrice} hint={`Default: ₹${((parsed.basePrice || 0) / 100000).toFixed(1)}L`}>
+              <Input id="basePrice" type="number" required value={formData.basePrice} onChange={(e) => patch({ basePrice: e.target.value })} className={formInputCls} />
+            </Field>
+            <Field label="Max Players per Team *" htmlFor="maxPlayersPerTeam" error={fieldErrors.maxPlayersPerTeam} hint="Maximum squad size">
+              <Input id="maxPlayersPerTeam" type="number" required value={formData.maxPlayersPerTeam} onChange={(e) => patch({ maxPlayersPerTeam: e.target.value })} className={formInputCls} />
+            </Field>
+            <Field label="Bid Timer" htmlFor="bidTimerSeconds" hint="Resets on every bid. It never sells on its own; at zero the console prompts you.">
+              <NativeSelect id="bidTimerSeconds" value={formData.bidTimerSeconds} onChange={(e) => patch({ bidTimerSeconds: Number(e.target.value) })} className={formInputCls}>
+                {bidTimerOptions(bidTimerSeconds(currentSettings.settings)).map((sec) => (
+                  <option key={sec} value={sec}>{bidTimerLabel(sec)}</option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field label="Who can bid" htmlFor="bidMode" hint={`${BID_MODE_OPTIONS.find((o) => o.value === formData.bidMode)?.hint} Can change mid-auction.`}>
+              <NativeSelect id="bidMode" value={formData.bidMode} onChange={(e) => patch({ bidMode: e.target.value as BidMode })} className={formInputCls}>
                 {BID_MODE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
-              </select>
-              <p className="text-xs text-slate-400 mt-1">
-                {BID_MODE_OPTIONS.find((o) => o.value === formData.bidMode)?.hint} Invite owners from each team card. Can be changed during the auction.
+              </NativeSelect>
+            </Field>
+          </div>
+        </section>
+      )}
+
+      {tab === 'registration' && (
+        <div className="space-y-4">
+          <section>
+            <SectionHeading icon={ClipboardList} title="Player Registration" hint="can change any time" />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_8.5rem]">
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 rounded-lg border border-slate-700 bg-slate-800/40 p-3">
+                  <input type="checkbox" checked={formData.registrationOpen} onChange={(e) => patch({ registrationOpen: e.target.checked })} className="mt-0.5 h-4 w-4 accent-blue-600" />
+                  <span>
+                    <span className="block text-sm font-medium">Open player registration</span>
+                    <span className="block text-xs text-slate-400">Players sign up at /register/&lt;tournament&gt;; you approve each one under Registrations.</span>
+                  </span>
+                </label>
+                <Field label="Registration fee (₹, 0 = free)" htmlFor="registrationFee" error={fieldErrors.registrationFee} hint="Players scan your QR and upload a screenshot, or choose to pay you in person.">
+                  <Input id="registrationFee" type="number" min="0" step="50" value={formData.registrationFee} onChange={(e) => patch({ registrationFee: e.target.value })} className={`${formInputCls} max-w-48`} />
+                </Field>
+              </div>
+              <Field label="Payment QR">
+                <ImageUpload value={formData.paymentQrUrl || undefined} onChange={(url) => patch({ paymentQrUrl: url || '' })} folder="tournaments" aspectRatio="square" />
+              </Field>
+            </div>
+            {!formData.paymentQrUrl && Number(formData.registrationFee) > 0 && (
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-300">
+                <QrCode className="h-3.5 w-3.5" /> Add your UPI QR so players can pay when they register.
               </p>
+            )}
+          </section>
+
+          <FormDivider />
+
+          <section>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <SectionHeading icon={Megaphone} title="Sponsors" hint="shown on the registration form" />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={sponsors.length >= 12}
+                onClick={() => setSponsors((prev) => [...prev, { name: '', logoUrl: '' }])}
+                className="-mt-3 border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white"
+              >
+                <Plus className="h-4 w-4" /> Add
+              </Button>
             </div>
-          </div>
+            {sponsors.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-slate-700 p-3 text-center text-xs text-slate-500">No sponsors yet.</p>
+            ) : (
+              <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {sponsors.map((sp, i) => (
+                  <li key={i} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/40 p-2">
+                    <ImageUpload value={sp.logoUrl || undefined} onChange={(url) => patchSponsor(i, { logoUrl: url || '' })} folder="tournaments" aspectRatio="square" className="w-14 shrink-0 [&_p]:hidden [&_svg]:mb-0 [&_svg]:h-5 [&_svg]:w-5" />
+                    <Input value={sp.name} onChange={(e) => patchSponsor(i, { name: e.target.value })} placeholder="Sponsor name" maxLength={60} aria-label={`Sponsor ${i + 1} name`} className={formInputCls} />
+                    <button type="button" onClick={() => setSponsors((prev) => prev.filter((_, j) => j !== i))} aria-label={`Remove sponsor ${i + 1}`} className="p-1.5 text-slate-400 hover:text-red-400">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {sponsorsError && <p className="mt-2 text-xs text-red-400">{sponsorsError}</p>}
+          </section>
+        </div>
+      )}
 
-          {/* Auction Settings Section */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-slate-300 border-b border-slate-700 pb-2">
-              Auction Settings
-            </h3>
+      {tab === 'rules' && (
+        <AuctionRulesEditor
+          value={rules}
+          onChange={setRules}
+          minBidIncrement={parsed.minBidIncrement || currentSettings.settings.minBidIncrement}
+          error={rulesError}
+        />
+      )}
 
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="basePurse">Base Purse per Team (₹) *</Label>
-                <Input
-                  id="basePurse"
-                  type="number"
-                  required
-                  min="100000"
-                  step="100000"
-                  value={formData.basePurse}
-                  onChange={(e) => setFormData({ ...formData, basePurse: e.target.value })}
-                  className="mt-2"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  ₹{((parsed.basePurse || 0) / 100000).toFixed(1)}L per team
-                </p>
-                {fieldError('basePurse')}
-              </div>
-
-              <div>
-                <Label htmlFor="minBidIncrement">Minimum Bid Increment (₹) *</Label>
-                <Input
-                  id="minBidIncrement"
-                  type="number"
-                  required
-                  min="5000"
-                  step="5000"
-                  value={formData.minBidIncrement}
-                  onChange={(e) => setFormData({ ...formData, minBidIncrement: e.target.value })}
-                  className="mt-2"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  ₹{((parsed.minBidIncrement || 0) / 1000).toFixed(0)}K increment
-                </p>
-                {fieldError('minBidIncrement')}
-              </div>
-
-              <div>
-                <Label htmlFor="basePrice">Base Player Price (₹) *</Label>
-                <Input
-                  id="basePrice"
-                  type="number"
-                  required
-                  value={formData.basePrice}
-                  onChange={(e) => setFormData({ ...formData, basePrice: e.target.value })}
-                  className="mt-2"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  Default: ₹{((parsed.basePrice || 0) / 100000).toFixed(1)}L
-                </p>
-                {fieldError('basePrice')}
-              </div>
-
-              <div>
-                <Label htmlFor="maxPlayersPerTeam">Max Players per Team *</Label>
-                <Input
-                  id="maxPlayersPerTeam"
-                  type="number"
-                  required
-                  value={formData.maxPlayersPerTeam}
-                  onChange={(e) => setFormData({ ...formData, maxPlayersPerTeam: e.target.value })}
-                  className="mt-2"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  Maximum squad size
-                </p>
-                {fieldError('maxPlayersPerTeam')}
-              </div>
-
-              <div>
-                <Label htmlFor="bidTimerSeconds">Bid Timer</Label>
-                <select
-                  id="bidTimerSeconds"
-                  value={formData.bidTimerSeconds}
-                  onChange={(e) => setFormData({ ...formData, bidTimerSeconds: Number(e.target.value) })}
-                  className="mt-2 w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
-                >
-                  {bidTimerOptions(bidTimerSeconds(currentSettings.settings)).map((s) => (
-                    <option key={s} value={s}>{bidTimerLabel(s)}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-slate-400 mt-1">
-                  A countdown that resets on every bid. It never sells on its own — at zero the console prompts you.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          </div>
-
-          {/* Actions */}
-          <div className="pt-4 flex gap-3 border-t border-slate-700">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onClose}
-              className="flex-1"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={loading || hasErrors}
-              className="flex-1"
-            >
-              {loading ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+      {/* Staff changes save straight away; Save Changes still saves the other tabs. */}
+      {tab === 'staff' && (
+        <div className="space-y-3">
+          <p className="flex items-start gap-2 rounded-lg bg-blue-500/10 px-3 py-2 text-xs text-blue-200">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            Adding or removing staff saves immediately. Save Changes saves edits on the other tabs.
+          </p>
+          <StaffManager tournamentId={tournamentId} />
+        </div>
+      )}
+    </FormModal>
   );
 }

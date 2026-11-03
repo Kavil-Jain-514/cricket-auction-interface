@@ -60,7 +60,7 @@ export function TeamColorPicker({
   return (
     <div className={className}>
       {label && <Label>{label}</Label>}
-      <div className="mt-2 grid grid-cols-5 gap-2 sm:grid-cols-6">
+      <div className={`${label ? 'mt-2 ' : ''}flex flex-wrap items-center gap-2`}>
         {TEAM_PRESET_COLORS.map((color) => {
           const selected = primary.toLowerCase() === color.primary.toLowerCase();
           return (
@@ -71,7 +71,7 @@ export function TeamColorPicker({
               title={color.name}
               aria-label={color.name}
               aria-pressed={selected}
-              className={`relative flex aspect-square items-center justify-center rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 ${
+              className={`relative flex h-8 w-8 items-center justify-center rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 ${
                 selected
                   ? 'ring-2 ring-white ring-offset-2 ring-offset-slate-900'
                   : 'ring-1 ring-white/10 hover:ring-white/40'
@@ -81,7 +81,7 @@ export function TeamColorPicker({
               }}
             >
               {selected && (
-                <Check className="h-4 w-4 text-white drop-shadow" strokeWidth={3} />
+                <Check className="h-3.5 w-3.5 text-white drop-shadow" strokeWidth={3} />
               )}
             </button>
           );
@@ -90,7 +90,7 @@ export function TeamColorPicker({
         {/* Custom color — opens the native color picker */}
         <label
           title="Custom color"
-          className={`relative flex aspect-square cursor-pointer items-center justify-center rounded-full transition focus-within:ring-2 focus-within:ring-white/80 ${
+          className={`relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full transition focus-within:ring-2 focus-within:ring-white/80 ${
             customActive
               ? 'ring-2 ring-white ring-offset-2 ring-offset-slate-900'
               : 'ring-1 ring-white/10 hover:ring-white/40'
@@ -111,11 +111,11 @@ export function TeamColorPicker({
             className="sr-only"
             aria-label="Pick a custom team color"
           />
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/70 backdrop-blur-sm">
+          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-900/70 backdrop-blur-sm">
             {customActive ? (
-              <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+              <Check className="h-3 w-3 text-white" strokeWidth={3} />
             ) : (
-              <Plus className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+              <Plus className="h-3 w-3 text-white" strokeWidth={3} />
             )}
           </span>
         </label>

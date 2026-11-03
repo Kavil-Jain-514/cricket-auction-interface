@@ -4,13 +4,14 @@ import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Trophy } from 'lucide-react';
+import { ArrowLeft, Gavel, Info, Trophy } from 'lucide-react';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/ui/image-upload';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Field, FormDivider, FormShell, SectionHeading, formInputCls } from '@/components/ui/form-modal';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { DEFAULT_BID_TIMER_SECONDS } from '@/convex/bidRules';
 import { BID_TIMER_OPTIONS, bidTimerLabel } from '@/lib/bidTimer';
@@ -108,188 +109,146 @@ export default function CreateTournamentPage() {
     }
   };
 
+  const patch = (p: Partial<typeof formData>) => {
+    setFormData((prev) => ({ ...prev, ...p }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      Object.keys(p).forEach((k) => delete next[k]);
+      return next;
+    });
+  };
+
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
-      <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
-          <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition min-h-11 touch-target">
-            <ArrowLeft className="w-5 h-5" />
-            <span>Back to Dashboard</span>
-          </Link>
-        </div>
-      </header>
+      <main className="mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-4 py-4 sm:px-6">
+        <Link href="/dashboard" className="mb-2 inline-flex w-fit items-center gap-2 py-1 text-sm text-slate-400 transition hover:text-white">
+          <ArrowLeft className="h-4 w-4" />
+          Back to Dashboard
+        </Link>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        <div className="mb-6 sm:mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <Trophy className="w-7 h-7 sm:w-8 sm:h-8 text-yellow-500" />
-            <h1 className="text-2xl sm:text-3xl font-bold">Create New Tournament</h1>
-          </div>
-          <p className="text-slate-400 text-sm sm:text-base">
-            Set up your cricket auction tournament with custom rules and settings
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
-          {/* Basic Information */}
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-6">
-            <h2 className="text-lg sm:text-xl font-bold mb-4 sm:mb-6">Basic Information</h2>
-
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="name">Tournament Name *</Label>
-                <Input
-                  id="name"
-                  required
-                  value={formData.name}
-                  onChange={(e) => {
-                    setFormData({ ...formData, name: e.target.value });
-                    if (errors.name) setErrors({ ...errors, name: '' });
-                  }}
-                  placeholder="e.g., IPL 2025 Mega Auction"
-                  className={`mt-2 min-h-11 ${errors.name ? 'border-red-500' : ''}`}
-                />
-                {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
-              </div>
-
-              <div>
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Brief description of your tournament..."
-                  className="mt-2"
-                  rows={3}
-                />
-              </div>
-              <div>
-                <Label>Tournament Logo</Label>
-                <div className="mt-2">
+        <FormShell
+          icon={Trophy}
+          title="Create New Tournament"
+          subtitle="Set up your cricket auction; you can change everything later in Settings"
+          onSubmit={handleSubmit}
+          onCancel={() => router.push('/dashboard')}
+          submitLabel="Create Tournament"
+          loadingLabel="Creating…"
+          loading={loading}
+          className="max-h-none sm:max-h-[calc(100dvh-4rem)]"
+        >
+          <div className="space-y-4">
+            <section>
+              <SectionHeading icon={Info} title="Basic Information" />
+              <div className="grid grid-cols-[6.5rem_1fr] gap-4 sm:grid-cols-[8.5rem_1fr] sm:gap-5">
+                <Field label="Logo">
                   <ImageUpload
                     value={logoPreview || undefined}
                     onChange={(url) => setLogoPreview(url || null)}
                     folder="tournaments"
                     aspectRatio="square"
                   />
+                </Field>
+                <div className="space-y-3">
+                  <Field label="Tournament Name *" htmlFor="name" error={errors.name}>
+                    <Input
+                      id="name"
+                      required
+                      value={formData.name}
+                      onChange={(e) => patch({ name: e.target.value })}
+                      placeholder="e.g., IPL 2025 Mega Auction"
+                      className={cn(formInputCls, errors.name && 'border-red-500')}
+                    />
+                  </Field>
+                  <Field label="Description" htmlFor="description">
+                    <Textarea
+                      id="description"
+                      value={formData.description}
+                      onChange={(e) => patch({ description: e.target.value })}
+                      placeholder="Brief description of your tournament..."
+                      rows={2}
+                      className="min-h-16 resize-none"
+                    />
+                  </Field>
                 </div>
               </div>
-            </div>
-          </div>
+            </section>
 
-          {/* Auction Settings */}
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 sm:p-6">
-            <h2 className="text-lg sm:text-xl font-bold mb-4 sm:mb-6">Auction Settings</h2>
+            <FormDivider />
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-              <div>
-                <Label htmlFor="basePurse">Base Purse per Team (₹) *</Label>
-                <Input
-                  id="basePurse"
-                  type="number"
-                  required
-                  value={formData.basePurse}
-                  onChange={(e) => {
-                    setFormData({ ...formData, basePurse: parseInt(e.target.value) || 0 });
-                    if (errors.basePurse) setErrors({ ...errors, basePurse: '' });
-                  }}
-                  className={`mt-2 min-h-11 ${errors.basePurse ? 'border-red-500' : ''}`}
-                />
-                {errors.basePurse ? (
-                  <p className="text-red-400 text-xs mt-1">{errors.basePurse}</p>
-                ) : (
-                  <p className="text-xs text-slate-400 mt-1">
-                    Current: ₹{(formData.basePurse / 100000).toFixed(1)} Lakhs
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <Label htmlFor="minBidIncrement">Minimum Bid Increment (₹) *</Label>
-                <Input
-                  id="minBidIncrement"
-                  type="number"
-                  required
-                  value={formData.minBidIncrement}
-                  onChange={(e) => {
-                    setFormData({ ...formData, minBidIncrement: parseInt(e.target.value) || 0 });
-                    if (errors.minBidIncrement) setErrors({ ...errors, minBidIncrement: '' });
-                  }}
-                  className={`mt-2 min-h-11 ${errors.minBidIncrement ? 'border-red-500' : ''}`}
-                />
-                {errors.minBidIncrement ? (
-                  <p className="text-red-400 text-xs mt-1">{errors.minBidIncrement}</p>
-                ) : (
-                  <p className="text-xs text-slate-400 mt-1">
-                    Current: ₹{(formData.minBidIncrement / 1000).toFixed(0)}K
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <Label htmlFor="basePrice">Base Player Price (₹) *</Label>
-                <Input
-                  id="basePrice"
-                  type="number"
-                  required
-                  value={formData.basePrice}
-                  onChange={(e) => {
-                    setFormData({ ...formData, basePrice: parseInt(e.target.value) || 0 });
-                    if (errors.basePrice) setErrors({ ...errors, basePrice: '' });
-                  }}
-                  className="mt-2 min-h-11"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  Default: ₹{(formData.basePrice / 100000).toFixed(1)} Lakhs
-                </p>
-              </div>
-
-              <div>
-                <Label htmlFor="maxPlayersPerTeam">Max Players per Team *</Label>
-                <Input
-                  id="maxPlayersPerTeam"
-                  type="number"
-                  required
-                  value={formData.maxPlayersPerTeam}
-                  onChange={(e) => {
-                    setFormData({ ...formData, maxPlayersPerTeam: parseInt(e.target.value) || 0 });
-                    if (errors.maxPlayersPerTeam) setErrors({ ...errors, maxPlayersPerTeam: '' });
-                  }}
-                  className="mt-2 min-h-11"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="bidTimerSeconds">Bid Timer</Label>
-                <select
-                  id="bidTimerSeconds"
-                  value={formData.bidTimerSeconds}
-                  onChange={(e) => setFormData({ ...formData, bidTimerSeconds: Number(e.target.value) })}
-                  className="mt-2 min-h-11 w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+            <section>
+              <SectionHeading icon={Gavel} title="Auction Settings" />
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <Field
+                  label="Base Purse (₹) *"
+                  htmlFor="basePurse"
+                  error={errors.basePurse}
+                  hint={`₹${(formData.basePurse / 100000).toFixed(1)}L per team`}
                 >
-                  {BID_TIMER_OPTIONS.map((s) => (
-                    <option key={s} value={s}>{bidTimerLabel(s)}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-slate-400 mt-1">
-                  Countdown that resets on every bid. It never sells on its own.
-                </p>
+                  <Input
+                    id="basePurse"
+                    type="number"
+                    required
+                    value={formData.basePurse}
+                    onChange={(e) => patch({ basePurse: parseInt(e.target.value) || 0 })}
+                    className={cn(formInputCls, errors.basePurse && 'border-red-500')}
+                  />
+                </Field>
+                <Field
+                  label="Min Bid Increment (₹) *"
+                  htmlFor="minBidIncrement"
+                  error={errors.minBidIncrement}
+                  hint={`₹${(formData.minBidIncrement / 1000).toFixed(0)}K`}
+                >
+                  <Input
+                    id="minBidIncrement"
+                    type="number"
+                    required
+                    value={formData.minBidIncrement}
+                    onChange={(e) => patch({ minBidIncrement: parseInt(e.target.value) || 0 })}
+                    className={cn(formInputCls, errors.minBidIncrement && 'border-red-500')}
+                  />
+                </Field>
+                <Field
+                  label="Base Player Price (₹) *"
+                  htmlFor="basePrice"
+                  hint={`₹${(formData.basePrice / 100000).toFixed(1)}L`}
+                >
+                  <Input
+                    id="basePrice"
+                    type="number"
+                    required
+                    value={formData.basePrice}
+                    onChange={(e) => patch({ basePrice: parseInt(e.target.value) || 0 })}
+                    className={formInputCls}
+                  />
+                </Field>
+                <Field label="Max Players / Team *" htmlFor="maxPlayersPerTeam">
+                  <Input
+                    id="maxPlayersPerTeam"
+                    type="number"
+                    required
+                    value={formData.maxPlayersPerTeam}
+                    onChange={(e) => patch({ maxPlayersPerTeam: parseInt(e.target.value) || 0 })}
+                    className={formInputCls}
+                  />
+                </Field>
+                <Field label="Bid Timer" htmlFor="bidTimerSeconds" hint="Resets on every bid; never sells on its own." className="col-span-2">
+                  <NativeSelect
+                    id="bidTimerSeconds"
+                    value={formData.bidTimerSeconds}
+                    onChange={(e) => patch({ bidTimerSeconds: Number(e.target.value) })}
+                    className={formInputCls}
+                  >
+                    {BID_TIMER_OPTIONS.map((s) => (
+                      <option key={s} value={s}>{bidTimerLabel(s)}</option>
+                    ))}
+                  </NativeSelect>
+                </Field>
               </div>
-            </div>
+            </section>
           </div>
-
-          {/* Actions */}
-          <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4">
-            <Link href="/dashboard" className="w-full sm:w-auto">
-              <Button type="button" variant="outline" className="w-full min-h-11 touch-target">
-                Cancel
-              </Button>
-            </Link>
-            <Button type="submit" disabled={loading} className="w-full sm:w-auto min-h-11 touch-target">
-              {loading ? 'Creating...' : 'Create Tournament'}
-            </Button>
-          </div>
-        </form>
+        </FormShell>
       </main>
     </div>
   );

@@ -20,6 +20,7 @@ import {
   categoryValidator,
   incrementSlabValidator,
   presentationOrderValidator,
+  sponsorValidator,
   squadRuleValidator,
 } from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
@@ -28,6 +29,8 @@ import { takeSnapshot } from "./snapshots";
 import {
   confirmsTournamentName,
   normalizeFooterText,
+  normalizePaymentQrUrl,
+  normalizeSponsors,
   validateCategories,
   validateIncrementSlabs,
   validateSettings,
@@ -312,8 +315,12 @@ export const update = mutation({
         // Not locked: registration can open or close at any time.
         registrationOpen: v.optional(v.boolean()),
         registrationFee: v.optional(v.number()),
+        // Not locked. Omitted keeps the stored QR; "" removes it.
+        paymentQrUrl: v.optional(v.string()),
       }),
     ),
+    // Shown on the registration form. Not locked; [] removes them all.
+    sponsors: v.optional(v.array(sponsorValidator)),
   },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.id);
@@ -362,11 +369,25 @@ export const update = mutation({
     ) {
       throw new Error("Registration fee must be a whole number of rupees from 0 to 1,00,000");
     }
+    let paymentQrUrl = tournament.settings.paymentQrUrl;
+    if (args.settings?.paymentQrUrl !== undefined) {
+      const qr = normalizePaymentQrUrl(args.settings.paymentQrUrl);
+      if (!qr.ok) throw new Error(qr.error);
+      paymentQrUrl = qr.url;
+    }
     if (
       registrationOpen !== tournament.settings.registrationOpen ||
-      registrationFee !== tournament.settings.registrationFee
+      registrationFee !== tournament.settings.registrationFee ||
+      paymentQrUrl !== tournament.settings.paymentQrUrl
     ) {
-      nextSettings = { ...(nextSettings ?? tournament.settings), registrationOpen, registrationFee };
+      nextSettings = { ...(nextSettings ?? tournament.settings), registrationOpen, registrationFee, paymentQrUrl };
+    }
+
+    let sponsors = tournament.sponsors;
+    if (args.sponsors !== undefined) {
+      const normalized = normalizeSponsors(args.sponsors);
+      if (!normalized.ok) throw new Error(normalized.error);
+      sponsors = normalized.sponsors;
     }
 
     if (args.settings && settingsChanged(tournament.settings, args.settings)) {
@@ -488,6 +509,7 @@ export const update = mutation({
         squadRules,
         registrationOpen,
         registrationFee,
+        paymentQrUrl,
       };
 
       // Base purse is denormalized onto each team's purse. When it changes,
@@ -513,10 +535,11 @@ export const update = mutation({
       }
     }
 
-    const { id, settings: _settings, ...rest } = args;
+    const { id, settings: _settings, sponsors: _sponsors, ...rest } = args;
 
     await ctx.db.patch(id, {
       ...rest,
+      ...(args.sponsors !== undefined ? { sponsors } : {}),
       ...(nextSettings ? { settings: nextSettings } : {}),
       updatedAt: Date.now(),
     });
@@ -533,6 +556,8 @@ export const update = mutation({
       before[key] = tournament[key];
       after[key] = rest[key] ?? tournament[key];
     }
+    before.sponsors = tournament.sponsors;
+    after.sponsors = sponsors;
     const changed = Object.keys({ ...before, ...after }).filter(
       (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]),
     );

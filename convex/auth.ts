@@ -182,6 +182,7 @@ export const me = query({
       name: user.name,
       role: getUserRole(user),
       isAdmin: user.role === "admin",
+      accountType: user.accountType,
     };
   },
 });
@@ -303,6 +304,19 @@ export const getAllUsers = query({
       role: getUserRole(u),
       createdAt: u.createdAt,
     }));
+  },
+});
+
+/**
+ * The caller says how they use Bid11Pro (asked once after sign-up). Team
+ * owners can then request a team in a tournament (teamRequests:submit).
+ */
+export const setAccountType = mutation({
+  args: { accountType: v.union(v.literal("team_owner"), v.literal("visitor")) },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    await ctx.db.patch(user._id, { accountType: args.accountType });
+    return { success: true };
   },
 });
 

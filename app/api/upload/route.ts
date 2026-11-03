@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
+import { UPLOAD_FOLDERS } from "@/lib/cloudinary";
 
 // Configure Cloudinary
 cloudinary.config({
@@ -20,11 +21,13 @@ function sanitizeFolder(folder: string): string {
 
 /**
  * Uploads are for the super-admin and organisers (anyone on a tournament's
- * staff). A Clerk session alone is not enough: we exchange it for a Convex
- * token and ask the backend. Returns an error response, or null when allowed.
- * A brand-new organiser adds their logo after creating the tournament.
+ * staff), plus team owners (users.accountType "team_owner") uploading their
+ * team logo into the teams folder for a team request. A Clerk session alone
+ * is not enough: we exchange it for a Convex token and ask the backend.
+ * Returns an error response, or null when allowed. A brand-new organiser adds
+ * their logo after creating the tournament.
  */
-async function requireUploader(): Promise<NextResponse | null> {
+async function requireUploader(folder: string): Promise<NextResponse | null> {
   const { userId, getToken } = await auth();
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -37,6 +40,7 @@ async function requireUploader(): Promise<NextResponse | null> {
   convex.setAuth(token);
   const me = await convex.query(api.auth.me, {});
   if (me?.isAdmin) return null;
+  if (me?.accountType === "team_owner" && folder === sanitizeFolder(UPLOAD_FOLDERS.teams)) return null;
   const mine = me ? await convex.query(api.tournaments.listMine, {}) : [];
   if (mine.length === 0) {
     return NextResponse.json(
@@ -49,13 +53,13 @@ async function requireUploader(): Promise<NextResponse | null> {
 
 export async function POST(request: NextRequest) {
   try {
-    // Authorization check — super-admin or tournament staff
-    const denied = await requireUploader();
-    if (denied) return denied;
-
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const rawFolder = (formData.get("folder") as string) || "general";
+
+    // Authorization check — super-admin, tournament staff, or a team owner's logo
+    const denied = await requireUploader(sanitizeFolder(rawFolder));
+    if (denied) return denied;
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
