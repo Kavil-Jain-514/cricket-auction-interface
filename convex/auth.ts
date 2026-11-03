@@ -11,33 +11,39 @@ export type UserRole = "admin" | "user";
 // CORE AUTH HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** The signed-in person's row, deactivated or not. Most code wants getCurrentUser. */
+export async function getUserRow(ctx: QueryCtx | MutationCtx): Promise<Doc<"users"> | null> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity?.email) return null;
+  return await ctx.db
+    .query("users")
+    .withIndex("by_email", (q) => q.eq("email", identity.email!))
+    .first();
+}
+
+export const DEACTIVATED_MESSAGE = "This account has been deactivated. Contact Bid11Pro support if you think this is a mistake.";
+
 /**
- * Get the current authenticated user from the database
+ * The current user, or null when signed out or deactivated: a deactivated
+ * account counts as nobody, so it has no access anywhere.
  */
 export async function getCurrentUser(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"users"> | null> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity?.email) return null;
-
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_email", (q) => q.eq("email", identity.email!))
-    .first();
-
-  return user;
+  const user = await getUserRow(ctx);
+  return user && user.deactivatedAt === undefined ? user : null;
 }
 
 /**
- * Get the current user or throw an error if not authenticated
+ * The current user, or throw: "Not authenticated", or the deactivated
+ * message for a deactivated account.
  */
 export async function requireUser(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"users">> {
-  const user = await getCurrentUser(ctx);
-  if (!user) {
-    throw new Error("Not authenticated");
-  }
+  const user = await getUserRow(ctx);
+  if (!user) throw new Error("Not authenticated");
+  if (user.deactivatedAt !== undefined) throw new Error(DEACTIVATED_MESSAGE);
   return user;
 }
 
@@ -174,8 +180,20 @@ export async function logAdminAction(
 export const me = query({
   args: {},
   handler: async (ctx) => {
-    const user = await getCurrentUser(ctx);
+    const user = await getUserRow(ctx);
     if (!user) return null;
+    if (user.deactivatedAt !== undefined) {
+      return {
+        _id: user._id,
+        email: user.email,
+        name: user.name,
+        role: "user" as const,
+        isAdmin: false,
+        accountType: undefined,
+        canCreateTournament: false,
+        isDeactivated: true,
+      };
+    }
 
     return {
       _id: user._id,
@@ -186,6 +204,7 @@ export const me = query({
       accountType: intentOf(user) ?? undefined,
       // For showing or hiding create controls; tournaments.create re-checks.
       canCreateTournament: canCreateTournament(user),
+      isDeactivated: false,
     };
   },
 });
@@ -307,6 +326,114 @@ export const getAllUsers = query({
       role: getUserRole(u),
       createdAt: u.createdAt,
     }));
+  },
+});
+
+const intentValidator = v.union(v.literal("organiser"), v.literal("team_owner"), v.literal("visitor"));
+
+/**
+ * The super-admin's user list, newest first, one page at a time. `filter`:
+ * an intent, "none" (non-admins who haven't chosen since organisers existed), "admin" or
+ * "deactivated". `search` matches the start of the email (by_email index).
+ * Anyone else gets an empty page.
+ */
+export const listUsers = query({
+  args: {
+    filter: v.optional(
+      v.union(intentValidator, v.literal("none"), v.literal("admin"), v.literal("deactivated")),
+    ),
+    search: v.optional(v.string()),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const caller = await getCurrentUser(ctx);
+    if (!caller || caller.role !== "admin") return { page: [], isDone: true, continueCursor: "" };
+
+    const search = args.search?.trim().toLowerCase();
+    const filter = args.filter;
+    const intent = filter === "organiser" || filter === "team_owner" || filter === "visitor" ? filter : undefined;
+    const base = search
+      ? ctx.db.query("users").withIndex("by_email", (q) => q.gte("email", search).lt("email", `${search}\uffff`))
+      : intent
+        ? ctx.db.query("users").withIndex("by_accountType", (q) => q.eq("accountType", intent))
+        : ctx.db.query("users");
+    const result = await base
+      .order("desc")
+      .filter((q) =>
+        q.and(
+          intent ? q.and(q.eq(q.field("accountType"), intent), q.neq(q.field("accountTypeChosenAt"), undefined)) : true,
+          // Admins are never asked, so they aren't "none".
+          filter === "none" ? q.and(q.eq(q.field("accountTypeChosenAt"), undefined), q.neq(q.field("role"), "admin")) : true,
+          filter === "admin" ? q.eq(q.field("role"), "admin") : true,
+          filter === "deactivated" ? q.neq(q.field("deactivatedAt"), undefined) : true,
+        ),
+      )
+      .paginate(args.paginationOpts);
+
+    const page = await Promise.all(
+      result.page.map(async (u) => ({
+        _id: u._id,
+        email: u.email,
+        name: u.name,
+        role: getUserRole(u),
+        intent: intentOf(u),
+        deactivated: u.deactivatedAt !== undefined,
+        createdAt: u.createdAt,
+        tournaments: (await ctx.db.query("tournamentStaff").withIndex("by_user", (q) => q.eq("userId", u._id)).take(100)).length,
+      })),
+    );
+    return { ...result, page };
+  },
+});
+
+/** The super-admin sets someone's intent (e.g. makes a viewer an organiser). */
+export const setUserIntent = mutation({
+  args: { userId: v.id("users"), accountType: intentValidator },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const target = await ctx.db.get(args.userId);
+    if (!target) throw new Error("User not found");
+    const previous = intentOf(target);
+    await ctx.db.patch(args.userId, { accountType: args.accountType, accountTypeChosenAt: Date.now() });
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: "set_user_intent",
+      targetType: "user",
+      targetId: args.userId,
+      previousData: { accountType: previous },
+      newData: { accountType: args.accountType },
+    });
+    return { success: true };
+  },
+});
+
+/**
+ * Deactivate or reactivate an account (super-admin only). A deactivated
+ * account keeps its rows but can't sign in to anything (requireUser). Never
+ * yourself, never another admin (remove the role first).
+ */
+export const setUserActive = mutation({
+  args: { userId: v.id("users"), active: v.boolean() },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const target = await ctx.db.get(args.userId);
+    if (!target) throw new Error("User not found");
+    if (!args.active) {
+      if (target._id === admin._id) throw new Error("You can't deactivate yourself");
+      if (target.role === "admin") throw new Error("Remove their admin role first");
+    }
+    if ((target.deactivatedAt === undefined) === args.active) return { success: true };
+    await ctx.db.patch(args.userId, { deactivatedAt: args.active ? undefined : Date.now() });
+    await logAdminAction(ctx, {
+      userId: admin._id,
+      userEmail: admin.email,
+      action: args.active ? "reactivate_user" : "deactivate_user",
+      targetType: "user",
+      targetId: args.userId,
+      newData: { email: target.email },
+    });
+    return { success: true };
   },
 });
 

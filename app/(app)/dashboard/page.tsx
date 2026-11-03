@@ -66,6 +66,18 @@ export default function DashboardPage() {
     );
   }
 
+  if (me.isDeactivated) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
+        <Navbar />
+        <main className="mx-auto max-w-lg px-4 py-16 text-center">
+          <h1 className="text-2xl font-bold">Your account is deactivated</h1>
+          <p className="mt-2 text-slate-400">You can still watch public auctions without signing in. Contact Bid11Pro support if you think this is a mistake.</p>
+        </main>
+      </div>
+    );
+  }
+
   const view = me.isAdmin ? 'admin' : (me.accountType ?? 'visitor');
   // The admin's Inactive filter means nothing to anyone else.
   const publicFilter = filter === 'inactive' ? 'all' : filter;

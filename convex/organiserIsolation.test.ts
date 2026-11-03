@@ -213,6 +213,8 @@ const NOT_STAFF_SCOPED: Record<string, string> = {
   "auth:ensureUser": "creates the caller's own user row",
   "auth:setAccountType": "sets the caller's own account type (tested in teamRequests.test.ts)",
   "auth:setUserRole": "global, super-admin only (tested below)",
+  "auth:setUserIntent": "global, super-admin only (tested in superAdmin.test.ts)",
+  "auth:setUserActive": "global, super-admin only (tested in superAdmin.test.ts)",
   "auctions:raiseBid": "team owners bidding from their paddle; checked by team membership",
   "members:claimInvite": "claimed with a one-time invite token",
   "ops:heartbeat": "the caller's own presence; ignored unless staff or a team owner (tested in ops.test.ts)",

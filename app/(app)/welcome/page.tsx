@@ -16,7 +16,7 @@ function Welcome() {
   const router = useRouter();
   const next = safeNextPath(useSearchParams().get('next'));
   const me = useQuery(api.auth.me, {});
-  const done = me !== undefined && me !== null && (me.isAdmin || me.accountType !== undefined);
+  const done = me !== undefined && me !== null && (me.isAdmin || me.isDeactivated || me.accountType !== undefined);
 
   useEffect(() => {
     if (done) router.replace(next);

@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, ShieldAlert, Users, ScrollText } from 'lucide-react';
+import { Activity, ShieldAlert, Trophy, Users, ScrollText } from 'lucide-react';
 import { Navbar } from '@/components/layout/Navbar';
 import { useUserRole } from '@/hooks/useUserRole';
 
 const TABS = [
   { href: '/admin/users', label: 'Users', icon: Users },
+  { href: '/admin/tournaments', label: 'Tournaments', icon: Trophy },
   { href: '/admin/audit', label: 'Audit log', icon: ScrollText },
   { href: '/admin/live', label: 'Live ops', icon: Activity },
 ];
@@ -49,7 +50,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <Navbar />
       <div className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
         <h1 className="text-2xl sm:text-3xl font-bold mb-4">Back office</h1>
-        <nav className="mb-6 flex gap-1 border-b border-slate-800" aria-label="Back office">
+        <nav className="mb-6 flex gap-1 overflow-x-auto border-b border-slate-800" aria-label="Back office">
           {TABS.map(({ href, label, icon: Icon }) => {
             const active = pathname?.startsWith(href);
             return (

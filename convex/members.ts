@@ -3,7 +3,8 @@ import { v } from "convex/values";
 import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import {
-  getCurrentUser,
+  DEACTIVATED_MESSAGE,
+  getUserRow,
   getTournamentRole,
   logAdminAction,
   OWNER_ONLY,
@@ -37,7 +38,9 @@ function generateInviteToken(): string {
 
 /** The signed-in user's row, created on first use (like auth:ensureUser). */
 export async function getOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> {
-  const existing = await getCurrentUser(ctx);
+  // A deactivated account is refused, never replaced by a fresh row.
+  const existing = await getUserRow(ctx);
+  if (existing?.deactivatedAt !== undefined) throw new Error(DEACTIVATED_MESSAGE);
   if (existing) return existing;
 
   const identity = await ctx.auth.getUserIdentity();

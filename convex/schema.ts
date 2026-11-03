@@ -25,8 +25,13 @@ export default defineSchema({
     // When accountType was chosen. Absent = choose again: choices made before
     // organisers existed don't count (intentOf).
     accountTypeChosenAt: v.optional(v.number()),
+    // Set by the super-admin (auth:setUserActive). A deactivated account is
+    // refused everywhere (getCurrentUser / requireUser) until reactivated.
+    deactivatedAt: v.optional(v.number()),
     createdAt: v.number(),
-  }).index("by_email", ["email"]),
+  })
+    .index("by_email", ["email"])
+    .index("by_accountType", ["accountType"]),
 
   // Audit Log for tracking admin actions
   auditLogs: defineTable({

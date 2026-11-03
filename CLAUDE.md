@@ -29,8 +29,12 @@ npx tsc --noEmit     # typecheck
   `requireTournamentRole(ctx, tournamentId, RUN_AUCTION | OWNER_ONLY)` (`convex/auth.ts`), after loading
   the doc that names the tournament and before any other validation. `users.role "admin"` is the platform
   super-admin and passes every check; `requireAdmin` is only for global functions (`setUserRole`,
-  `getAllUsers`, `listAuditLogs`). A new public mutation must be added to the table in
-  `convex/organiserIsolation.test.ts`.
+  `setUserIntent`, `setUserActive`, `getAllUsers`, `listUsers`, `listAuditLogs`). A new public mutation must
+  be added to the table in `convex/organiserIsolation.test.ts`.
+- **Account-level rules live in `convex/policy.ts`.** What someone may do because of how they signed up
+  (`users.accountType`: organiser, team owner, viewer) is a function there (`canCreateTournament`,
+  `canRequestTeam`, `canUploadTournamentLogo`, `canUploadToFolder`). Call it; never compare
+  `accountType` inline. A deactivated user (`deactivatedAt`) is refused by `requireUser` / `getCurrentUser`.
 - **Shared viewer queries stay identity-free.** Do not read `ctx.auth` in a query every viewer shares
   unless it is necessary. Reading identity per viewer stops Convex from sharing one cached result across
   all viewers. Put private data in separate admin-only queries instead.
