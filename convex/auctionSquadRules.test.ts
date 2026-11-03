@@ -160,7 +160,7 @@ describe("min rules", () => {
 
     // Squad 3, empty team: 2 future slots. Without the rule: 10L - 2 x 1L = 8L.
     // With it: one slot at the Marquee's 5L + one at 1L → 10L - 6L = 4L.
-    const roster = await t.query(api.auctions.getAuctionRoster, { tournamentId, currentPlayerId: current });
+    const roster = (await t.query(api.auctions.getAuctionRoster, { tournamentId, currentPlayerId: current }))!;
     expect(roster.teams.find((x) => x._id === teamA)?.maxAllowedBid).toBe(400_000);
 
     const over = await asAdmin.mutation(api.auctions.placeBid, { auctionRoomId: roomId, teamId: teamA, amount: 425_000 });
@@ -181,7 +181,7 @@ describe("min rules", () => {
 
     // 10L - 2 x 1L. Had the keeper being bought not counted, it'd be 10L - (4L + 1L).
 
-    const roster = await t.query(api.auctions.getAuctionRoster, { tournamentId, currentPlayerId: current });
+    const roster = (await t.query(api.auctions.getAuctionRoster, { tournamentId, currentPlayerId: current }))!;
     expect(roster.teams.find((x) => x._id === teamA)?.maxAllowedBid).toBe(800_000);
   });
 
@@ -208,7 +208,7 @@ describe("min rules", () => {
     });
     await addPlayer(t, tournamentId, { categoryId: "marquee", auctionStatus: "sold", teamId: teamA, soldPrice: 100_000 });
 
-    const roster = await t.query(api.auctions.getAuctionRoster, { tournamentId });
+    const roster = (await t.query(api.auctions.getAuctionRoster, { tournamentId }))!;
     expect(roster.teams.find((x) => x._id === teamA)?.ruleStatus).toEqual([
       { ruleId: "min-wk", label: "WK", count: 0, min: 1, max: undefined, ok: false },
       { ruleId: "max-marquee", label: "Marquee", count: 1, min: undefined, max: 2, ok: true },

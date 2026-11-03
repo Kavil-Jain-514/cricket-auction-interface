@@ -106,7 +106,7 @@ describe("auctions.getAuctionRoster", () => {
       t.withIdentity(USER_IDENTITY),
       t.withIdentity(ADMIN_IDENTITY),
     ]) {
-      const result = await caller.query(api.auctions.getAuctionRoster, args);
+      const result = (await caller.query(api.auctions.getAuctionRoster, args))!;
       expect(result.currentPlayer).not.toBeNull();
       expect(result.currentPlayer).not.toHaveProperty("phoneNumber");
       expect(result.currentPlayer?.name).toBe("Virat");

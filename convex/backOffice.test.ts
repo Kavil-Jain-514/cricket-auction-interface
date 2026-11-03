@@ -242,7 +242,7 @@ describe("purse tools", () => {
     expect((await t.run((ctx) => ctx.db.get(teamId)))?.purseRemaining).toBe(1_750_000);
     expect(await reconciliationOk(t, tournamentId)).toBe(true);
 
-    await asAdmin.mutation(api.auctions.restartAuction, { auctionRoomId: roomId });
+    await asAdmin.mutation(api.auctions.restartAuction, { auctionRoomId: roomId, confirmName: "Office Cup" });
     expect(await t.run((ctx) => ctx.db.get(teamId))).toMatchObject({
       purseRemaining: 1_950_000,
       purseSpent: 0,

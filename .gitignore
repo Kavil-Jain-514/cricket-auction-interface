@@ -43,3 +43,9 @@ next-env.d.ts
 .claude
 
 /docs/
+# Lighthouse CI and Playwright output
+/.lighthouseci
+/test-results
+
+# Load-test reports (scripts/loadtest/run.mjs)
+scripts/loadtest/report-*.json

@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 
 // Routes that require authentication.
 // /auction/<roomId> is deliberately public so projectors and phones can watch
@@ -13,7 +14,7 @@ const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
   "/tournament(.*)",
   "/auction/create(.*)",
-  // Back office: sign in first; app/admin/layout.tsx shows non-admins a 403.
+  // Back office: sign in first; app/(app)/admin/layout.tsx shows non-admins a 403.
   "/admin(.*)",
   // Owner invite links: sign in first, then the page claims the invite.
   "/join(.*)",
@@ -27,11 +28,34 @@ const isPublicRoute = createRouteMatcher([
   "/api/upload(.*)", // Already has its own Clerk auth check
 ]);
 
-export default clerkMiddleware(async (auth, req) => {
+// Static marketing pages (app/(marketing)) and their metadata files never
+// read auth. Skipping Clerk here avoids its handshake redirect, which on a
+// first visit costs two round trips before the page even starts loading.
+const isMarketingRoute = createRouteMatcher([
+  "/",
+  "/features",
+  "/pricing",
+  "/how-it-works",
+  "/for-organisers",
+  "/broadcast",
+  "/faq",
+  "/design",
+  "/robots.txt",
+  "/sitemap.xml",
+  "/opengraph-image(.*)",
+  "/twitter-image(.*)",
+]);
+
+const clerk = clerkMiddleware(async (auth, req) => {
   if (isProtectedRoute(req) && !isPublicRoute(req)) {
     await auth.protect();
   }
 });
+
+export default function proxy(req: NextRequest, event: NextFetchEvent) {
+  if (isMarketingRoute(req)) return NextResponse.next();
+  return clerk(req, event);
+}
 
 export const config = {
   matcher: [

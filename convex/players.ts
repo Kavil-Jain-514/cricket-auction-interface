@@ -50,6 +50,7 @@ export type NewPlayerFields = {
   jerseyName?: string;
   phoneNumber?: string;
   tshirtSize?: Doc<"players">["tshirtSize"];
+  consentWhatsApp?: boolean;
 };
 
 /**
@@ -88,6 +89,7 @@ export async function insertValidatedPlayer(
     jerseyName: fields.jerseyName,
     playerNumber: nextPlayerNumber,
     tshirtSize: fields.tshirtSize,
+    consentWhatsApp: fields.consentWhatsApp,
     auctionStatus: "pending",
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -529,6 +531,27 @@ export const deleteAllByTournament = mutation({
           )
     ).filter((p) => !captainPlayerIds.has(p._id));
 
+    // Sold players take their price back to their team, in this same
+    // transaction, so purseSpent stays the sum of the squad's prices.
+    const refunds = new Map<Id<"teams">, number>();
+    for (const p of playersToDelete) {
+      if (p.auctionStatus === "sold" && p.teamId && p.soldPrice) {
+        refunds.set(p.teamId, (refunds.get(p.teamId) ?? 0) + p.soldPrice);
+      }
+    }
+    const now = Date.now();
+    await Promise.all(
+      teams
+        .filter((team) => refunds.has(team._id))
+        .map((team) =>
+          ctx.db.patch(team._id, {
+            purseRemaining: team.purseRemaining + refunds.get(team._id)!,
+            purseSpent: team.purseSpent - refunds.get(team._id)!,
+            updatedAt: now,
+          }),
+        ),
+    );
+
     // Delete in parallel for performance
     await Promise.all(playersToDelete.map((p) => ctx.db.delete(p._id)));
 
@@ -545,6 +568,7 @@ export const deleteAllByTournament = mutation({
         deletedCount: playersToDelete.length,
         includesSold: args.includesSold ?? false,
       },
+      newData: { refunds: Object.fromEntries(refunds) },
       tournamentId: args.tournamentId,
     });
 

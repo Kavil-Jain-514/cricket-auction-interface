@@ -517,6 +517,7 @@ describe("deleteTournament", () => {
 
     await asAdmin.mutation(api.tournaments.deleteTournament, {
       id: tournamentId,
+      confirmName: "Test Cup",
     });
 
     const draws = await t.run((ctx) => ctx.db.query("groupDraws").collect());
