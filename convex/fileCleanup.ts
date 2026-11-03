@@ -167,7 +167,9 @@ export const claimDue = internalMutation({
 export const referencedUrlsPage = internalQuery({
   args: { table: v.union(...REFERENCING_TABLES.map((t) => v.literal(t))), cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, args) => {
-    const page = await ctx.db.query(args.table).paginate({ numItems: 500, cursor: args.cursor });
+    // Snapshot chunks can each be close to 1 MiB; read them a few at a time.
+    const numItems = args.table === "snapshotChunks" ? 8 : 500;
+    const page = await ctx.db.query(args.table).paginate({ numItems, cursor: args.cursor });
     return { urls: [...new Set(page.page.flatMap(urlsIn))], isDone: page.isDone, continueCursor: page.continueCursor };
   },
 });

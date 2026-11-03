@@ -206,7 +206,7 @@ export function CustomQuestions({
         return (
           <div key={q.id}>
             {grouped ? <QuestionLabel q={q} labelId={`${q.id}-label`} /> : <QuestionLabel q={q} htmlFor={id} />}
-            {q.helpText && <p id={`${id}-help`} className="text-xs text-slate-500">{q.helpText}</p>}
+            {q.helpText && <p id={`${id}-help`} className="text-xs text-slate-400">{q.helpText}</p>}
             <div className={grouped ? '' : 'mt-1.5'}>{control}</div>
             {error && <p id={`${id}-error`} role="alert" className="mt-1 text-xs text-red-400">{error}</p>}
           </div>

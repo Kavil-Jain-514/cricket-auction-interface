@@ -126,7 +126,7 @@ export default function AdminUsersPage() {
                 <div className="min-w-0">
                   <div className="truncate font-medium">
                     {u.name || u.email}
-                    {isSelf && <span className="ml-2 text-xs text-slate-500">(you)</span>}
+                    {isSelf && <span className="ml-2 text-xs text-slate-400">(you)</span>}
                   </div>
                   <div className="truncate text-xs text-slate-400">
                     {u.email} · joined {new Date(u.createdAt).toLocaleDateString('en-IN')}
@@ -170,8 +170,8 @@ export default function AdminUsersPage() {
             </li>
           );
         })}
-        {status === 'LoadingFirstPage' && <li className="p-4 text-sm text-slate-500">Loading…</li>}
-        {status !== 'LoadingFirstPage' && users.length === 0 && <li className="p-4 text-sm text-slate-500">No users match.</li>}
+        {status === 'LoadingFirstPage' && <li className="p-4 text-sm text-slate-400">Loading…</li>}
+        {status !== 'LoadingFirstPage' && users.length === 0 && <li className="p-4 text-sm text-slate-400">No users match.</li>}
       </ul>
 
       {(status === 'CanLoadMore' || status === 'LoadingMore') && (

@@ -101,7 +101,7 @@ export function FormBuilder({
         <h2 id="locked-fields" className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-slate-400">
           <Lock className="h-4 w-4" aria-hidden /> Always asked
         </h2>
-        <p className="mt-1 text-sm text-slate-500">The auction needs these, so they stay on every form, first.</p>
+        <p className="mt-1 text-sm text-slate-400">The auction needs these, so they stay on every form, first.</p>
         <ul className="mt-3 flex flex-wrap gap-2">
           {SYSTEM_FIELDS.map((f) => (
             <li key={f} className="rounded-full border border-slate-700 bg-slate-800/60 px-3 py-1 text-xs text-slate-300">{f}</li>
@@ -224,7 +224,7 @@ export function FormBuilder({
                     <input type="checkbox" checked={q.required} onChange={(e) => patch(i, { required: e.target.checked })} className="h-4 w-4 accent-blue-600" />
                     Required
                   </label>
-                  <span className="text-xs text-slate-500">{answered > 0 ? `${answered} answer${answered === 1 ? '' : 's'}` : ''}</span>
+                  <span className="text-xs text-slate-400">{answered > 0 ? `${answered} answer${answered === 1 ? '' : 's'}` : ''}</span>
                   <div className="flex items-center gap-1">
                     <IconButton label={`Move "${q.label || 'question'}" up`} disabled={i === 0} onClick={() => move(i, i - 1)}><ArrowUp /></IconButton>
                     <IconButton label={`Move "${q.label || 'question'}" down`} disabled={i === active.length - 1} onClick={() => move(i, i + 1)}><ArrowDown /></IconButton>
@@ -272,7 +272,7 @@ export function FormBuilder({
       {archived.length > 0 && (
         <section aria-labelledby="archived-questions" className="space-y-2">
           <h2 id="archived-questions" className="text-sm font-semibold uppercase tracking-wider text-slate-400">Archived</h2>
-          <p className="text-sm text-slate-500">Hidden from the form. Their answers stay on each registration.</p>
+          <p className="text-sm text-slate-400">Hidden from the form. Their answers stay on each registration.</p>
           <ul className="space-y-2">
             {archived.map((q) => (
               <li key={q.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm text-slate-400">

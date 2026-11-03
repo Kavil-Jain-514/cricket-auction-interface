@@ -346,7 +346,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
                   aria-pressed={on}
                   onClick={() => patch({ role: on ? form.role.filter((x) => x !== r) : [...form.role, r] })}
                   className={cn(
-                    'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition',
+                    'inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition',
                     on ? cn(getRoleBadgeBg(r), 'border-transparent text-white shadow-sm') : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700',
                   )}
                 >
@@ -372,7 +372,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
                     aria-pressed={on}
                     onClick={() => patch({ categoryId: on ? '' : c.id })}
                     className={cn(
-                      'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition',
+                      'inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition',
                       on ? 'border-blue-500 bg-blue-600 text-white shadow' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700',
                     )}
                   >
@@ -395,7 +395,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
                   key={hand}
                   type="button"
                   onClick={() => patch({ battingBowlingHand: hand })}
-                  className={cn('h-9 rounded-md text-sm font-medium transition', selected ? 'bg-blue-600 text-white shadow' : 'text-slate-300 hover:text-white')}
+                  className={cn('h-11 rounded-md text-sm font-medium transition', selected ? 'bg-blue-600 text-white shadow' : 'text-slate-300 hover:text-white')}
                 >
                   {hand}
                 </button>
@@ -450,7 +450,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         <input type="checkbox" checked={form.consentWhatsApp} onChange={(e) => patch({ consentWhatsApp: e.target.checked })} className="mt-1 accent-blue-600" />
         <span>Send me WhatsApp updates on this number: that I&apos;m registered, when I&apos;m approved, and which team bought me.</span>
       </label>
-      <p className="text-xs text-slate-500">Your phone number is only shared with the organiser. Reply STOP on WhatsApp at any time to stop the messages.</p>
+      <p className="text-xs text-slate-400">Your phone number is only shared with the organiser. Reply STOP on WhatsApp at any time to stop the messages.</p>
 
       <Button type="submit" disabled={submitting || uploading !== null} className="w-full h-11">
         {submitting ? 'Submitting…' : 'Register'}
