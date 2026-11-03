@@ -180,6 +180,7 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "registrations:markPaid": (as, fx) => as.mutation(api.registrations.markPaid, { registrationId: fx.registration }),
   "registrations:setCategory": (as, fx) => as.mutation(api.registrations.setCategory, { registrationId: fx.registration }),
   "registrations:reject": (as, fx) => as.mutation(api.registrations.reject, { registrationId: fx.registration, reason: "x" }),
+  "teamRequests:inviteOwner": (as, fx) => as.mutation(api.teamRequests.inviteOwner, { tournamentId: fx.tA, email: "invitee@example.com" }),
   "notifications:resend": (as, fx) => as.mutation(api.notifications.resend, { notificationId: fx.notification }),
   "registrationForms:save": (as, fx) =>
     as.mutation(api.registrationForms.save, {

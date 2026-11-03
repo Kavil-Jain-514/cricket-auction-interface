@@ -11,12 +11,10 @@ import {
   requireTournamentRole,
 } from "./auth";
 import { intentAfterClaimingInvite } from "./policy";
-import { appUrl, enqueueEmail } from "./emails";
-import { consumeRateLimit } from "./rateLimit";
+import { appUrl, consumeInviteEmailQuota, enqueueEmail } from "./emails";
 import { normalizeEmail } from "./validation";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const INVITE_EMAIL_LIMIT = { limit: 30, windowMs: 60 * 60 * 1000 };
 
 /** Hex SHA-256 of an invite token. Only this hash is ever stored. */
 async function hashInviteToken(token: string): Promise<string> {
@@ -74,9 +72,7 @@ export const createInvite = mutation({
     if (args.email?.trim()) {
       email = normalizeEmail(args.email) ?? undefined;
       if (!email) throw new Error("Enter a valid email address, or leave it empty to just copy the link");
-      if (!(await consumeRateLimit(ctx, `invite-email:${admin._id}`, INVITE_EMAIL_LIMIT))) {
-        throw new Error("Too many invite emails in the last hour. Copy the link instead, or try again later.");
-      }
+      await consumeInviteEmailQuota(ctx, admin._id);
     }
 
     const token = generateInviteToken();

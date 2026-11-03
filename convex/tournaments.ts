@@ -178,6 +178,20 @@ export const getById = query({
 });
 
 /**
+ * What the team sign-up page (/tournament/<id>/join-team) shows before
+ * anyone registers: name, logo, and whether teams can still be added.
+ * Identity-free; null for a deactivated or missing tournament.
+ */
+export const getJoinTeamInfo = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament || tournament.isActive === false) return null;
+    return { name: tournament.name, logoUrl: tournament.logoUrl, open: tournament.status !== "completed" };
+  },
+});
+
+/**
  * The caller's access to a tournament, for showing or hiding controls:
  * "super_admin", "owner", "auctioneer" or null. The server re-checks every
  * action, so this is for UI only.

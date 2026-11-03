@@ -1,5 +1,6 @@
-// convex/emails.ts - Invite emails: a team-owner invite link (when the
-// organiser gives the owner's address) and "you've been added" for new
+// convex/emails.ts - Invite emails: a team-owner invite link for an existing
+// team (when the organiser gives the owner's address), "add your team" with
+// the tournament's team sign-up link, and "you've been added" for new
 // tournament staff (owners and auctioneers).
 //
 // Outbox, like the WhatsApp one (notifications.ts): the invite or staff
@@ -20,6 +21,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, query, type MutationCtx } from "./_generated/server";
 import { getCurrentUser } from "./auth";
 import { isSuperAdmin } from "./policy";
+import { consumeRateLimit } from "./rateLimit";
 
 const MAX_ATTEMPTS = 5;
 const BATCH_SIZE = 10;
@@ -32,6 +34,18 @@ const DEFAULT_APP_URL = "https://bid11pro.kaviljain.com";
 type Email = Doc<"emails">;
 type InvitePayload = Extract<Email["payload"], { teamName: string }>;
 type StaffPayload = Extract<Email["payload"], { role: string }>;
+type SignupPayload = Exclude<Email["payload"], InvitePayload | StaffPayload>;
+
+// Invite emails (all kinds) each organiser may send per hour: enough for a
+// league, too few to spam with.
+const INVITE_EMAIL_LIMIT = { limit: 30, windowMs: 60 * 60 * 1000 };
+
+/** Count one invite email against the sender's hourly cap; throws when it's used up. */
+export async function consumeInviteEmailQuota(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
+  if (!(await consumeRateLimit(ctx, `invite-email:${userId}`, INVITE_EMAIL_LIMIT))) {
+    throw new Error("Too many invite emails in the last hour. Copy the link instead, or try again later.");
+  }
+}
 
 export const appUrl = () => (process.env.APP_URL ?? DEFAULT_APP_URL).replace(/\/+$/, "");
 
@@ -103,6 +117,28 @@ export function renderEmail(kind: Email["kind"], payload: Email["payload"]): Ren
       ),
     };
   }
+  if (kind === "team_signup_invite") {
+    const p = payload as SignupPayload;
+    const link = `${appUrl()}/tournament/${p.tournamentId}/join-team`;
+    return {
+      subject: `Add your team to ${p.tournamentName}`,
+      text: [
+        `${p.inviterName} has invited you to add your team to ${p.tournamentName} on Bid11Pro.`,
+        `Register your team here (name, colours, logo):`,
+        link,
+        `The organiser verifies it, and then you can bid for players from your phone during the auction. If you weren't expecting this, you can ignore this email.`,
+      ].join("\n\n"),
+      html: layout(
+        `Add your team to ${escapeHtml(p.tournamentName)}`,
+        [
+          `${escapeHtml(p.inviterName)} has invited you to add your team to <strong>${escapeHtml(p.tournamentName)}</strong>.`,
+          `Register your team (name, colours, logo). The organiser verifies it, and then you can bid for players from your phone during the auction.`,
+        ],
+        { label: "Register your team", url: link },
+        "Sign in or create a free account to continue. If you weren't expecting this, you can ignore this email.",
+      ),
+    };
+  }
   const p = payload as StaffPayload;
   const link = `${appUrl()}/tournament/${p.tournamentId}`;
   const greeting = p.inviteeName ? `Hi ${p.inviteeName},` : "Hi,";
@@ -168,6 +204,12 @@ function providerFromEnv(): EmailProvider | { skip: string } {
   const from = process.env.EMAIL_FROM;
   if (!apiKey || !from) return { skip: "not_configured: set RESEND_API_KEY and EMAIL_FROM" };
   return resendProvider(apiKey, from);
+}
+
+/** Send a failed email again (same row, so it still can't go out twice). */
+export async function requeueEmail(ctx: MutationCtx, id: Id<"emails">): Promise<void> {
+  await ctx.db.patch(id, { status: "queued", attempts: 0, nextAttemptAt: Date.now(), lastError: undefined, claimedAt: undefined });
+  await ctx.scheduler.runAfter(0, internal.emails.processEmails, {});
 }
 
 /** Wipe an invite's one-time link from a row we're done with. */

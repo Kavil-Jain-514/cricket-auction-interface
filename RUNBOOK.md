@@ -171,8 +171,13 @@ The **frontend (Vercel)** and **backend (Convex)** deploy separately — check w
 
 ## Invite emails (Resend)
 
-- **What is sent:** the team-owner invite link, when the organiser types the owner's email in *Owners → Email
-  invite*, and "you've been added" when someone is made an auctioneer or owner (Settings → Staff).
+- **What is sent:**
+  - *Teams → Invite team owners*: "add your team", with the tournament's team sign-up link
+    (`/tournament/<id>/join-team`). The owner signs in, confirms they own a team, and registers it; it then waits
+    under *Teams waiting for verification*. The same window has the link to copy or send on WhatsApp. One email
+    per address per day.
+  - *Owners* on an existing team's card → *Email invite*: that team's one-time owner link.
+  - "You've been added" when someone is made an auctioneer or owner (Settings → Staff).
 - **Setup (one time):** create a Resend account, add and verify your sending domain (DNS records Resend shows
   you), create an API key, then in the **Convex** env:
   `npx convex env set RESEND_API_KEY re_...`,

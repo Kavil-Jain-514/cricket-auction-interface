@@ -356,8 +356,10 @@ export default defineSchema({
   // per invite or staff addition (dedupeKey). A team-owner invite's one-time
   // link sits in `payload.link` only until it is sent or abandoned.
   emails: defineTable({
-    kind: v.union(v.literal("team_owner_invite"), v.literal("staff_added")),
-    dedupeKey: v.string(), // "invite:<inviteId>", "staff:<tournamentStaffId>"
+    kind: v.union(v.literal("team_owner_invite"), v.literal("staff_added"), v.literal("team_signup_invite")),
+    // "invite:<inviteId>", "staff:<tournamentStaffId>",
+    // "team-signup:<tournamentId>:<email>:<YYYY-MM-DD>" (one a day per address)
+    dedupeKey: v.string(),
     tournamentId: v.id("tournaments"),
     to: v.string(),
     inviteId: v.optional(v.id("teamInvites")),
@@ -375,6 +377,12 @@ export default defineSchema({
         inviterName: v.string(),
         inviteeName: v.optional(v.string()),
         role: v.union(v.literal("owner"), v.literal("auctioneer")),
+      }),
+      // team_signup_invite: "add your team" (link to /tournament/<id>/join-team)
+      v.object({
+        tournamentId: v.id("tournaments"),
+        tournamentName: v.string(),
+        inviterName: v.string(),
       }),
     ),
     status: v.union(v.literal("queued"), v.literal("sending"), v.literal("sent"), v.literal("failed"), v.literal("skipped")),
