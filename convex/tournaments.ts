@@ -25,6 +25,7 @@ import {
 } from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { initialPlan } from "./plans";
+import { canCreateTournament } from "./policy";
 import { takeSnapshot } from "./snapshots";
 import {
   confirmsTournamentName,
@@ -67,8 +68,11 @@ export const create = mutation({
     }),
   },
   handler: async (ctx, args) => {
-    // Any signed-in user may create a tournament; they become its owner.
-    await requireUser(ctx);
+    // Organisers (and the super-admin) create tournaments and become the owner.
+    const user = await requireUser(ctx);
+    if (!canCreateTournament(user)) {
+      throw new Error("Only organisers can create tournaments");
+    }
 
     // Validation (shared with update — convex/validation.ts)
     const error =
@@ -82,29 +86,6 @@ export const create = mutation({
     }
     const rulesError = validateRuleSettings(args.settings);
     if (rulesError) throw new Error(rulesError);
-    // Get current user (implement auth first)
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
-
-    // Find or create user
-    let user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
-      .first();
-
-    // Auto-create user if not found
-    if (!user) {
-      const userId = await ctx.db.insert("users", {
-        email: identity.email!,
-        name: identity.name ?? identity.email!.split("@")[0],
-        createdAt: Date.now(),
-      });
-      user = await ctx.db.get(userId);
-    }
-
-    if (!user) {
-      throw new Error("Failed to create user");
-    }
 
     const footer = normalizeFooterText(args.settings.footerText);
     if (!footer.ok) throw new Error(footer.error);

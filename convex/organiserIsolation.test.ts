@@ -205,7 +205,7 @@ const NOT_STAFF_SCOPED: Record<string, string> = {
   "registrations:submitPaymentProof": "anonymous registrant's QR screenshot; the owner checks it before approving",
   "registrations:chooseOfflinePayment": "anonymous registrant chooses to pay in person; only the owner marks it paid",
   "teamRequests:submit": "any signed-in user asks for a team; the tournament's owner approves it (tested in teamRequests.test.ts)",
-  "tournaments:create": "any signed-in user; they become the owner",
+  "tournaments:create": "organisers only (policy.canCreateTournament, roles.test.ts); they become the owner",
 };
 
 /** Every table a tournament's data lives in, for a before/after comparison. */
@@ -291,9 +291,13 @@ describe("auctioneer role", () => {
 });
 
 describe("tournament creation and staff", () => {
-  test("any signed-in user can create a tournament and becomes its owner", async () => {
+  test("an organiser can create a tournament and becomes its owner", async () => {
     const t = convexTest(schema, modules);
     await seed(t);
+    await t.run(async (ctx) => {
+      const b = await ctx.db.query("users").withIndex("by_email", (q) => q.eq("email", ORG_B.email)).first();
+      await ctx.db.patch(b!._id, { accountType: "organiser", accountTypeChosenAt: 1 });
+    });
     const asB = t.withIdentity(ORG_B);
     const id = await asB.mutation(api.tournaments.create, {
       name: "B Two",

@@ -16,9 +16,14 @@ export default defineSchema({
     email: v.string(),
     name: v.optional(v.string()),
     role: v.optional(v.union(v.literal("admin"), v.literal("user"))), // Default: user
-    // Asked once after sign-up. "team_owner" can request a team in a
-    // tournament (teamRequests). Absent = not asked yet.
-    accountType: v.optional(v.union(v.literal("team_owner"), v.literal("visitor"))),
+    // Asked once after sign-up (convex/policy.ts). "organiser" can create
+    // tournaments; "team_owner" can request a team in one (teamRequests).
+    accountType: v.optional(
+      v.union(v.literal("organiser"), v.literal("team_owner"), v.literal("visitor")),
+    ),
+    // When accountType was chosen. Absent = choose again: choices made before
+    // organisers existed don't count (intentOf).
+    accountTypeChosenAt: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_email", ["email"]),
 

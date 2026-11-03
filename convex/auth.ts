@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
+import { canCreateTournament, intentOf } from "./policy";
 
 export type UserRole = "admin" | "user";
 
@@ -182,7 +183,9 @@ export const me = query({
       name: user.name,
       role: getUserRole(user),
       isAdmin: user.role === "admin",
-      accountType: user.accountType,
+      accountType: intentOf(user) ?? undefined,
+      // For showing or hiding create controls; tournaments.create re-checks.
+      canCreateTournament: canCreateTournament(user),
     };
   },
 });
@@ -308,14 +311,17 @@ export const getAllUsers = query({
 });
 
 /**
- * The caller says how they use Bid11Pro (asked once after sign-up). Team
- * owners can then request a team in a tournament (teamRequests:submit).
+ * The caller says how they use Bid11Pro (asked once after sign-up). Only
+ * these three values are accepted; the super-admin role is never chosen here.
+ * Organisers can create tournaments; team owners can request a team.
  */
 export const setAccountType = mutation({
-  args: { accountType: v.union(v.literal("team_owner"), v.literal("visitor")) },
+  args: {
+    accountType: v.union(v.literal("organiser"), v.literal("team_owner"), v.literal("visitor")),
+  },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-    await ctx.db.patch(user._id, { accountType: args.accountType });
+    await ctx.db.patch(user._id, { accountType: args.accountType, accountTypeChosenAt: Date.now() });
     return { success: true };
   },
 });
