@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useRouter } from 'next/navigation';
@@ -15,10 +15,19 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { DEFAULT_BID_TIMER_SECONDS } from '@/convex/bidRules';
 import { BID_TIMER_OPTIONS, bidTimerLabel } from '@/lib/bidTimer';
+import { useIntentGate } from '@/hooks/useIntentGate';
 
 export default function CreateTournamentPage() {
   const router = useRouter();
   const createTournament = useMutation(api.tournaments.create);
+  // Viewers and team owners can't create; tournaments.create refuses them too.
+  const { me, needsIntent } = useIntentGate('/tournament/create');
+  const forbidden = me !== undefined && me !== null && !needsIntent && !me.canCreateTournament;
+  useEffect(() => {
+    if (!forbidden) return;
+    toast.error('Only organisers can create tournaments');
+    router.replace('/dashboard');
+  }, [forbidden, router]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -117,6 +126,14 @@ export default function CreateTournamentPage() {
       return next;
     });
   };
+
+  if (!me?.canCreateTournament) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-slate-950 via-slate-900 to-slate-950">
+        <div role="status" aria-label="Loading" className="h-12 w-12 animate-spin rounded-full border-b-2 border-red-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">

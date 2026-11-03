@@ -10,6 +10,7 @@ import { Navbar } from '@/components/layout/Navbar';
 import { useUser } from '@clerk/nextjs';
 import { redirect } from 'next/navigation';
 import { AccountTypePrompt } from '@/components/onboarding/AccountTypePrompt';
+import { useIntentGate } from '@/hooks/useIntentGate';
 import { TeamOwnerPanel } from '@/components/teams/TeamOwnerPanel';
 
 // Cricket Ball SVG Component
@@ -40,10 +41,10 @@ export default function DashboardPage() {
   const isRoleLoading = myTournaments === undefined;
   const isOrganiser = (myTournaments?.length ?? 0) > 0;
   const tournaments = isOrganiser ? myTournaments : allTournaments;
-  const me = useQuery(api.auth.me, {});
+  // Anyone who hasn't chosen organiser / team owner / viewer goes to /welcome.
+  const { me } = useIntentGate('/dashboard');
+  const canCreate = me?.canCreateTournament === true;
   const [changingType, setChangingType] = useState(false);
-  // Asked once after sign-up; organisers and super-admins are never asked.
-  const needsAccountType = me !== undefined && me !== null && me.accountType === undefined && !isOrganiser && !me.isAdmin;
   const isTeamOwner = me?.accountType === 'team_owner';
 
   // Redirect if not signed in
@@ -82,7 +83,7 @@ export default function DashboardPage() {
           </h1>
           <p className="text-slate-400 text-sm sm:text-base">
             {isOrganiser ? 'Manage your cricket auction tournaments' : isTeamOwner ? 'Signed in as a team owner' : 'Follow cricket auction tournaments'}
-            {me?.accountType && !isOrganiser && (
+            {me?.accountType && (
               <button type="button" onClick={() => setChangingType(true)} className="ml-2 text-orange-400 hover:underline">
                 Change
               </button>
@@ -136,12 +137,14 @@ export default function DashboardPage() {
           <h2 className="text-xl sm:text-2xl font-bold">
             {isOrganiser ? 'My Tournaments' : 'Active Tournaments'}
           </h2>
+          {canCreate && (
           <Link href="/tournament/create">
             <Button size="lg" className="h-12 px-5 sm:px-6 text-base w-full sm:w-auto bg-linear-to-r from-red-600 to-orange-500 hover:from-red-700 hover:to-orange-600">
               <Plus className="w-5 h-5 mr-2" />
               New Tournament
             </Button>
           </Link>
+          )}
         </div>
 
         {/* Tournaments List */}
@@ -154,14 +157,16 @@ export default function DashboardPage() {
             <CricketBall className="w-16 sm:w-20 h-16 sm:h-20 mx-auto mb-4 opacity-30" />
             <h3 className="text-lg sm:text-xl font-semibold mb-2">No tournaments yet</h3>
             <p className="text-slate-400 mb-6 text-sm sm:text-base">
-              Create your first tournament and experience IPL-style auctions
+              {canCreate ? 'Create your first tournament and experience IPL-style auctions' : 'Tournaments will appear here once an organiser makes them public'}
             </p>
+            {canCreate && (
             <Link href="/tournament/create">
               <Button size="lg" className="h-12 px-6 text-base bg-linear-to-r from-red-600 to-orange-500 hover:from-red-700 hover:to-orange-600">
                 <Plus className="w-5 h-5 mr-2" />
                 Create Tournament
               </Button>
             </Link>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 lg:gap-6">
@@ -244,8 +249,8 @@ export default function DashboardPage() {
         )}
       </main>
 
-      {(needsAccountType || changingType) && (
-        <AccountTypePrompt current={me?.accountType} onClose={changingType ? () => setChangingType(false) : undefined} />
+      {changingType && (
+        <AccountTypePrompt current={me?.accountType} onClose={() => setChangingType(false)} />
       )}
     </div>
   );
