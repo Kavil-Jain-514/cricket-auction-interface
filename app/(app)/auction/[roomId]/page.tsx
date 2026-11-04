@@ -1163,7 +1163,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               <div className="flex items-center gap-3 sm:gap-5">
                 {/* Bid11Pro Branding */}
                 <div className="hidden sm:flex flex-col gap-1">
-                  <Logo size="sm" />
+                  {/* Hidden on phones, so a mid-auction tap can't leave the screen */}
+                  <Link href="/" aria-label="Bid11Pro home" className="fl-focus w-fit rounded-control">
+                    <Logo size="sm" />
+                  </Link>
                   {auctionData.tournament?.settings?.footerText && (
                     <span className="text-[10px] sm:text-[11px] text-slate-400 leading-tight">
                       {auctionData.tournament.settings.footerText}

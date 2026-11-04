@@ -81,7 +81,7 @@ export function ConsoleMoreMenu({ auctionRoomId, currentPlayerName, bidCount }: 
               setMenuOpen(false);
               setDialogOpen(true);
             }}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-200 outline-none hover:bg-slate-800 focus-visible:bg-selection focus-visible:text-selection-ink disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Eraser className="w-4 h-4" /> Clear all bids…
           </button>

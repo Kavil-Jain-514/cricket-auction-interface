@@ -8,6 +8,7 @@ import { CheckCircle2, XCircle } from 'lucide-react';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { getErrorMessage } from '@/lib/utils';
+import { BackToHomeLink } from '@/components/layout/BackToHomeLink';
 
 interface JoinPageProps {
   params: Promise<{ token: string }>;
@@ -47,7 +48,8 @@ export default function JoinPage({ params }: JoinPageProps) {
   }, [isLoading, isAuthenticated, claimInvite, token]);
 
   return (
-    <div className="min-h-[100dvh] bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white flex items-center justify-center p-4">
+    <div className="min-h-[100dvh] bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white flex flex-col items-center justify-center gap-3 p-4">
+      <BackToHomeLink />
       <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-6 text-center">
         {state.status === 'claiming' && (
           <>

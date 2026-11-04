@@ -28,7 +28,7 @@ const UI = ["line-strong", "focus", "signal"];
 
 describe.each(Object.entries(themes))("%s theme tokens", (_name, t) => {
   test("declares every role", () => {
-    for (const role of [...BACKGROUNDS, ...TEXT, ...UI, "line", "signal-ink"]) {
+    for (const role of [...BACKGROUNDS, ...TEXT, ...UI, "line", "signal-ink", "selection", "selection-ink"]) {
       expect(t[role], role).toMatch(/^#/);
     }
   });
@@ -49,6 +49,15 @@ describe.each(Object.entries(themes))("%s theme tokens", (_name, t) => {
 
   test("text on the signal accent passes 4.5:1", () => {
     expect(contrastRatio(t["signal-ink"], t.signal)).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+
+  // ::selection and highlighted list rows (globals.css, ds/select, ui/select).
+  test("selected text passes 4.5:1 on the selection highlight", () => {
+    expect(contrastRatio(t["selection-ink"], t.selection)).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+
+  test.each(BACKGROUNDS)("the selection highlight stands out 3:1 from %s", (bg) => {
+    expect(contrastRatio(t.selection, t[bg])).toBeGreaterThanOrEqual(AA_LARGE_OR_UI);
   });
 });
 
