@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { formatCurrency, getErrorMessage, getCaptainPlayerIds } from '@/lib/utils';
 import { TournamentSettingsModal } from '@/components/tournament/TournamentSettingsModal';
 import { TeamRequestForm } from '@/components/teams/TeamRequestForm';
+import { MyTeamCard } from '@/components/teams/MyTeamCard';
 import { ExportResultsButton } from '@/components/results/ExportResultsButton';
 import { ShareResultsButton } from '@/components/results/ShareResultsButton';
 import { PlanCard } from '@/components/plans/PlanCard';
@@ -494,6 +495,9 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             <PlanCard tournamentId={tournamentId} tournamentName={tournament.name} canUpgrade={canManage} isSuperAdmin={isSuperAdmin} />
           </div>
         )}
+
+        {/* A team owner's own team: editable until the auction starts */}
+        {me && !canManage && <MyTeamCard tournamentId={tournamentId} />}
 
         {/* Automatic snapshots; owners can rewind to one */}
         {canManage && (

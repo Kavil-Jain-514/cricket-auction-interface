@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Doc, Id } from '@/convex/_generated/dataModel';
-import { Pencil } from 'lucide-react';
+import { Lock, Pencil } from 'lucide-react';
 import { FormModal, FormTabs } from '@/components/ui/form-modal';
 import { toast } from 'sonner';
 import { getErrorMessage } from '@/lib/utils';
@@ -20,12 +20,20 @@ interface TeamEditFormProps {
   team: Doc<"teams">;
   onClose: () => void;
   onSuccess: () => void;
+  /** The team's own owner: details only, no captain (teams:update enforces it). */
+  asTeamOwner?: boolean;
+  /**
+   * The auction has started, so an owner can't save. Arrives live from
+   * teams:getMine; the form stays open with the owner's unsaved input.
+   */
+  locked?: boolean;
 }
 
-export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
+export function TeamEditForm({ team, onClose, onSuccess, asTeamOwner = false, locked = false }: TeamEditFormProps) {
   const updateTeam = useMutation(api.teams.update);
-  const players = useQuery(api.players.listByTournament, { tournamentId: team.tournamentId });
-  const teams = useQuery(api.teams.listByTournament, { tournamentId: team.tournamentId });
+  // Owners never see the captain tab, so they skip its player list.
+  const players = useQuery(api.players.listByTournament, asTeamOwner ? 'skip' : { tournamentId: team.tournamentId });
+  const teams = useQuery(api.teams.listByTournament, asTeamOwner ? 'skip' : { tournamentId: team.tournamentId });
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<'team' | 'captain'>('team');
 
@@ -57,6 +65,7 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (locked) return;
     const firstError = Object.values(errors)[0];
     if (firstError) {
       setTab('team');
@@ -74,17 +83,19 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
         logoUrl: details.logoUrl || undefined,
         colorPrimary: details.colorPrimary,
         colorSecondary: details.colorSecondary,
-        // null clears a previously linked captain; undefined leaves it unchanged
-        captainPlayerId: captain.captainPlayerId
-          ? (captain.captainPlayerId as Id<"players">)
-          : team.captainPlayerId
-            ? null
-            : undefined,
-        captainName: captain.captainName || undefined,
-        captainPhotoUrl: captain.captainPhotoUrl || undefined,
-        captainAge: captain.captainAge,
-        captainRole: captain.captainRole || undefined,
-        captainHand: captain.captainHand || undefined,
+        ...(asTeamOwner ? {} : {
+          // null clears a previously linked captain; undefined leaves it unchanged
+          captainPlayerId: captain.captainPlayerId
+            ? (captain.captainPlayerId as Id<"players">)
+            : team.captainPlayerId
+              ? null
+              : undefined,
+          captainName: captain.captainName || undefined,
+          captainPhotoUrl: captain.captainPhotoUrl || undefined,
+          captainAge: captain.captainAge,
+          captainRole: captain.captainRole || undefined,
+          captainHand: captain.captainHand || undefined,
+        }),
       });
 
       toast.success('Team updated successfully!');
@@ -109,7 +120,8 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
       submitLabel="Update Team"
       loadingLabel="Updating…"
       loading={loading}
-      nav={
+      submitDisabled={locked}
+      nav={asTeamOwner ? undefined : (
         <FormTabs
           value={tab}
           onChange={setTab}
@@ -118,10 +130,18 @@ export function TeamEditForm({ team, onClose, onSuccess }: TeamEditFormProps) {
             { key: 'captain', label: 'Captain' },
           ]}
         />
-      }
+      )}
     >
-      {tab === 'team' ? (
-        <TeamDetailsFields values={details} errors={errors} onChange={(patch) => setDetails((prev) => ({ ...prev, ...patch }))} />
+      {locked && (
+        <p role="status" className="mb-4 flex items-start gap-2 rounded-lg border border-amber-600/40 bg-amber-600/10 px-3 py-2.5 text-sm text-amber-200">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          The auction has started, so team details are locked and this can&apos;t be saved. Your changes are still shown here; ask the organiser if something needs to change.
+        </p>
+      )}
+      {tab === 'team' || asTeamOwner ? (
+        <fieldset disabled={locked} className="min-w-0 disabled:opacity-60">
+          <TeamDetailsFields values={details} errors={errors} onChange={(patch) => setDetails((prev) => ({ ...prev, ...patch }))} />
+        </fieldset>
       ) : (
         <CaptainFields
           values={captain}
