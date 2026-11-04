@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import {
+  getCurrentUser,
+  getTournamentRole,
   isTournamentStaff,
   logAdminAction,
   OWNER_ONLY,
@@ -8,10 +10,37 @@ import {
 } from "./auth";
 import { assertTeamCapacity } from "./plans";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
-import { deleteTeamMembershipData } from "./members";
+import { auctionHasStarted } from "./auctionLifecycle";
+import { deleteTeamMembershipData, findOwnerMembership } from "./members";
 import { Doc, Id } from "./_generated/dataModel";
 import { toPublicPlayer } from "./projections";
-import { validateOwnerName, validateTeamName } from "./validation";
+import { validateOwnerName, validateTeamColours, validateTeamName } from "./validation";
+
+export const TEAM_LOCKED_MESSAGE =
+  "Team details are locked because the auction has started. Ask the organiser if something needs to change.";
+
+/** Captain fields on teams:update. The captain is the organiser's call. */
+const CAPTAIN_ARGS = ["captainPlayerId", "captainName", "captainPhotoUrl", "captainAge", "captainRole", "captainHand"] as const;
+
+/**
+ * Who may edit this team: the tournament's owner or a super-admin (any
+ * field, any time before completion), or the team's own owner member (its
+ * details, until the auction starts). Anyone else gets requireTournamentRole's
+ * refusal.
+ */
+async function requireTeamEditor(
+  ctx: MutationCtx,
+  team: Doc<"teams">,
+): Promise<{ user: Doc<"users">; isTeamOwner: boolean }> {
+  const user = await getCurrentUser(ctx);
+  if (user) {
+    const role = await getTournamentRole(ctx, team.tournamentId, user);
+    if (role === "owner" || role === "super_admin") return { user, isTeamOwner: false };
+    const membership = await findOwnerMembership(ctx, user._id, team.tournamentId);
+    if (membership?.teamId === team._id) return { user, isTeamOwner: true };
+  }
+  return { user: await requireTournamentRole(ctx, team.tournamentId, OWNER_ONLY), isTeamOwner: false };
+}
 
 /**
  * Denormalize captain display fields from a player doc so existing UI and
@@ -200,6 +229,24 @@ export const listByTournament = query({
   },
 });
 
+/**
+ * The caller's own team in this tournament (they are its owner member) and
+ * whether its details are locked, or null. Per-viewer: only team owners'
+ * dashboards subscribe, never the shared auction screens.
+ */
+export const getMine = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return null;
+    const membership = await findOwnerMembership(ctx, user._id, args.tournamentId);
+    if (!membership) return null;
+    const team = await ctx.db.get(membership.teamId);
+    if (!team) return null;
+    return { team, editLocked: await auctionHasStarted(ctx, args.tournamentId) };
+  },
+});
+
 export const getWithPlayers = query({
   args: { id: v.id("teams") },
   handler: async (ctx, args) => {
@@ -251,7 +298,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const team = await ctx.db.get(args.id);
     if (!team) throw new Error("Team not found");
-    const admin = await requireTournamentRole(ctx, team.tournamentId, OWNER_ONLY);
+    const { user: admin, isTeamOwner } = await requireTeamEditor(ctx, team);
 
     // Check if tournament exists
     const tournament = await ctx.db.get(team.tournamentId);
@@ -260,6 +307,24 @@ export const update = mutation({
     // Cannot edit completed tournament teams
     if (tournament.status === "completed") {
       throw new Error("Cannot edit team after tournament is completed");
+    }
+
+    if (isTeamOwner) {
+      if (CAPTAIN_ARGS.some((key) => args[key] !== undefined)) {
+        throw new Error("Only the organiser can change the captain");
+      }
+      // Read in this transaction: a save racing auctions:startAuction
+      // conflicts with it, is retried, and is then refused here.
+      if (await auctionHasStarted(ctx, team.tournamentId)) throw new Error(TEAM_LOCKED_MESSAGE);
+      // The checks teamRequests:submit applies to what owners send.
+      const ownerError = validateTeamColours(
+        args.colorPrimary ?? team.colorPrimary,
+        args.colorSecondary ?? team.colorSecondary,
+      );
+      if (ownerError) throw new Error(ownerError);
+      if (args.logoUrl && !args.logoUrl.startsWith("https://")) {
+        throw new Error("Upload the logo with the form's upload button");
+      }
     }
 
     const fieldError =

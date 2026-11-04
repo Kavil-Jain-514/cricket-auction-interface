@@ -386,6 +386,97 @@ export const listUsers = query({
   },
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PEOPLE DIRECTORY (super-admin)
+// ═══════════════════════════════════════════════════════════════════════════
+// Who organises a tournament and who owns, asked for, or was invited to own
+// its teams. Names and emails are personal data: super-admin only
+// (requireAdmin), read with indexed per-tournament queries, never logged.
+
+export type TeamOwnerStatus = "joined" | "requested" | "invited";
+
+export type TournamentPeople = {
+  organisers: Array<{ userId: Id<"users">; name?: string; email: string; role: Doc<"tournamentStaff">["role"] }>;
+  teamOwners: Array<{ key: string; name?: string; email: string; teamName?: string; status: TeamOwnerStatus }>;
+};
+
+const emailKey = (email: string) => email.trim().toLowerCase();
+
+/**
+ * Organisers (owners first, then auctioneers), then team owners: joined,
+ * awaiting the organiser's approval, and invited but not yet joined (open
+ * team links and "add your team" emails, once per address).
+ */
+export const tournamentPeople = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, { tournamentId }): Promise<TournamentPeople> => {
+    await requireAdmin(ctx);
+
+    const [staff, teams, members, invites, emails, requests] = await Promise.all([
+      ctx.db.query("tournamentStaff").withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId)).collect(),
+      ctx.db.query("teams").withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId)).collect(),
+      ctx.db.query("teamMembers").withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId)).collect(),
+      ctx.db.query("teamInvites").withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId)).collect(),
+      ctx.db.query("emails").withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId)).collect(),
+      ctx.db.query("teamRequests").withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId)).collect(),
+    ]);
+    const owners = members.filter((m) => m.role === "owner");
+    const pendingRequests = requests.filter((r) => r.status === "pending");
+
+    const userIds = [...new Set([...staff, ...owners, ...pendingRequests].map((row) => row.userId))];
+    const users = new Map<Id<"users">, Doc<"users">>();
+    for (const user of await Promise.all(userIds.map((id) => ctx.db.get(id)))) {
+      if (user) users.set(user._id, user);
+    }
+    const teamNames = new Map(teams.map((t) => [t._id, t.name]));
+
+    const organisers = [...staff]
+      .sort((a, b) => Number(a.role === "auctioneer") - Number(b.role === "auctioneer"))
+      .map((row) => ({
+        userId: row.userId,
+        name: users.get(row.userId)?.name,
+        email: users.get(row.userId)?.email ?? "(deleted user)",
+        role: row.role,
+      }));
+
+    const teamOwners: TournamentPeople["teamOwners"] = [
+      ...owners.map((m) => ({
+        key: m._id,
+        name: users.get(m.userId)?.name,
+        email: users.get(m.userId)?.email ?? "(deleted user)",
+        teamName: teamNames.get(m.teamId),
+        status: "joined" as const,
+      })),
+      ...pendingRequests.map((r) => ({
+        key: r._id,
+        name: users.get(r.userId)?.name,
+        email: users.get(r.userId)?.email ?? "(deleted user)",
+        teamName: r.name,
+        status: "requested" as const,
+      })),
+    ];
+
+    // Invited and not joined yet: each address once, and never someone listed above.
+    const listed = new Set(teamOwners.map((p) => emailKey(p.email)));
+    const now = Date.now();
+    const invited = [
+      ...invites
+        .filter((inv) => inv.email && inv.usedBy === undefined && inv.revokedAt === undefined && inv.expiresAt > now)
+        .map((inv) => ({ key: inv._id as string, email: inv.email!, teamName: teamNames.get(inv.teamId) })),
+      ...emails
+        .filter((e) => e.kind === "team_signup_invite")
+        .map((e) => ({ key: e._id as string, email: e.to, teamName: undefined })),
+    ];
+    for (const inv of invited) {
+      if (listed.has(emailKey(inv.email))) continue;
+      listed.add(emailKey(inv.email));
+      teamOwners.push({ ...inv, status: "invited" });
+    }
+
+    return { organisers, teamOwners };
+  },
+});
+
 /** The super-admin sets someone's intent (e.g. makes a viewer an organiser). */
 export const setUserIntent = mutation({
   args: { userId: v.id("users"), accountType: intentValidator },

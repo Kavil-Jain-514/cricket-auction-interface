@@ -516,7 +516,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_user", ["userId"])
-    .index("by_team", ["teamId"]),
+    .index("by_team", ["teamId"])
+    .index("by_tournament", ["tournamentId"]),
 
   // One-time owner invite links. Only the SHA-256 of the token is stored.
   teamInvites: defineTable({
@@ -532,7 +533,8 @@ export default defineSchema({
     email: v.optional(v.string()),
   })
     .index("by_tokenHash", ["tokenHash"])
-    .index("by_team", ["teamId"]),
+    .index("by_team", ["teamId"])
+    .index("by_tournament", ["tournamentId"]),
 
   // Owner raises waiting for the auctioneer (bidMode "confirm"). At most one
   // "pending" request per team and player; a newer raise supersedes the older.

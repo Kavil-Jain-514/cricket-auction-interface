@@ -29,7 +29,8 @@ npx tsc --noEmit     # typecheck
   `requireTournamentRole(ctx, tournamentId, RUN_AUCTION | OWNER_ONLY)` (`convex/auth.ts`), after loading
   the doc that names the tournament and before any other validation. `users.role "admin"` is the platform
   super-admin and passes every check; `requireAdmin` is only for global functions (`setUserRole`,
-  `setUserIntent`, `setUserActive`, `getAllUsers`, `listUsers`, `listAuditLogs`). A new public mutation must
+  `setUserIntent`, `setUserActive`, `getAllUsers`, `listUsers`, `listAuditLogs`, and `tournamentPeople`,
+  the super-admin People directory). A new public mutation must
   be added to the table in `convex/organiserIsolation.test.ts`.
 - **Account-level rules live in `convex/policy.ts`.** What someone may do because of how they signed up
   (`users.accountType`: organiser, team owner, viewer) is a function there (`canCreateTournament`,
