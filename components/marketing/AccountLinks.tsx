@@ -10,6 +10,7 @@ import { useSyncExternalStore } from "react";
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ds/button";
+import { cn } from "@/lib/utils";
 
 function hasClerkSession(): boolean {
   return document.cookie.split("; ").some((pair) => {
@@ -28,14 +29,16 @@ function useHasSession(): boolean {
 export function AccountButtons() {
   if (useHasSession()) {
     return (
-      <Link href="/dashboard" className={buttonVariants({ className: "px-4 sm:px-5" })}>
-        Go to dashboard
+      <Link href="/dashboard" className={cn(buttonVariants(), "px-3 text-sm sm:px-5 sm:text-base")}>
+        <span className="sm:hidden">Dashboard</span>
+        <span className="hidden sm:inline">Go to dashboard</span>
       </Link>
     );
   }
   return (
     <>
-      <Link href="/sign-in" className={buttonVariants({ variant: "ghost", className: "hidden sm:inline-flex" })}>
+      {/* cn, not cva's className: the base inline-flex must not beat hidden */}
+      <Link href="/sign-in" className={cn(buttonVariants({ variant: "ghost" }), "hidden sm:inline-flex")}>
         Log in
       </Link>
       <Link href="/sign-up" className={buttonVariants({ className: "px-4 sm:px-5" })}>
