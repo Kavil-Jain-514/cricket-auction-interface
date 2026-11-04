@@ -24,6 +24,9 @@
   --fl-unsold: #f87171;
   --fl-timer: #fbbf24;
   --fl-focus: #67e8f9;
+  /* Selected text and highlighted list rows: the app's blue, light text. */
+  --fl-selection: #2563eb;
+  --fl-selection-ink: #ffffff;
   --fl-glass: rgb(14 21 36 / 0.72);
   --fl-glow: rgb(34 211 238 / 0.35);
 }
@@ -42,6 +45,8 @@
   --fl-unsold: #b91c1c;
   --fl-timer: #a14a07;
   --fl-focus: #0e7490;
+  --fl-selection: #1d4ed8;
+  --fl-selection-ink: #ffffff;
   --fl-glass: rgb(255 255 255 / 0.78);
   --fl-glow: rgb(14 116 144 / 0.25);
 }
@@ -78,6 +83,8 @@
   --color-unsold: var(--fl-unsold);
   --color-timer: var(--fl-timer);
   --color-focus: var(--fl-focus);
+  --color-selection: var(--fl-selection);
+  --color-selection-ink: var(--fl-selection-ink);
   --color-glass: var(--fl-glass);
 
   --font-head: var(--font-head-face), "Arial Narrow", sans-serif;
@@ -237,11 +244,86 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Dark controls everywhere: native selects and their popups, date and
+     number pickers, scrollbars and the autofill palette follow the theme. */
+  :root {
+    color-scheme: dark;
+    scrollbar-color: var(--fl-line-strong) transparent;
+  }
+  /* Light islands: the Floodlight light theme, and Clerk's sign-in and
+     account cards (styled light in app/providers.tsx). */
+  [data-theme="light"],
+  .cl-rootBox,
+  .cl-userButtonPopoverCard,
+  .cl-modalContent {
+    color-scheme: light;
+    --fl-focus: #0e7490;
+  }
+
+  /* Selected text, in every input, textarea, table and card. */
+  ::selection {
+    background-color: var(--fl-selection);
+    color: var(--fl-selection-ink);
+  }
+
+  input,
+  textarea,
+  [contenteditable] {
+    caret-color: var(--fl-focus);
+  }
+  ::placeholder {
+    color: var(--fl-ink-muted);
+    opacity: 1;
+  }
+
+  /* Native option lists (multi-row selects; popups follow color-scheme). */
+  option,
+  optgroup {
+    background-color: var(--fl-raised);
+    color: var(--fl-ink);
+  }
+  option:checked {
+    background-color: var(--fl-selection);
+    color: var(--fl-selection-ink);
+  }
+
+  ::file-selector-button {
+    margin-inline-end: 0.75rem;
+    border: 1px solid var(--fl-line-strong);
+    border-radius: var(--radius-control);
+    background-color: var(--fl-raised);
+    padding: 0.375rem 0.75rem;
+    color: var(--fl-ink);
+    font: inherit;
+    font-size: 0.875rem;
+    cursor: pointer;
+  }
+
+  /* Browser autofill forces its own field and text colours. Keep the field's
+     own background and text colour (the long transitions never finish) and
+     drop Firefox's tint filter. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: currentColor;
+    transition: background-color 600000s 0s, color 600000s 0s;
+  }
+  input:autofill,
+  textarea:autofill,
+  select:autofill {
+    filter: none;
+  }
+
   /* Broadcast overlay: see-through from the first paint in OBS / vMix
-     (BroadcastOverlay also clears it at runtime for browsers without :has). */
+     (BroadcastOverlay also clears it at runtime for browsers without :has).
+     A dark color-scheme would paint the canvas dark behind it. */
   html:has([data-broadcast-overlay]),
   html:has([data-broadcast-overlay]) body {
     background: transparent;
+    color-scheme: normal;
   }
 }
 
