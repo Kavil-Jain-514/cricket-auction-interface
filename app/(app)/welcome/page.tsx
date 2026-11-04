@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/convex/_generated/api';
 import { AccountTypePrompt } from '@/components/onboarding/AccountTypePrompt';
 import { safeNextPath } from '@/lib/navigation';
+import { BackToHomeLink } from '@/components/layout/BackToHomeLink';
 
 /**
  * The signup-intent step. Email and social sign-ups both land on the
@@ -24,6 +25,7 @@ function Welcome() {
 
   return (
     <main className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950">
+      <BackToHomeLink className="m-4" />
       {me && !done && <AccountTypePrompt onChosen={() => router.replace(next)} />}
     </main>
   );
