@@ -317,6 +317,13 @@
     filter: none;
   }
 
+  /* Marketing header: account links for the visitor's session (see
+     MarketingHeader's SESSION_SCRIPT, which sets data-session). */
+  header[data-session] [data-signed-out],
+  header:not([data-session]) [data-signed-in] {
+    display: none !important;
+  }
+
   /* Broadcast overlay: see-through from the first paint in OBS / vMix
      (BroadcastOverlay also clears it at runtime for browsers without :has).
      A dark color-scheme would paint the canvas dark behind it. */
