@@ -1025,8 +1025,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <Button
                     onClick={async () => {
                       try {
-                        await pauseAuction({ auctionRoomId });
-                        toast.info('Auction paused');
+                        const res = await pauseAuction({ auctionRoomId });
+                        if (res.success) toast.info('Auction paused');
+                        else toast.error(res.reason);
                       } catch {
                         toast.error('Failed to pause auction');
                       }

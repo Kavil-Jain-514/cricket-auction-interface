@@ -397,3 +397,43 @@ describe("other console actions — expected state (P0-2, P1-1)", () => {
     expect(inAuction).toHaveLength(1);
   });
 });
+
+describe("pauseAuction — only a live auction can be paused (AUDIT 2026-11 DATA-003)", () => {
+  for (const status of ["waiting", "completed"] as const) {
+    test(`a ${status} room is refused and stays ${status}`, async () => {
+      const t = convexTest(schema, modules);
+      const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+      const ids = await setup(t);
+      await t.run((ctx) => ctx.db.patch(ids.roomId, { status }));
+
+      const res = await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: ids.roomId });
+
+      expect(res).toEqual({ success: false, reason: "Auction is not live" });
+      const room = await t.run((ctx) => ctx.db.get(ids.roomId));
+      expect(room?.status).toBe(status);
+    });
+  }
+
+  test("a completed auction can't be brought back to live through pause and resume", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const ids = await setup(t);
+    await t.run((ctx) => ctx.db.patch(ids.roomId, { status: "completed" }));
+
+    await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: ids.roomId });
+    await expect(
+      asAdmin.mutation(api.auctions.resumeAuction, { auctionRoomId: ids.roomId }),
+    ).rejects.toThrow("Auction is not paused");
+    expect((await t.run((ctx) => ctx.db.get(ids.roomId)))?.status).toBe("completed");
+  });
+
+  test("pausing a live auction still works, and a second pause is a no-op", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const ids = await setup(t);
+
+    expect(await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: ids.roomId })).toMatchObject({ success: true });
+    expect(await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: ids.roomId })).toEqual({ success: true, alreadyPaused: true });
+    expect((await t.run((ctx) => ctx.db.get(ids.roomId)))?.status).toBe("paused");
+  });
+});

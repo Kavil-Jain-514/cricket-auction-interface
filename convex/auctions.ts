@@ -154,6 +154,11 @@ export const pauseAuction = mutation({
     if (auctionRoom.status === "paused") {
       return { success: true, alreadyPaused: true };
     }
+    // Only live -> paused. Pausing a waiting or completed room would let
+    // resumeAuction put it live (a finished auction back on air).
+    if (auctionRoom.status !== "live") {
+      return { success: false, reason: "Auction is not live" };
+    }
 
     let remainingTime = 0;
     if (auctionRoom.bidTimerEndsAt) {
