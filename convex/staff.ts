@@ -4,7 +4,12 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { getCurrentUser, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
-import { enqueueEmail } from "./emails";
+import { consumeInviteEmailQuota, enqueueEmail } from "./emails";
+import { consumeRateLimit } from "./rateLimit";
+
+// Address lookups per owner per hour: plenty for staffing a tournament, too
+// few to probe which addresses have accounts (AUDIT 2026-11 SEC-005).
+const STAFF_LOOKUP_LIMIT = { limit: 60, windowMs: 60 * 60 * 1000 };
 
 const staffRole = v.union(v.literal("owner"), v.literal("auctioneer"));
 
@@ -43,12 +48,16 @@ export const add = mutation({
   handler: async (ctx, args) => {
     const owner = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
     const email = args.email.trim().toLowerCase();
+    if (!(await consumeRateLimit(ctx, `staff-lookup:${owner._id}`, STAFF_LOOKUP_LIMIT))) {
+      throw new Error("Too many staff changes in the last hour. Try again later.");
+    }
     const user = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", email))
       .first();
     if (!user) {
-      throw new Error(`No account for ${email}. Ask them to sign in to Bid11Pro once, then add them.`);
+      // Neutral on purpose: the message mustn't confirm which addresses have accounts.
+      throw new Error("We couldn't add that address. Ask them to sign in to Bid11Pro once, then try again.");
     }
     const existing = await ctx.db
       .query("tournamentStaff")
@@ -62,7 +71,10 @@ export const add = mutation({
       role: args.role,
       createdAt: Date.now(),
     });
-    // Let them know (queued; an email problem never undoes this).
+    // Let them know (queued; an email problem never undoes this). Counts
+    // against the same hourly cap as the other invite emails, so an
+    // add/remove loop can't be used to mail someone repeatedly.
+    await consumeInviteEmailQuota(ctx, owner._id);
     const tournament = await ctx.db.get(args.tournamentId);
     await enqueueEmail(ctx, {
       kind: "staff_added",

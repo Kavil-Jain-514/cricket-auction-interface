@@ -109,9 +109,21 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
     if (!(await confirm({ title: `Approve all ${readyCount} ready registrations?`, description: 'Each becomes a pending player. Duplicates and plan limits are still checked.', confirmText: 'Approve all' }))) return;
     setBusy('bulk');
     try {
-      const res = await bulkApprove({ tournamentId });
-      toast.success(`${res.approved} approved`);
-      for (const f of res.failed) toast.error(`${f.name}: ${f.reason}`);
+      // The server approves in batches; keep going from where the last one
+      // stopped until nothing is left.
+      let approved = 0;
+      const failed: Array<{ name: string; reason: string }> = [];
+      let after: number | undefined;
+      for (;;) {
+        const res = await bulkApprove({ tournamentId, after });
+        approved += res.approved;
+        failed.push(...res.failed);
+        if (res.remaining === 0) break;
+        after = res.after;
+      }
+      toast.success(`${approved} approved`);
+      for (const f of failed.slice(0, 5)) toast.error(`${f.name}: ${f.reason}`);
+      if (failed.length > 5) toast.error(`…and ${failed.length - 5} more couldn't be approved`);
     } catch (error) {
       toast.error(getErrorMessage(error, 'Bulk approve failed'));
     } finally {

@@ -39,7 +39,6 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const [showTeamRequest, setShowTeamRequest] = useState(false);
   const teams = useQuery(api.teams.listByTournament, { tournamentId });
   const players = useQuery(api.players.listByTournament, { tournamentId });
-  const canModify = useQuery(api.tournaments.canModify, { id: tournamentId });
   const deleteTournament = useMutation(api.tournaments.deleteTournament);
   const restartAuction = useMutation(api.auctions.restartAuction);
   const setTournamentActive = useMutation(api.tournaments.setActive);
@@ -317,7 +316,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
               )}
 
               {/* Admin-only controls */}
-              {canManage && canModify?.canEdit && (
+              {canManage && tournament.status !== 'completed' && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -356,7 +355,7 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 </Button>
               )}
 
-              {canManage && canModify?.canDelete && (
+              {canManage && (
                 <Button
                   variant="outline"
                   size="sm"

@@ -7,6 +7,15 @@ import { UPLOAD_FOLDERS } from "@/lib/cloudinary";
 import { checkUploadedImage } from "@/lib/imageSniff";
 import { canUploadToFolder } from "@/convex/policy";
 
+/**
+ * Largest image accepted. Vercel functions refuse request bodies above about
+ * 4.5 MB before our code runs, so a 5 MB limit here could never be reached
+ * (AUDIT 2026-11 REL-006). Matches the client check in image-upload.tsx.
+ */
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+/** Multipart framing around the file. */
+const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
+
 // Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
@@ -28,17 +37,7 @@ function sanitizeFolder(folder: string): string {
  * Clerk session alone is not enough: we exchange it for a Convex token and
  * ask the backend. Returns an error response, or null when allowed.
  */
-async function requireUploader(folderKey: string): Promise<NextResponse | null> {
-  const { userId, getToken } = await auth();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const token = await getToken({ template: "convex" });
-  if (!token) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
-  convex.setAuth(token);
+async function requireUploader(convex: ConvexHttpClient, folderKey: string): Promise<NextResponse | null> {
   const me = await convex.query(api.auth.me, {});
   if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const mine = me.isAdmin ? [] : await convex.query(api.tournaments.listMine, {});
@@ -68,24 +67,38 @@ function folderKeyOf(folder: string): string {
 
 export async function POST(request: NextRequest) {
   try {
+    // Who, and how big, before reading the body (AUDIT 2026-11 SEC-009).
+    const { userId, getToken } = await auth();
+    const token = userId ? await getToken({ template: "convex" }) : null;
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const declaredLength = Number(request.headers.get("content-length") ?? "0");
+    if (declaredLength > MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES) {
+      return NextResponse.json({ error: "File too large. Maximum size is 4 MB" }, { status: 413 });
+    }
+    const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+    convex.setAuth(token);
+    if (!(await convex.mutation(api.ops.consumeRouteQuota, { route: "upload" }))) {
+      return NextResponse.json({ error: "Too many uploads in the last hour. Try again later." }, { status: 429 });
+    }
+
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const rawFolder = (formData.get("folder") as string) || "general";
 
     const folder = sanitizeFolder(rawFolder);
-    const denied = await requireUploader(folderKeyOf(folder));
+    const denied = await requireUploader(convex, folderKeyOf(folder));
     if (denied) return denied;
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    // Validate file size (max 5MB)
-    const maxSize = 5 * 1024 * 1024;
-    if (file.size > maxSize) {
+    if (file.size > MAX_UPLOAD_BYTES) {
       return NextResponse.json(
-        { error: "File too large. Maximum size is 5MB" },
-        { status: 400 },
+        { error: "File too large. Maximum size is 4 MB" },
+        { status: 413 },
       );
     }
 

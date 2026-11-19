@@ -19,6 +19,7 @@ import {
   reserveBasePrice,
 } from "./bidRules";
 import { maxRuleViolation, minRuleShortfall, minRuleSlots } from "./squadRules";
+import { inChunks } from "./batch";
 
 export type BidSource = "admin" | "owner";
 
@@ -85,6 +86,19 @@ export function staleStateReason(
     }
   }
   return null;
+}
+
+/**
+ * Delete every live bid on a player (the bids of whoever is on the block).
+ * Returns how many there were, for event data and audit rows.
+ */
+export async function deleteLiveBidsFor(ctx: MutationCtx, playerId: Id<"players">): Promise<number> {
+  const bids = await ctx.db
+    .query("liveBids")
+    .withIndex("by_player", (q) => q.eq("playerId", playerId))
+    .collect();
+  await inChunks(bids.map((bid) => () => ctx.db.delete(bid._id)));
+  return bids.length;
 }
 
 /** Pending owner raises for a player, newest first. */

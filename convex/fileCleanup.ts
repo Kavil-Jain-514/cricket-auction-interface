@@ -27,6 +27,7 @@ import {
 } from "./_generated/server";
 import { getCurrentUser } from "./auth";
 import { isSuperAdmin } from "./policy";
+import { cloudinaryPublicId, ourCloudName, ROOT_FOLDER } from "./uploads";
 
 export const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const BATCH_SIZE = 100; // Cloudinary's limit per delete call
@@ -37,7 +38,8 @@ const STUCK_DELETING_MS = 15 * 60 * 1000;
 // A file uploaded in the last day may belong to a form someone is still
 // filling in, so the orphan tools never touch it.
 const ORPHAN_MIN_AGE_MS = 24 * 60 * 60 * 1000;
-const ROOT_FOLDER = "cricket-auction/";
+// A timed-out delete throws, so its files go back to "pending" with backoff (REL-002).
+const CLOUDINARY_TIMEOUT_MS = 30_000;
 
 const CLOUDINARY_URL = /https:\/\/res\.cloudinary\.com\/[^\s"'\\]+/g;
 
@@ -45,20 +47,8 @@ const CLOUDINARY_URL = /https:\/\/res\.cloudinary\.com\/[^\s"'\\]+/g;
 const REFERENCING_TABLES = ["tournaments", "teams", "players", "registrations", "teamRequests", "snapshotChunks"] as const;
 type ReferencingTable = (typeof REFERENCING_TABLES)[number];
 
-/**
- * The Cloudinary public id of one of our stored images, or null for anything
- * else (another cloud or host, outside our folder, not an image upload).
- * Transformations and the version segment are dropped, as is the extension.
- */
-export function cloudinaryPublicId(url: string, cloudName: string): string | null {
-  const prefix = `https://res.cloudinary.com/${cloudName}/image/upload/`;
-  if (!url.startsWith(prefix)) return null;
-  const parts = url.slice(prefix.length).split(/[?#]/)[0].split("/");
-  while (parts.length > 1 && (parts[0].includes(",") || /^[a-z]{1,2}_/.test(parts[0]))) parts.shift();
-  if (parts.length > 1 && /^v\d+$/.test(parts[0])) parts.shift();
-  const id = decodeURIComponent(parts.join("/")).replace(/\.[a-z0-9]+$/i, "");
-  return id.startsWith(ROOT_FOLDER) ? id : null;
-}
+// One definition of "our stored image", shared with the write-side checks.
+export { cloudinaryPublicId };
 
 /** Every Cloudinary URL in a document, whatever field it sits in. */
 function urlsIn(doc: unknown): string[] {
@@ -224,7 +214,7 @@ export const recordResults = internalMutation({
 });
 
 function cloudinaryConfig() {
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME ?? process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+  const cloudName = ourCloudName();
   const apiKey = process.env.CLOUDINARY_API_KEY;
   const apiSecret = process.env.CLOUDINARY_API_SECRET;
   return cloudName && apiKey && apiSecret ? { cloudName, auth: `Basic ${btoa(`${apiKey}:${apiSecret}`)}` } : null;
@@ -243,6 +233,7 @@ async function deleteFromCloudinary(
   const res = await fetch(`https://api.cloudinary.com/v1_1/${config.cloudName}/resources/image/upload?${params}`, {
     method: "DELETE",
     headers: { Authorization: config.auth },
+    signal: AbortSignal.timeout(CLOUDINARY_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Cloudinary ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const body = (await res.json()) as { deleted?: Record<string, string> };
@@ -326,6 +317,7 @@ async function listStoredImages(config: { cloudName: string; auth: string }): Pr
     if (cursor) params.set("next_cursor", cursor);
     const res = await fetch(`https://api.cloudinary.com/v1_1/${config.cloudName}/resources/image?${params}`, {
       headers: { Authorization: config.auth },
+      signal: AbortSignal.timeout(CLOUDINARY_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`Cloudinary ${res.status}: ${(await res.text()).slice(0, 200)}`);
     const body = (await res.json()) as { resources: CloudinaryResource[]; next_cursor?: string };

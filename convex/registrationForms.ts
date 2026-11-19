@@ -77,12 +77,10 @@ export const answersForPlayer = query({
     if (!player) return null;
     const access = await getTournamentRole(ctx, player.tournamentId);
     if (access !== "owner" && access !== "super_admin") return null;
-    const registration = (
-      await ctx.db
-        .query("registrations")
-        .withIndex("by_tournament", (q) => q.eq("tournamentId", player.tournamentId))
-        .collect()
-    ).find((r) => r.playerId === args.playerId);
+    const registration = await ctx.db
+      .query("registrations")
+      .withIndex("by_player", (q) => q.eq("playerId", args.playerId))
+      .first();
     if (!registration?.answers) return [];
     const { labels } = await questionLabels(ctx, player.tournamentId);
     return registration.answers.values.map((a) => ({

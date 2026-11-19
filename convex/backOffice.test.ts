@@ -185,6 +185,18 @@ describe("listAuditLogs — paginated and filtered", () => {
 });
 
 describe("purse tools", () => {
+  test("adjustTeamPurse refuses amounts beyond the largest allowed purse (DATA-005)", async () => {
+    const t = convexTest(schema, modules);
+    const { teamId } = await setup(t);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    await expect(
+      asAdmin.mutation(api.admin.adjustTeamPurse, { teamId, amount: 1_000_000_000_000, reason: "typo" }),
+    ).rejects.toThrow(/at most/);
+    await expect(
+      asAdmin.mutation(api.admin.adjustTeamPurse, { teamId, amount: 1_000_000_001, reason: "typo" }),
+    ).rejects.toThrow(/at most/);
+  });
+
   test("adjustTeamPurse moves remaining and the ledger; reconciliation stays ok", async () => {
     const t = convexTest(schema, modules);
     const { tournamentId, teamId } = await setup(t);

@@ -7,6 +7,9 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
+/** Give up on Razorpay rather than hold the request open (AUDIT 2026-11 REL-002). */
+const RAZORPAY_TIMEOUT_MS = 15_000;
+
 export async function POST(request: NextRequest) {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -40,9 +43,13 @@ export async function POST(request: NextRequest) {
       receipt: `reg_${registrationId.slice(-30)}`.slice(0, 40),
       notes: { registrationId, tournamentId: info.tournamentId, purpose: `Registration · ${info.tournamentName}` },
     }),
+    signal: AbortSignal.timeout(RAZORPAY_TIMEOUT_MS),
+  }).catch((error: unknown) => {
+    console.error("Razorpay order request failed", error);
+    return null;
   });
-  if (!razorpay.ok) {
-    console.error("Razorpay order failed", razorpay.status, await razorpay.text());
+  if (!razorpay?.ok) {
+    if (razorpay) console.error("Razorpay order failed", razorpay.status, await razorpay.text());
     return NextResponse.json({ error: "Couldn't start the payment. Try again." }, { status: 502 });
   }
   const order = (await razorpay.json()) as { id: string; amount: number; currency: string };

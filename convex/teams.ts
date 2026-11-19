@@ -3,6 +3,7 @@ import { mutation, query, type MutationCtx } from "./_generated/server";
 import {
   getCurrentUser,
   getTournamentRole,
+  isHiddenFrom,
   isTournamentStaff,
   logAdminAction,
   OWNER_ONLY,
@@ -15,6 +16,10 @@ import { deleteTeamMembershipData, findOwnerMembership } from "./members";
 import { Doc, Id } from "./_generated/dataModel";
 import { toPublicPlayer } from "./projections";
 import { validateOwnerName, validateTeamColours, validateTeamName } from "./validation";
+import { assertImageUrl, isAllowedPlayerPhoto } from "./uploads";
+
+const LOGO_MESSAGE = "Upload the logo with the form's upload button";
+const CAPTAIN_PHOTO_MESSAGE = "Upload the captain's photo with the upload button";
 
 export const TEAM_LOCKED_MESSAGE =
   "Team details are locked because the auction has started. Ask the organiser if something needs to change.";
@@ -111,6 +116,8 @@ export async function insertValidatedTeam(
   const error =
     validateTeamName(fields.name) ?? validateOwnerName(fields.ownerName);
   if (error) throw new Error(error);
+  assertImageUrl(fields.logoUrl, LOGO_MESSAGE);
+  assertImageUrl(fields.captainPhotoUrl, CAPTAIN_PHOTO_MESSAGE, { allowed: isAllowedPlayerPhoto });
 
   // Check for duplicate team name in tournament
   const existingTeams = await ctx.db
@@ -216,7 +223,7 @@ export const listByTournament = query({
     if (!tournament) return [];
 
     // Deactivated tournaments are hidden from everyone but its staff.
-    if (tournament.isActive === false && !(await isTournamentStaff(ctx, args.tournamentId))) {
+    if (await isHiddenFrom(ctx, tournament)) {
       return [];
     }
 
@@ -322,10 +329,13 @@ export const update = mutation({
         args.colorSecondary ?? team.colorSecondary,
       );
       if (ownerError) throw new Error(ownerError);
-      if (args.logoUrl && !args.logoUrl.startsWith("https://")) {
-        throw new Error("Upload the logo with the form's upload button");
-      }
     }
+    // Everyone, owner member or organiser: our uploads only, unless unchanged.
+    assertImageUrl(args.logoUrl, LOGO_MESSAGE, { previous: team.logoUrl });
+    assertImageUrl(args.captainPhotoUrl, CAPTAIN_PHOTO_MESSAGE, {
+      previous: team.captainPhotoUrl,
+      allowed: isAllowedPlayerPhoto,
+    });
 
     const fieldError =
       (args.name !== undefined ? validateTeamName(args.name) : null) ??

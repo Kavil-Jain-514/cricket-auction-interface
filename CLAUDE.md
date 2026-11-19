@@ -2,7 +2,7 @@
 
 Bid11Pro (repo: cricket-auction-interface) is a live cricket player-auction app.
 
-Stack: Next.js 16 App Router (all pages are client components), React 19, Tailwind 4, Convex 1.31 backend
+Stack: Next.js 16 App Router (all pages are client components), React 19, Tailwind 4, Convex 1.42 backend
 (`convex/*.ts`), Clerk auth, Cloudinary images, Vitest + convex-test.
 
 ## Commands
@@ -29,7 +29,7 @@ npx tsc --noEmit     # typecheck
   `requireTournamentRole(ctx, tournamentId, RUN_AUCTION | OWNER_ONLY)` (`convex/auth.ts`), after loading
   the doc that names the tournament and before any other validation. `users.role "admin"` is the platform
   super-admin and passes every check; `requireAdmin` is only for global functions (`setUserRole`,
-  `setUserIntent`, `setUserActive`, `getAllUsers`, `listUsers`, `listAuditLogs`, and `tournamentPeople`,
+  `setUserIntent`, `setUserActive`, `listUsers`, `listAuditLogs`, and `tournamentPeople`,
   the super-admin People directory). A new public mutation must
   be added to the table in `convex/organiserIsolation.test.ts`.
 - **Account-level rules live in `convex/policy.ts`.** What someone may do because of how they signed up

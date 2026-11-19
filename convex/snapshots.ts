@@ -4,15 +4,22 @@
 // mis-tap is recoverable. Rows are stored in chunks (snapshotChunks) to stay
 // well under Convex's 1 MiB document limit for large rosters.
 import { v } from "convex/values";
-import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
+import { internalMutation, mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { logAdminAction, OWNER_ONLY, RUN_AUCTION, requireTournamentRole } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { recomputeTeamPurses } from "./money";
+import { assertFitsOneTransaction } from "./batch";
 import { goLive } from "./auctionLifecycle";
 import { confirmsTournamentName } from "./validation";
 
 /** Rows per chunk: ~200 player docs is far below 1 MiB. */
 const CHUNK_ROWS = 200;
+/** Snapshots kept per tournament, besides the protected ones (pruneSnapshots). */
+export const KEEP_SNAPSHOTS = 10;
+/** Chunks deleted per pruning step: each can be close to 1 MiB. */
+const PRUNE_CHUNKS_PER_STEP = 4;
 
 /** The tables a snapshot holds, in restore order. */
 export const SNAPSHOT_TABLES = [
@@ -51,7 +58,7 @@ export async function takeSnapshot(
       Promise.all([
         ctx.db.query("liveBids").withIndex("by_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
         ctx.db.query("bids").withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
-        ctx.db.query("auctionEvents").withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
+        ctx.db.query("auctionEvents").withIndex("by_room_timestamp", (q) => q.eq("auctionRoomId", room._id)).collect(),
       ]),
     ),
   );
@@ -90,8 +97,48 @@ export async function takeSnapshot(
       });
     }
   }
+  // Keep the table bounded (AUDIT 2026-11 PERF-009); runs after this commits.
+  await ctx.scheduler.runAfter(0, internal.snapshots.pruneSnapshots, { tournamentId });
   return snapshotId;
 }
+
+/**
+ * Delete a tournament's surplus snapshots: all but the KEEP_SNAPSHOTS newest,
+ * the newest "before start_auction" (the day's starting point) and any
+ * rehearsal's rewind point (endRehearsal needs it). A few chunks per step,
+ * then it schedules itself again, so no step reads more than a few MiB.
+ */
+export const pruneSnapshots = internalMutation({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args): Promise<{ done: boolean }> => {
+    const snapshots = await ctx.db
+      .query("tournamentSnapshots")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+      .order("desc")
+      .collect();
+    const rooms = await ctx.db
+      .query("auctionRooms")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+      .collect();
+    const protectedIds = new Set<Id<"tournamentSnapshots">>([
+      ...snapshots.slice(0, KEEP_SNAPSHOTS).map((s) => s._id),
+      ...rooms.flatMap((r) => (r.rehearsalSnapshotId ? [r.rehearsalSnapshotId] : [])),
+    ]);
+    const newestStart = snapshots.find((s) => s.reason === "before start_auction");
+    if (newestStart) protectedIds.add(newestStart._id);
+
+    const victim = snapshots.find((s) => !protectedIds.has(s._id));
+    if (!victim) return { done: true };
+    const chunks = await ctx.db
+      .query("snapshotChunks")
+      .withIndex("by_snapshot", (q) => q.eq("snapshotId", victim._id))
+      .take(PRUNE_CHUNKS_PER_STEP);
+    await Promise.all(chunks.map((c) => ctx.db.delete(c._id)));
+    if (chunks.length < PRUNE_CHUNKS_PER_STEP) await ctx.db.delete(victim._id);
+    await ctx.scheduler.runAfter(0, internal.snapshots.pruneSnapshots, args);
+    return { done: false };
+  },
+});
 
 /** A tournament's snapshots, newest first (no row data). Staff only. */
 export const listForTournament = query({
@@ -140,6 +187,16 @@ export async function readSnapshotRows(
 
 // ── Restore ──────────────────────────────────────────────────────────────────
 
+/**
+ * Rows a restore touches, from the snapshot's stored counts: it deletes the
+ * current bids and events and re-inserts the snapshot's, and patches every
+ * player and team, so twice the snapshot's size is the budget (PERF-004).
+ */
+function restoreSize(snapshot: Doc<"tournamentSnapshots">): number {
+  const { players, teams, bids, events } = snapshot.counts;
+  return 2 * (players + teams + bids + events);
+}
+
 /** A stored row without its system fields, ready to insert again. */
 function withoutSystemFields(row: SnapshotRow) {
   const { _id: _ignoredId, _creationTime: _ignoredTime, ...rest } = row;
@@ -150,8 +207,14 @@ function withoutSystemFields(row: SnapshotRow) {
  * Put a tournament's auction state back to a snapshot. Teams and players are
  * patched in place (their ids never change); bids, events and live bids are
  * replaced by the snapshot's. A player sold after the snapshot goes back to
- * pending so the restored purses still add up. Rooms come back in
- * `roomStatus(snapshotStatus)`. Callers check access and audit.
+ * pending. Rooms come back in `roomStatus(snapshotStatus)`. Callers check
+ * access and audit.
+ *
+ * Purses are then rebuilt from the restored players (money.ts), not trusted
+ * from the snapshot copy: a team created after the snapshot, or a sold player
+ * deleted since, would otherwise keep money its players no longer account for
+ * (AUDIT 2026-11 DATA-001). `repricedTeams` lists the teams whose purse
+ * differed from the snapshot's copy, for the audit row.
  */
 async function applySnapshot(
   ctx: MutationCtx,
@@ -224,7 +287,7 @@ async function applySnapshot(
     const [liveBids, bids, events, pending] = await Promise.all([
       ctx.db.query("liveBids").withIndex("by_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
       ctx.db.query("bids").withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
-      ctx.db.query("auctionEvents").withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
+      ctx.db.query("auctionEvents").withIndex("by_room_timestamp", (q) => q.eq("auctionRoomId", room._id)).collect(),
       ctx.db
         .query("bidRequests")
         .withIndex("by_room_player_status", (q) => q.eq("auctionRoomId", room._id))
@@ -243,8 +306,9 @@ async function applySnapshot(
     }
   }
 
+  const repricedTeams = await recomputeTeamPurses(ctx, tournamentId);
   await syncTournamentAuctionCounts(ctx, tournamentId);
-  return missing;
+  return { missing, repricedTeams };
 }
 
 /**
@@ -270,15 +334,16 @@ export const restoreSnapshot = mutation({
       throw new Error(`Type the tournament name (${tournament.name}) to confirm the restore`);
     }
 
+    assertFitsOneTransaction(restoreSize(snapshot), "restore");
     const undoSnapshotId = await takeSnapshot(ctx, snapshot.tournamentId, "before restore_snapshot", owner._id);
-    const missing = await applySnapshot(ctx, snapshot, (status) => (status === "live" ? "paused" : status));
+    const { missing, repricedTeams } = await applySnapshot(ctx, snapshot, (status) => (status === "live" ? "paused" : status));
     await logAdminAction(ctx, {
       userId: owner._id,
       userEmail: owner.email,
       action: "restore_snapshot",
       targetType: "tournament",
       targetId: snapshot.tournamentId,
-      newData: { snapshotId: snapshot._id, reason: snapshot.reason, undoSnapshotId, missing },
+      newData: { snapshotId: snapshot._id, reason: snapshot.reason, undoSnapshotId, missing, repricedTeams },
       tournamentId: snapshot.tournamentId,
     });
     return { success: true as const, undoSnapshotId, missing };
@@ -328,8 +393,9 @@ export const endRehearsal = mutation({
     if (!room.rehearsal || !room.rehearsalSnapshotId) throw new Error("This room is not in a rehearsal");
     const snapshot = await ctx.db.get(room.rehearsalSnapshotId);
     if (!snapshot) throw new Error("The rehearsal's snapshot is missing; use Restart instead");
+    assertFitsOneTransaction(restoreSize(snapshot), "end the rehearsal");
 
-    const missing = await applySnapshot(ctx, snapshot, () => "waiting");
+    const { missing, repricedTeams } = await applySnapshot(ctx, snapshot, () => "waiting");
     await ctx.db.patch(room._id, { rehearsal: undefined, rehearsalSnapshotId: undefined });
     await logAdminAction(ctx, {
       userId: owner._id,
@@ -337,7 +403,7 @@ export const endRehearsal = mutation({
       action: "end_rehearsal",
       targetType: "auction",
       targetId: room._id,
-      newData: { snapshotId: snapshot._id, missing },
+      newData: { snapshotId: snapshot._id, missing, repricedTeams },
       tournamentId: room.tournamentId,
       auctionRoomId: room._id,
     });

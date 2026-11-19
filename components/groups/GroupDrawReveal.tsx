@@ -83,6 +83,9 @@ export function GroupDrawReveal({ assignments, teamsById, onComplete }: GroupDra
   // Reduced motion: skip the ceremony, show the finished table.
   useEffect(() => {
     if (reduceMotion) {
+      // The OS motion setting can change while the reveal runs; jump to the
+      // end when it does. Kept as an effect so the reveal timings are untouched.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRevealed(new Set(assignments.map((_, i) => i)));
       setPhase('done');
     }
@@ -127,6 +130,8 @@ export function GroupDrawReveal({ assignments, teamsById, onComplete }: GroupDra
   // The moment a team is assigned: fill its slot + a themed confetti burst.
   useEffect(() => {
     if (phase !== 'pick' || sub !== 'group') return;
+    // Fires at a timed moment of the reveal, alongside the confetti burst.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRevealed((prev) => {
       if (prev.has(currentIndex)) return prev;
       const next = new Set(prev);

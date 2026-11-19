@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Doc } from "./_generated/dataModel";
 
@@ -113,5 +113,39 @@ describe("auth.setUserActive (deactivation)", () => {
     await asSuper.mutation(api.auth.setUserActive, { userId: ids.viewer, active: false });
     const audit = await t.run((ctx) => ctx.db.query("auditLogs").collect());
     expect(audit.find((a) => a.action === "deactivate_user")?.targetId).toBe(ids.viewer);
+  });
+});
+
+describe("admin bootstrap (AUDIT 2026-11 SEC-007, PERF-002)", () => {
+  const FIRST = { email: "first@test.com", subject: "first|1" };
+
+  test("the first person to sign in to an empty deployment is an ordinary user", async () => {
+    const t = convexTest(schema, modules);
+    await t.withIdentity(FIRST).mutation(api.auth.ensureUser, {});
+    const [user] = await t.run((ctx) => ctx.db.query("users").collect());
+    expect(user).toMatchObject({ email: FIRST.email, role: "user" });
+  });
+
+  test("bootstrapAdmin promotes an existing user once, then refuses", async () => {
+    const t = convexTest(schema, modules);
+    await t.withIdentity(FIRST).mutation(api.auth.ensureUser, {});
+    await t.withIdentity(ORG).mutation(api.auth.ensureUser, {});
+
+    await expect(t.mutation(internal.auth.bootstrapAdmin, { email: "nobody@test.com" })).rejects.toThrow(/No account/);
+    expect(await t.mutation(internal.auth.bootstrapAdmin, { email: FIRST.email })).toEqual({ success: true });
+    await expect(t.mutation(internal.auth.bootstrapAdmin, { email: ORG.email })).rejects.toThrow(/already has an admin/);
+
+    const roles = await t.run(async (ctx) => (await ctx.db.query("users").collect()).map((u) => [u.email, u.role]));
+    expect(Object.fromEntries(roles)).toEqual({ [FIRST.email]: "admin", [ORG.email]: "user" });
+  });
+
+  test("the last admin still can't step down", async () => {
+    const t = convexTest(schema, modules);
+    await t.withIdentity(FIRST).mutation(api.auth.ensureUser, {});
+    await t.mutation(internal.auth.bootstrapAdmin, { email: FIRST.email });
+    const [first] = await t.run((ctx) => ctx.db.query("users").collect());
+    await expect(
+      t.withIdentity(FIRST).mutation(api.auth.setUserRole, { userId: first._id, role: "user" }),
+    ).rejects.toThrow(/last admin/);
   });
 });

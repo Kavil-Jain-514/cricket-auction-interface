@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { isTournamentStaff, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
+import { isHiddenFrom, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
 import {
   computeGroupAssignments,
   validateGroupConfig,
@@ -11,7 +11,7 @@ export const getByTournament = query({
   handler: async (ctx, args) => {
     // Deactivated tournaments are hidden from everyone but its staff.
     const tournament = await ctx.db.get(args.tournamentId);
-    if (tournament?.isActive === false && !(await isTournamentStaff(ctx, args.tournamentId))) {
+    if (await isHiddenFrom(ctx, tournament)) {
       return null;
     }
     return await ctx.db

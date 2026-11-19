@@ -10,6 +10,7 @@ import { getOrCreateUser } from "./members";
 import { canRequestTeam } from "./policy";
 import { consumeInviteEmailQuota, enqueueEmail, requeueEmail } from "./emails";
 import { insertValidatedTeam } from "./teams";
+import { assertImageUrl } from "./uploads";
 import { normalizeEmail, validateOwnerName, validateTeamColours, validateTeamName } from "./validation";
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -37,7 +38,7 @@ export const submit = mutation({
       validateOwnerName(args.ownerName) ??
       validateTeamColours(args.colorPrimary, args.colorSecondary);
     if (error) throw new Error(error);
-    if (args.logoUrl && !args.logoUrl.startsWith("https://")) throw new Error("Upload the logo with the form's upload button");
+    assertImageUrl(args.logoUrl, "Upload the logo with the form's upload button");
 
     const memberships = await ctx.db
       .query("teamMembers")

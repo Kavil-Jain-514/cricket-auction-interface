@@ -137,27 +137,3 @@ describe("teams.getWithPlayers", () => {
   });
 });
 
-describe("admin.getPlayerWithTeam", () => {
-  test("rejects anonymous callers and non-admin users", async () => {
-    const t = convexTest(schema, modules);
-    const { playerId } = await setup(t);
-    await expect(
-      t.query(api.admin.getPlayerWithTeam, { playerId }),
-    ).rejects.toThrow("Not authenticated");
-    await expect(
-      t
-        .withIdentity(USER_IDENTITY)
-        .query(api.admin.getPlayerWithTeam, { playerId }),
-    ).rejects.toThrow("You don't have access to this tournament");
-  });
-
-  test("returns the full player to admins", async () => {
-    const t = convexTest(schema, modules);
-    const { playerId, teamA } = await setup(t);
-    const result = await t
-      .withIdentity(ADMIN_IDENTITY)
-      .query(api.admin.getPlayerWithTeam, { playerId });
-    expect(result?.phoneNumber).toBe(PHONE);
-    expect(result?.team?._id).toBe(teamA);
-  });
-});

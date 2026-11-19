@@ -61,6 +61,26 @@ export const reportClientError = mutation({
   },
 });
 
+/** Per-user hourly limits for the Next.js routes that cost us bandwidth or storage. */
+const ROUTE_QUOTAS = {
+  upload: { limit: 60, windowMs: 60 * 60 * 1000 },
+  imageProxy: { limit: 300, windowMs: 60 * 60 * 1000 },
+} as const;
+
+/**
+ * Called by /api/upload and /api/image-proxy with the caller's token, before
+ * any work: counts one request against the caller's hourly quota for that
+ * route. False when over, or when not signed in (AUDIT 2026-11 SEC-009).
+ */
+export const consumeRouteQuota = mutation({
+  args: { route: v.union(v.literal("upload"), v.literal("imageProxy")) },
+  handler: async (ctx, args): Promise<boolean> => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return false;
+    return await consumeRateLimit(ctx, `route:${args.route}:${user._id}`, ROUTE_QUOTAS[args.route]);
+  },
+});
+
 /** Called by the Razorpay webhook route (convex/http.ts) for every request. */
 export const recordWebhook = internalMutation({
   args: { event: v.string(), orderId: v.optional(v.string()), outcome: v.string() },
@@ -69,19 +89,83 @@ export const recordWebhook = internalMutation({
   },
 });
 
-/** Daily cron: keep 30 days of webhooks and client errors, a day of presence. */
+/** Daily cron: keep 30 days of webhooks and client errors, a day of presence and of expired upload grants. */
 export const purgeOld = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
     const month = now - 30 * 24 * 60 * 60 * 1000;
-    const [webhooks, errors, presence] = await Promise.all([
+    const [webhooks, errors, presence, grants] = await Promise.all([
       ctx.db.query("webhookEvents").withIndex("by_receivedAt", (q) => q.lt("receivedAt", month)).take(500),
       ctx.db.query("clientErrors").withIndex("by_at", (q) => q.lt("at", month)).take(500),
-      ctx.db.query("presence").collect(),
+      ctx.db.query("presence").withIndex("by_lastSeen", (q) => q.lt("lastSeen", now - 24 * 60 * 60 * 1000)).take(500),
+      // Registrant upload grants a day past expiry (used or not).
+      ctx.db.query("uploadGrants").withIndex("by_expiresAt", (q) => q.lt("expiresAt", now - 24 * 60 * 60 * 1000)).take(500),
     ]);
-    const stalePresence = presence.filter((p) => p.lastSeen < now - 24 * 60 * 60 * 1000);
-    await Promise.all([...webhooks, ...errors, ...stalePresence].map((doc) => ctx.db.delete(doc._id)));
+    await Promise.all([...webhooks, ...errors, ...presence, ...grants].map((doc) => ctx.db.delete(doc._id)));
+  },
+});
+
+// ── Retention (AUDIT 2026-11 PERF-009) ───────────────────────────────────────
+const RESOLVED_RAISE_DAYS = 30;
+const OUTBOX_DAYS = 90;
+const PURGE_BATCH = 500;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Daily cron: owner raises resolved more than 30 days ago. Only pending
+ * raises affect bidding; the auditLogs rows of accepted/rejected raises
+ * stay, so nothing an auditor needs is lost.
+ */
+export const purgeOldBidRequests = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - RESOLVED_RAISE_DAYS * DAY_MS;
+    const old = (
+      await Promise.all(
+        (["accepted", "rejected", "superseded"] as const).map((status) =>
+          ctx.db
+            .query("bidRequests")
+            .withIndex("by_status_createdAt", (q) => q.eq("status", status).lt("createdAt", cutoff))
+            .take(PURGE_BATCH),
+        ),
+      )
+    ).flat();
+    await Promise.all(old.map((row) => ctx.db.delete(row._id)));
+    return { deleted: old.length };
+  },
+});
+
+/**
+ * Daily cron: WhatsApp and email outbox rows finished more than 90 days ago.
+ * They hold phone numbers and email addresses, which aren't needed once a
+ * message is long settled. Queued and in-flight rows are never touched.
+ */
+export const purgeOldOutboxRows = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - OUTBOX_DAYS * DAY_MS;
+    const [notifications, emails] = await Promise.all([
+      Promise.all(
+        (["sent", "delivered", "failed", "skipped"] as const).map((status) =>
+          ctx.db
+            .query("notifications")
+            .withIndex("by_status_next", (q) => q.eq("status", status).lt("nextAttemptAt", cutoff))
+            .take(PURGE_BATCH),
+        ),
+      ),
+      Promise.all(
+        (["sent", "failed", "skipped"] as const).map((status) =>
+          ctx.db
+            .query("emails")
+            .withIndex("by_status_next", (q) => q.eq("status", status).lt("nextAttemptAt", cutoff))
+            .take(PURGE_BATCH),
+        ),
+      ),
+    ]);
+    const rows = [...notifications.flat(), ...emails.flat()];
+    await Promise.all(rows.map((row) => ctx.db.delete(row._id)));
+    return { deleted: rows.length };
   },
 });
 
@@ -138,8 +222,8 @@ export const liveOverview = query({
 
     // Refunds due: small tables on this path (only failed-to-apply payments).
     const [planRefunds, registrationRefunds] = await Promise.all([
-      ctx.db.query("paymentOrders").filter((q) => q.eq(q.field("refundDue"), true)).take(100),
-      ctx.db.query("registrationOrders").filter((q) => q.eq(q.field("refundDue"), true)).take(100),
+      ctx.db.query("paymentOrders").withIndex("by_refundDue", (q) => q.eq("refundDue", true)).take(100),
+      ctx.db.query("registrationOrders").withIndex("by_refundDue", (q) => q.eq("refundDue", true)).take(100),
     ]);
 
     return {

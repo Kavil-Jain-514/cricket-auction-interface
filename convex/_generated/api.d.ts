@@ -13,6 +13,7 @@ import type * as auctionCounts from "../auctionCounts.js";
 import type * as auctionLifecycle from "../auctionLifecycle.js";
 import type * as auctions from "../auctions.js";
 import type * as auth from "../auth.js";
+import type * as batch from "../batch.js";
 import type * as bidCore from "../bidCore.js";
 import type * as bidRules from "../bidRules.js";
 import type * as cloudinarySignature from "../cloudinarySignature.js";
@@ -23,6 +24,7 @@ import type * as groupDraws from "../groupDraws.js";
 import type * as http from "../http.js";
 import type * as idempotency from "../idempotency.js";
 import type * as members from "../members.js";
+import type * as money from "../money.js";
 import type * as notifications from "../notifications.js";
 import type * as ops from "../ops.js";
 import type * as payments from "../payments.js";
@@ -38,6 +40,7 @@ import type * as registrationForm from "../registrationForm.js";
 import type * as registrationForms from "../registrationForms.js";
 import type * as registrations from "../registrations.js";
 import type * as results from "../results.js";
+import type * as rounds from "../rounds.js";
 import type * as ruleValidators from "../ruleValidators.js";
 import type * as snapshots from "../snapshots.js";
 import type * as squadRules from "../squadRules.js";
@@ -45,6 +48,7 @@ import type * as staff from "../staff.js";
 import type * as teamRequests from "../teamRequests.js";
 import type * as teams from "../teams.js";
 import type * as tournaments from "../tournaments.js";
+import type * as uploads from "../uploads.js";
 import type * as validation from "../validation.js";
 
 import type {
@@ -59,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   auctionLifecycle: typeof auctionLifecycle;
   auctions: typeof auctions;
   auth: typeof auth;
+  batch: typeof batch;
   bidCore: typeof bidCore;
   bidRules: typeof bidRules;
   cloudinarySignature: typeof cloudinarySignature;
@@ -69,6 +74,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   idempotency: typeof idempotency;
   members: typeof members;
+  money: typeof money;
   notifications: typeof notifications;
   ops: typeof ops;
   payments: typeof payments;
@@ -84,6 +90,7 @@ declare const fullApi: ApiFromModules<{
   registrationForms: typeof registrationForms;
   registrations: typeof registrations;
   results: typeof results;
+  rounds: typeof rounds;
   ruleValidators: typeof ruleValidators;
   snapshots: typeof snapshots;
   squadRules: typeof squadRules;
@@ -91,6 +98,7 @@ declare const fullApi: ApiFromModules<{
   teamRequests: typeof teamRequests;
   teams: typeof teams;
   tournaments: typeof tournaments;
+  uploads: typeof uploads;
   validation: typeof validation;
 }>;
 

@@ -276,7 +276,7 @@ describe("organiser review", () => {
 
     await expect(asOwner.mutation(api.registrations.reject, { registrationId: a, reason: " " })).rejects.toThrow(/reason/);
     await asOwner.mutation(api.registrations.reject, { registrationId: a, reason: "Not from the club" });
-    expect(await asOwner.mutation(api.registrations.bulkApprove, { tournamentId })).toEqual({ approved: 2, failed: [] });
+    expect(await asOwner.mutation(api.registrations.bulkApprove, { tournamentId })).toMatchObject({ approved: 2, failed: [], remaining: 0 });
     expect(await t.run((ctx) => ctx.db.query("players").collect())).toHaveLength(2);
   });
 
@@ -479,5 +479,127 @@ describe("abuse limits on the public form (AUDIT 2026-10 P1-9)", () => {
     await t.mutation(api.registrations.recordOrder, { registrationId, razorpayOrderId: "o1", amount: 30_000 });
 
     expect(await t.query(api.registrations.getPaymentInfo, { registrationId })).toMatchObject({ ordersLeft: 9 });
+  });
+});
+
+describe("bulk approve in batches (AUDIT 2026-11 PERF-003)", () => {
+  /** n paid registrations, oldest first, straight into the table (no fee, no rate limit). */
+  async function seedPaid(t: ReturnType<typeof convexTest>, tournamentId: Id<"tournaments">, n: number, dupOf?: number) {
+    await t.run(async (ctx) => {
+      for (let i = 0; i < n; i++) {
+        const k = dupOf !== undefined && i === n - 1 ? dupOf : i;
+        await ctx.db.insert("registrations", {
+          tournamentId, name: `Player ${k}`, age: 24, role: ["Batter"], battingBowlingHand: "Right-handed",
+          phoneNumber: String(9000000000 + k), consentWhatsApp: false, status: "paid", fee: 0, createdAt: 1_000 + i,
+        });
+      }
+    });
+  }
+
+  /** What the review page does: call until nothing remains. */
+  async function approveAll(t: ReturnType<typeof convexTest>, tournamentId: Id<"tournaments">) {
+    const asOwner = t.withIdentity(OWNER);
+    const calls: Array<{ approved: number; failed: unknown[]; remaining: number }> = [];
+    let after: number | undefined;
+    for (;;) {
+      const res = await asOwner.mutation(api.registrations.bulkApprove, { tournamentId, after });
+      calls.push(res);
+      if (res.remaining === 0) return calls;
+      after = res.after;
+    }
+  }
+
+  test("approves in batches of 50 and reports what is left", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await t.run((ctx) => ctx.db.patch(tournamentId, { plan: undefined }));
+    await seedPaid(t, tournamentId, 120);
+    const calls = await approveAll(t, tournamentId);
+    expect(calls.map((c) => c.approved)).toEqual([50, 50, 20]);
+    expect(calls.map((c) => c.remaining)).toEqual([70, 20, 0]);
+    const players = await t.run((ctx) => ctx.db.query("players").collect());
+    expect(players).toHaveLength(120);
+    expect(new Set(players.map((p) => p.playerNumber)).size).toBe(120);
+  });
+
+  test("the plan limit stops at exactly its number; the rest fail and the loop still ends", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t); // free plan: 60 players
+    await seedPaid(t, tournamentId, 70);
+    const calls = await approveAll(t, tournamentId);
+    expect(calls.reduce((n, c) => n + c.approved, 0)).toBe(60);
+    expect(calls.reduce((n, c) => n + c.failed.length, 0)).toBe(10);
+    expect(await t.run((ctx) => ctx.db.query("players").collect())).toHaveLength(60);
+  });
+
+  test("a duplicate within the same batch is reported, not inserted", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await seedPaid(t, tournamentId, 3, 0); // the third repeats the first
+    const [res] = await approveAll(t, tournamentId);
+    expect(res).toMatchObject({ approved: 2, remaining: 0, failed: [{ name: "Player 0", reason: "Player 0 is already a player" }] });
+  });
+});
+
+describe("single-use upload grants (AUDIT 2026-11 SEC-003)", () => {
+  const CLOUD = "bid11";
+  const urlFor = (publicId: string) => `https://res.cloudinary.com/${CLOUD}/image/upload/v1/${publicId}.jpg`;
+  beforeEach(() => {
+    Object.assign(process.env, { CLOUDINARY_CLOUD_NAME: CLOUD, CLOUDINARY_API_KEY: "k", CLOUDINARY_API_SECRET: "s" });
+  });
+  afterEach(() => {
+    delete process.env.CLOUDINARY_CLOUD_NAME;
+    delete process.env.CLOUDINARY_API_KEY;
+    delete process.env.CLOUDINARY_API_SECRET;
+  });
+
+  test("each signature names its own file, and the signature covers that name", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const a = await t.action(api.registrations.getUploadSignature, { tournamentId });
+    const b = await t.action(api.registrations.getUploadSignature, { tournamentId });
+    expect(a.public_id).not.toBe(b.public_id);
+    const signed = { allowed_formats: a.allowed_formats, folder: a.folder, public_id: a.public_id, timestamp: a.timestamp };
+    expect(a.signature).toBe(await cloudinarySignature(signed, "s"));
+  });
+
+  test("a photo must come from a grant for this tournament, and each grant works once", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const sig = await t.action(api.registrations.getUploadSignature, { tournamentId });
+    const photoUrl = urlFor(`${sig.folder}/${sig.public_id}`);
+
+    // Our cloud and folder, but never granted:
+    await expect(
+      t.mutation(api.registrations.submit, { tournamentId, ...entry({ photoUrl: urlFor(`${sig.folder}/made-up`) }) }),
+    ).rejects.toThrow(/photo/i);
+    await t.mutation(api.registrations.submit, { tournamentId, ...entry({ photoUrl }) });
+    // The same file again, for someone else:
+    await expect(
+      t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: "Second Person", phoneNumber: "9123456780", photoUrl }) }),
+    ).rejects.toThrow(/photo/i);
+  });
+
+  test("another tournament's grant and an expired grant are refused", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const other = await t.run(async (ctx) => {
+      const t0 = (await ctx.db.get(tournamentId))!;
+      const { _id: _id, _creationTime: _c, ...rest } = t0;
+      return await ctx.db.insert("tournaments", { ...rest, name: "Other Cup" });
+    });
+    const foreign = await t.action(api.registrations.getUploadSignature, { tournamentId: other });
+    await expect(
+      t.mutation(api.registrations.submit, { tournamentId, ...entry({ photoUrl: urlFor(`${foreign.folder}/${foreign.public_id}`) }) }),
+    ).rejects.toThrow(/photo/i);
+
+    const sig = await t.action(api.registrations.getUploadSignature, { tournamentId });
+    await t.run(async (ctx) => {
+      const grant = await ctx.db.query("uploadGrants").filter((q) => q.eq(q.field("publicId"), `${sig.folder}/${sig.public_id}`)).first();
+      await ctx.db.patch(grant!._id, { expiresAt: Date.now() - 1 });
+    });
+    await expect(
+      t.mutation(api.registrations.submit, { tournamentId, ...entry({ photoUrl: urlFor(`${sig.folder}/${sig.public_id}`) }) }),
+    ).rejects.toThrow(/photo/i);
   });
 });

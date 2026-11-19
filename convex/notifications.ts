@@ -32,13 +32,14 @@ import { logAdminAction, OWNER_ONLY, requireAdmin, requireTournamentRole } from 
 import { formatRupees } from "./bidRules";
 
 /**
- * Normalize a raw phone number into E.164 digits (no leading "+").
+ * A raw phone number as E.164 digits (no leading "+"), for WhatsApp. Not
+ * validation.normalizePhone, which keeps an Indian number's 10 digits.
  * - Strips spaces, dashes, parentheses, and a leading "+" or "00".
  * - If the result is a bare local number (<= 10 digits and no country code),
  *   prepends WHATSAPP_DEFAULT_COUNTRY_CODE (default "91" for India).
  * Returns null if there aren't enough digits to be a real number.
  */
-export function normalizePhone(
+export function toE164(
   raw: string,
   defaultCountryCode: string,
 ): string | null {
@@ -61,6 +62,7 @@ const MAX_ATTEMPTS = 5;
 const BATCH_SIZE = 10; // per second: far below Meta's per-number throughput
 const RETRY_BASE_MS = 30_000; // 30s, 60s, 2m, 4m
 const STUCK_SENDING_MS = 5 * 60_000;
+const SEND_TIMEOUT_MS = 15_000;
 
 type Kind = Doc<"notifications">["kind"];
 type Payload = Doc<"notifications">["payload"];
@@ -164,7 +166,7 @@ export const claimDue = internalMutation({
     const claimed: Array<{ _id: Id<"notifications">; kind: Kind; payload: Payload }> = [];
     for (const n of [...due, ...stuck].slice(0, BATCH_SIZE)) {
       // Replied STOP: never messaged, not even a retry.
-      const e164 = normalizePhone(n.payload.phoneNumber, defaultCountryCode());
+      const e164 = toE164(n.payload.phoneNumber, defaultCountryCode());
       const optedOut = e164 && (await ctx.db.query("whatsappOptOuts").withIndex("by_phone", (q) => q.eq("phone", e164)).first());
       if (optedOut) {
         await ctx.db.patch(n._id, { status: "skipped", lastError: "opted_out" });
@@ -244,6 +246,9 @@ const metaCloudProvider = (phoneNumberId: string, accessToken: string): Notifica
             components: [{ type: "body", parameters: template.params.map((text) => ({ type: "text", text })) }],
           },
         }),
+        // A hung request would hold the row in "sending" until the 5-minute
+        // reclaim; give up and retry instead (AUDIT 2026-11 REL-002).
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
       if (!res.ok) {
         const text = (await res.text()).slice(0, 300);
@@ -299,7 +304,7 @@ export function templateFor(kind: Kind, payload: Payload): { name: string; param
 async function sendOne(kind: Kind, payload: Payload): Promise<SendResult> {
   const provider = providerFromEnv();
   if ("skip" in provider) return { outcome: "skipped", detail: provider.skip };
-  const e164 = normalizePhone(payload.phoneNumber, defaultCountryCode());
+  const e164 = toE164(payload.phoneNumber, defaultCountryCode());
   if (!e164) return { outcome: "skipped", detail: "invalid_phone" };
   return await provider.send(e164, templateFor(kind, payload));
 }

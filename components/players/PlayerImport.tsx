@@ -157,14 +157,6 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
   const startingPlayerNumber = (existingPlayers?.reduce((max, p) =>
     Math.max(max, p.playerNumber || 0), 0) || 0) + 1;
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      parseExcel(selectedFile);
-    }
-  }, []);
-
   const parseExcel = async (file: File) => {
     setParsing(true);
     setErrors([]);
@@ -294,6 +286,14 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       setParsing(false);
     }
   };
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      parseExcel(selectedFile);
+    }
+  }, []);
 
   const handleDownloadTemplate = useCallback(() => {
     try {

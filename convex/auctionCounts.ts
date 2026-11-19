@@ -25,7 +25,7 @@
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { effectiveBasePrice, type PlayerCategory } from "./bidRules";
+import { captainIdsOf, effectiveBasePrice, type PlayerCategory } from "./bidRules";
 import { rulePricesFor, type SquadRule } from "./squadRules";
 
 export type AuctionCounts = NonNullable<Doc<"tournaments">["auctionCounts"]>;
@@ -46,9 +46,7 @@ export function computeAuctionCounts(
 ): AuctionCounts {
   // Team captains are pre-assigned and never auctioned, so they must not appear
   // in ANY count (pending/sold/unsold/inAuction) or affect minPendingBasePrice.
-  const captainPlayerIds = new Set(
-    teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])),
-  );
+  const captainPlayerIds = captainIdsOf(teams);
 
   let pending = 0;
   let sold = 0;

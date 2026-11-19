@@ -28,10 +28,16 @@ export default defineSchema({
     // Set by the super-admin (auth:setUserActive). A deactivated account is
     // refused everywhere (getCurrentUser / requireUser) until reactivated.
     deactivatedAt: v.optional(v.number()),
+    // The sign-in this row belongs to (Clerk issuer + subject). Absent on rows
+    // from before it was stored, until their owner next signs in (SEC-006).
+    tokenIdentifier: v.optional(v.string()),
     createdAt: v.number(),
   })
+    .index("by_token", ["tokenIdentifier"])
     .index("by_email", ["email"])
-    .index("by_accountType", ["accountType"]),
+    .index("by_accountType", ["accountType"])
+    // Counting admins (last-admin guard, bootstrapAdmin) without a table scan.
+    .index("by_role", ["role"]),
 
   // Audit Log for tracking admin actions
   auditLogs: defineTable({
@@ -46,8 +52,9 @@ export default defineSchema({
     auctionRoomId: v.optional(v.id("auctionRooms")),
     timestamp: v.number(),
   })
-    .index("by_user", ["userId"])
     .index("by_tournament", ["tournamentId"])
+    // Tournament + date range in the audit log viewer.
+    .index("by_tournament_timestamp", ["tournamentId", "timestamp"])
     .index("by_timestamp", ["timestamp"]),
 
   // Tournaments table
@@ -129,7 +136,6 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_creator", ["createdBy"])
     .index("by_status", ["status"]),
 
   // Teams table
@@ -252,7 +258,9 @@ export default defineSchema({
   })
     .index("by_tournament", ["tournamentId"])
     .index("by_tournament_phone", ["tournamentId", "phoneNumber"])
-    .index("by_order", ["razorpayOrderId"]),
+    .index("by_order", ["razorpayOrderId"])
+    // The registration a player was approved from (registrationForms:answersForPlayer).
+    .index("by_player", ["playerId"]),
 
   // The organiser's own registration questions (convex/registrationForm.ts),
   // one row per saved version so answers always resolve to the question they
@@ -307,7 +315,7 @@ export default defineSchema({
     paidAt: v.optional(v.number()),
   })
     .index("by_order", ["razorpayOrderId"])
-    .index("by_tournament", ["tournamentId"]),
+    .index("by_refundDue", ["refundDue"]),
 
   // WhatsApp outbox (convex/notifications.ts). One row per event and person
   // (dedupeKey), so a restart, a re-sale to the same team, a retry or a
@@ -465,7 +473,8 @@ export default defineSchema({
     lastSeen: v.number(),
   })
     .index("by_room", ["auctionRoomId", "lastSeen"])
-    .index("by_user_room", ["userId", "auctionRoomId"]),
+    .index("by_user_room", ["userId", "auctionRoomId"])
+    .index("by_lastSeen", ["lastSeen"]),
 
   // Mutation exceptions seen by consoles and owner paddles (not rule refusals).
   clientErrors: defineTable({
@@ -483,6 +492,18 @@ export default defineSchema({
     outcome: v.string(),
     receivedAt: v.number(),
   }).index("by_receivedAt", ["receivedAt"]),
+
+  // One per signed registrant upload (registrations:getUploadSignature): the
+  // Cloudinary public id the signature allows, so each signature yields one
+  // file that one registration can use once (AUDIT 2026-11 SEC-003).
+  uploadGrants: defineTable({
+    tournamentId: v.id("tournaments"),
+    publicId: v.string(), // "cricket-auction/registrations/<random>"
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+  })
+    .index("by_publicId", ["publicId"])
+    .index("by_expiresAt", ["expiresAt"]),
 
   // Fixed-window counters for public entry points (convex/rateLimit.ts).
   rateLimits: defineTable({
@@ -509,7 +530,9 @@ export default defineSchema({
     paidAt: v.optional(v.number()),
   })
     .index("by_order", ["razorpayOrderId"])
-    .index("by_tournament", ["tournamentId"]),
+    .index("by_tournament", ["tournamentId"])
+    .index("by_registration", ["registrationId"])
+    .index("by_refundDue", ["refundDue"]),
 
   // Team members — users linked to a team (owners bid from their own phones).
   // A user belongs to at most one team per tournament (enforced by claimInvite).
@@ -521,6 +544,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_user", ["userId"])
+    // findOwnerMembership: one user's membership in one tournament.
+    .index("by_user_tournament", ["userId", "tournamentId"])
     .index("by_team", ["teamId"])
     .index("by_tournament", ["tournamentId"]),
 
@@ -563,7 +588,9 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_room_player_status", ["auctionRoomId", "playerId", "status"])
-    .index("by_team", ["teamId"]),
+    .index("by_team", ["teamId"])
+    // Retention: resolved raises older than 30 days (ops:purgeOldBidRequests).
+    .index("by_status_createdAt", ["status", "createdAt"]),
 
   // Players table
   players: defineTable({
@@ -625,7 +652,6 @@ export default defineSchema({
   })
     .index("by_tournament", ["tournamentId"])
     .index("by_team", ["teamId"])
-    .index("by_status", ["auctionStatus"])
     // Compound index: Find players by tournament + status (for startNextPlayer)
     .index("by_tournament_status", ["tournamentId", "auctionStatus"])
     // Duplicate check on the public registration form, without a full scan.
@@ -737,9 +763,7 @@ export default defineSchema({
     source: v.optional(v.union(v.literal("admin"), v.literal("owner"))),
     userId: v.optional(v.id("users")),
   })
-    .index("by_auction_room", ["auctionRoomId"])
-    .index("by_player", ["playerId"])
-    .index("by_team", ["teamId"]),
+    .index("by_auction_room", ["auctionRoomId"]),
 
   // Auction Events (For live feed/notifications)
   auctionEvents: defineTable({
@@ -757,7 +781,7 @@ export default defineSchema({
     data: v.any(), // Flexible data structure for different event types
     timestamp: v.number(),
   })
-    .index("by_auction_room", ["auctionRoomId"])
-    // Stream events for a room in real-time
+    // Every read is per room (newest first for the viewer popup); a room-only
+    // index would be a redundant prefix of this one.
     .index("by_room_timestamp", ["auctionRoomId", "timestamp"]),
 });

@@ -4,7 +4,6 @@ import { mutation, query, type QueryCtx } from "./_generated/server";
 import {
   getCurrentUser,
   getTournamentRole,
-  isTournamentStaff,
   logAdminAction,
   OWNER_ONLY,
   requireTournamentRole,
@@ -29,6 +28,8 @@ import { initialPlan } from "./plans";
 import { canCreateTournament, canUploadTournamentLogo, isSuperAdmin } from "./policy";
 import { takeSnapshot } from "./snapshots";
 import { scheduleTournamentPurge } from "./fileCleanup";
+import { assertImageUrl } from "./uploads";
+import { assertFitsOneTransaction, inChunks } from "./batch";
 import {
   confirmsTournamentName,
   normalizeFooterText,
@@ -36,16 +37,15 @@ import {
   normalizeSponsors,
   validateCategories,
   validateIncrementSlabs,
+  validateRegistrationFee,
   validateSettings,
   validateSquadRules,
   validateTournamentName,
 } from "./validation";
 
-/** Logos must come from our own upload (Cloudinary over https). */
+/** Logos must be our own upload (uploads.ts, AUDIT 2026-11 SEC-004). */
 function assertUploadedLogo(logoUrl: string | undefined) {
-  if (logoUrl !== undefined && !logoUrl.startsWith("https://res.cloudinary.com/")) {
-    throw new Error("Upload the logo with the logo button");
-  }
+  assertImageUrl(logoUrl, "Upload the logo with the logo button");
 }
 
 // Who may bid (see schema.ts). Not a locked setting: the auctioneer can fall
@@ -122,43 +122,35 @@ export const create = mutation({
   },
 });
 
-// List all tournaments - for viewers to see active tournaments
+/**
+ * The super-admin's tournament picker (/admin/audit): every tournament's id and
+ * name, newest first. Anyone else gets []. It used to return whole documents
+ * to any signed-in user, including other organisers' plans and payment
+ * references (AUDIT 2026-11 SEC-001).
+ */
 export const listAll = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return [];
     if (args.limit !== undefined && args.limit <= 0) {
       throw new Error("limit must be a positive number");
     }
-    // Deactivated tournaments (isActive === false) are visible only to their
-    // staff and the super-admin. Legacy isActive === undefined stays visible.
-    const user = await getCurrentUser(ctx);
-    const isAdmin = user?.role === "admin";
-    const staffOf = new Set(
-      user && !isAdmin
-        ? (
-            await ctx.db
-              .query("tournamentStaff")
-              .withIndex("by_user", (q) => q.eq("userId", user._id))
-              .collect()
-          ).map((s) => s.tournamentId)
-        : [],
-    );
-    const visible = (t: { _id: Id<"tournaments">; isActive?: boolean }) =>
-      isAdmin || t.isActive !== false || staffOf.has(t._id);
-
+    if (!isSuperAdmin(await getCurrentUser(ctx))) return [];
     const tournamentsQuery = ctx.db.query("tournaments").order("desc");
-    if (args.limit === undefined) {
-      return (await tournamentsQuery.collect()).filter(visible);
-    }
-    const cap = Math.max(1, Math.min(args.limit, 100));
-    // Over-fetch so the post-filter still has a chance to fill the cap.
-    const fetched = await tournamentsQuery.take(isAdmin ? cap : cap * 2);
-    return fetched.filter(visible).slice(0, cap);
+    const rows =
+      args.limit === undefined
+        ? await tournamentsQuery.collect()
+        : await tournamentsQuery.take(Math.max(1, Math.min(args.limit, 100)));
+    return rows.map((t) => ({ _id: t._id, name: t.name }));
   },
 });
 
+/**
+ * A tournament for its pages. Its staff (and the super-admin) get the whole
+ * document; any other signed-in user gets it without the commercial and
+ * internal fields: the plan (tier, payment reference, grant reason), who
+ * created it, and the derived auction counts (AUDIT 2026-11 SEC-001).
+ * Deactivated tournaments are only reachable by their staff.
+ */
 export const getById = query({
   args: { id: v.id("tournaments") },
   handler: async (ctx, args) => {
@@ -168,12 +160,12 @@ export const getById = query({
     const tournament = await ctx.db.get(args.id);
     if (!tournament) return null;
 
-    // Deactivated tournaments are only reachable by their staff.
-    if (tournament.isActive === false && !(await isTournamentStaff(ctx, args.id))) {
-      return null;
-    }
+    const role = await getTournamentRole(ctx, args.id);
+    if (role) return tournament;
+    if (tournament.isActive === false) return null;
 
-    return tournament;
+    const { plan: _plan, createdBy: _createdBy, auctionCounts: _auctionCounts, ...publicFields } = tournament;
+    return publicFields;
   },
 });
 
@@ -373,10 +365,11 @@ export const listForTeamOwner = query({
     for (const r of requests) {
       if (r.status !== "approved") byTournament.set(r.tournamentId, { teamName: r.name, teamStatus: r.status });
     }
-    for (const m of memberships) {
-      const team = await ctx.db.get(m.teamId);
+    const memberTeams = await Promise.all(memberships.map((m) => ctx.db.get(m.teamId)));
+    memberships.forEach((m, i) => {
+      const team = memberTeams[i];
       if (team) byTournament.set(m.tournamentId, { teamName: team.name, teamStatus: m.role });
-    }
+    });
     const rows = await Promise.all(
       [...byTournament].map(async ([id, team]) => {
         const t = await ctx.db.get(id);
@@ -536,15 +529,11 @@ export const update = mutation({
     // Nor are the public registration form settings.
     const registrationOpen = args.settings?.registrationOpen ?? tournament.settings.registrationOpen;
     const registrationFee = args.settings?.registrationFee ?? tournament.settings.registrationFee;
-    if (
-      registrationFee !== undefined &&
-      (!Number.isInteger(registrationFee) || registrationFee < 0 || registrationFee > 100_000)
-    ) {
-      throw new Error("Registration fee must be a whole number of rupees from 0 to 1,00,000");
-    }
+    const feeError = validateRegistrationFee(registrationFee);
+    if (feeError) throw new Error(feeError);
     let paymentQrUrl = tournament.settings.paymentQrUrl;
     if (args.settings?.paymentQrUrl !== undefined) {
-      const qr = normalizePaymentQrUrl(args.settings.paymentQrUrl);
+      const qr = normalizePaymentQrUrl(args.settings.paymentQrUrl, tournament.settings.paymentQrUrl);
       if (!qr.ok) throw new Error(qr.error);
       paymentQrUrl = qr.url;
     }
@@ -558,7 +547,10 @@ export const update = mutation({
 
     let sponsors = tournament.sponsors;
     if (args.sponsors !== undefined) {
-      const normalized = normalizeSponsors(args.sponsors);
+      const normalized = normalizeSponsors(
+        args.sponsors,
+        new Set((tournament.sponsors ?? []).flatMap((s) => (s.logoUrl ? [s.logoUrl] : []))),
+      );
       if (!normalized.ok) throw new Error(normalized.error);
       sponsors = normalized.sponsors;
     }
@@ -687,20 +679,28 @@ export const update = mutation({
 
       // Base purse is denormalized onto each team's purse. When it changes,
       // propagate it so the new value is reflected everywhere in the tournament.
-      // (Settings are only editable pre-auction, so purseSpent is 0 here.)
+      // Settings are only editable while the auction isn't running, but sales
+      // can still exist (corrections are allowed in a waiting room), so a new
+      // purse below a team's spend is refused rather than clamped: clamping
+      // would break purseRemaining + purseSpent == basePurse + purseAdjustment.
       if (args.settings.basePurse !== tournament.settings.basePurse) {
+        const newBasePurse = args.settings.basePurse;
         const teams = await ctx.db
           .query("teams")
           .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
           .collect();
+        const overspent = teams.find(
+          (team) => team.purseSpent > teamPurseTotal(newBasePurse, team),
+        );
+        if (overspent) {
+          throw new Error(
+            `${overspent.name} has already spent ₹${overspent.purseSpent}, more than the new purse of ₹${teamPurseTotal(newBasePurse, overspent)}. Correct their sales first.`,
+          );
+        }
         await Promise.all(
           teams.map((team) =>
             ctx.db.patch(team._id, {
-              purseRemaining: Math.max(
-                0,
-                teamPurseTotal(args.settings!.basePurse, team) -
-                  team.purseSpent,
-              ),
+              purseRemaining: teamPurseTotal(newBasePurse, team) - team.purseSpent,
               updatedAt: Date.now(),
             }),
           ),
@@ -866,8 +866,6 @@ export const deleteTournament = mutation({
     if (!confirmsTournamentName(args.confirmName, tournament.name)) {
       throw new Error(`Type the tournament name (${tournament.name}) to confirm the delete`);
     }
-    const snapshotId = await takeSnapshot(ctx, args.id, "before delete_tournament", admin._id);
-
     // Fetch bids and events for all auction rooms in a single parallel batch
     // (avoids a sequential loop of round-trips per room).
     const roomRelated = await Promise.all(
@@ -881,7 +879,7 @@ export const deleteTournament = mutation({
             .collect(),
           ctx.db
             .query("auctionEvents")
-            .withIndex("by_auction_room", (q) =>
+            .withIndex("by_room_timestamp", (q) =>
               q.eq("auctionRoomId", room._id),
             )
             .collect(),
@@ -913,18 +911,21 @@ export const deleteTournament = mutation({
       ),
     );
 
-    // Helper: delete in sequential chunks to stay within Convex's per-mutation
-    // write limit (~1000 ops) and avoid partial-deletion if the mutation times out.
-    async function deleteInChunks(
-      ids: { _id: Parameters<typeof ctx.db.delete>[0] }[],
-      chunkSize = 200,
-    ) {
-      for (let i = 0; i < ids.length; i += chunkSize) {
-        await Promise.all(
-          ids.slice(i, i + chunkSize).map((doc) => ctx.db.delete(doc._id)),
-        );
-      }
-    }
+    // Refuse before the snapshot rather than fail part-way (PERF-004).
+    assertFitsOneTransaction(
+      [teams, players, auctionRooms, groupDraws, staff, registrations, registrationOrders, formVersions, teamRequests, notifications, emails]
+        .reduce((n, rows) => n + rows.length, 0) +
+        roomRelated.flat(2).length +
+        teamRelated.flat(2).length,
+      "delete",
+    );
+    const snapshotId = await takeSnapshot(ctx, args.id, "before delete_tournament", admin._id);
+
+    // Helper: delete a chunk at a time so only one chunk of writes is in
+    // flight at once. The delete is still one transaction: it commits whole or
+    // not at all, within Convex's per-transaction limits (AUDIT 2026-11 PERF-004).
+    const deleteInChunks = (docs: { _id: Parameters<typeof ctx.db.delete>[0] }[]) =>
+      inChunks(docs.map((doc) => () => ctx.db.delete(doc._id)));
 
     // Audit before deleting (the log row outlives the tournament).
     await logAdminAction(ctx, {
@@ -984,19 +985,5 @@ export const deleteTournament = mutation({
     await ctx.db.delete(args.id);
 
     return { success: true };
-  },
-});
-
-// Check if tournament can be edited/deleted
-export const canModify = query({
-  args: { id: v.id("tournaments") },
-  handler: async (ctx, args) => {
-    const tournament = await ctx.db.get(args.id);
-    if (!tournament) return { canEdit: false, canDelete: false };
-
-    const canEdit = tournament.status !== "completed";
-    const canDelete = true;
-
-    return { canEdit, canDelete };
   },
 });
