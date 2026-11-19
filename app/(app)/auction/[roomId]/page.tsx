@@ -3,6 +3,8 @@
 
 import { use, useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation } from 'convex/react';
+import type { OptimisticLocalStore } from 'convex/browser';
+import type { FunctionArgs } from 'convex/server';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -58,6 +60,25 @@ const MIN_RESULT_DISPLAY_MS = 2500;
 
 // How long the "Now: <set>" banner stays up (matches the unsold-round banner).
 const SET_BANNER_MS = 3000;
+
+/**
+ * placeBid's optimistic update. Module scope: it runs when the mutation is
+ * called, never during render (so its Date.now() is not a render impurity).
+ */
+function optimisticPlaceBid(store: OptimisticLocalStore, args: FunctionArgs<typeof api.auctions.placeBid>) {
+  const live = store.getQuery(api.auctions.getLiveAuction, { auctionRoomId: args.auctionRoomId });
+  if (!live?.auctionRoom.currentPlayerId) return;
+  const roster = store.getQuery(api.auctions.getAuctionRoster, {
+    tournamentId: live.auctionRoom.tournamentId,
+    currentPlayerId: live.auctionRoom.currentPlayerId,
+  });
+  const team = roster?.teams.find((t) => t._id === args.teamId) ?? null;
+  store.setQuery(
+    api.auctions.getLiveAuction,
+    { auctionRoomId: args.auctionRoomId },
+    applyOptimisticBid(live, args, team, Date.now()),
+  );
+}
 
 export default function AuctionPage({ params }: AuctionPageProps) {
   const { roomId } = use(params);
@@ -179,20 +200,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
   // Optimistic: the console shows the bid the moment it's tapped. Convex drops
   // the guess when placeBid returns, so a rejected bid rolls back by itself.
-  const placeBid = useMutation(api.auctions.placeBid).withOptimisticUpdate((store, args) => {
-    const live = store.getQuery(api.auctions.getLiveAuction, { auctionRoomId: args.auctionRoomId });
-    if (!live?.auctionRoom.currentPlayerId) return;
-    const roster = store.getQuery(api.auctions.getAuctionRoster, {
-      tournamentId: live.auctionRoom.tournamentId,
-      currentPlayerId: live.auctionRoom.currentPlayerId,
-    });
-    const team = roster?.teams.find((t) => t._id === args.teamId) ?? null;
-    store.setQuery(
-      api.auctions.getLiveAuction,
-      { auctionRoomId: args.auctionRoomId },
-      applyOptimisticBid(live, args, team, Date.now()),
-    );
-  });
+  const placeBid = useMutation(api.auctions.placeBid).withOptimisticUpdate(optimisticPlaceBid);
   const finalizePlayer = useMutation(api.auctions.finalizePlayerSale);
   const markFinalUnsold = useMutation(api.auctions.markPlayerFinalUnsold);
   const startNext = useMutation(api.auctions.startNextPlayer);
