@@ -572,7 +572,9 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_room_player_status", ["auctionRoomId", "playerId", "status"])
-    .index("by_team", ["teamId"]),
+    .index("by_team", ["teamId"])
+    // Retention: resolved raises older than 30 days (ops:purgeOldBidRequests).
+    .index("by_status_createdAt", ["status", "createdAt"]),
 
   // Players table
   players: defineTable({

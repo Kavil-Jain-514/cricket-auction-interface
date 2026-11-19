@@ -18,6 +18,11 @@ crons.daily("purge old ops records", { hourUTC: 21, minuteUTC: 20 }, internal.op
 crons.daily("purge deleted tournaments", { hourUTC: 21, minuteUTC: 30 }, internal.fileCleanup.purgeDueTournaments, {});
 crons.hourly("delete stored files of deleted tournaments", { minuteUTC: 15 }, internal.fileCleanup.processDue, {});
 
+// Retention (AUDIT 2026-11 PERF-009): resolved owner raises after 30 days,
+// finished WhatsApp/email rows (phone numbers, addresses) after 90.
+crons.daily("purge resolved owner raises", { hourUTC: 21, minuteUTC: 40 }, internal.ops.purgeOldBidRequests, {});
+crons.daily("purge finished outbox rows", { hourUTC: 21, minuteUTC: 50 }, internal.ops.purgeOldOutboxRows, {});
+
 // Outbox sweeps (AUDIT 2026-11 REL-001): the workers normally run when
 // something is enqueued and reschedule themselves, so a run that dies leaves
 // rows waiting for the next enqueue. These pick them up. claimDue is the

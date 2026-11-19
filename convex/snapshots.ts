@@ -4,7 +4,8 @@
 // mis-tap is recoverable. Rows are stored in chunks (snapshotChunks) to stay
 // well under Convex's 1 MiB document limit for large rosters.
 import { v } from "convex/values";
-import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
+import { internalMutation, mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { logAdminAction, OWNER_ONLY, RUN_AUCTION, requireTournamentRole } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
@@ -14,6 +15,10 @@ import { confirmsTournamentName } from "./validation";
 
 /** Rows per chunk: ~200 player docs is far below 1 MiB. */
 const CHUNK_ROWS = 200;
+/** Snapshots kept per tournament, besides the protected ones (pruneSnapshots). */
+export const KEEP_SNAPSHOTS = 10;
+/** Chunks deleted per pruning step: each can be close to 1 MiB. */
+const PRUNE_CHUNKS_PER_STEP = 4;
 
 /** The tables a snapshot holds, in restore order. */
 export const SNAPSHOT_TABLES = [
@@ -91,8 +96,48 @@ export async function takeSnapshot(
       });
     }
   }
+  // Keep the table bounded (AUDIT 2026-11 PERF-009); runs after this commits.
+  await ctx.scheduler.runAfter(0, internal.snapshots.pruneSnapshots, { tournamentId });
   return snapshotId;
 }
+
+/**
+ * Delete a tournament's surplus snapshots: all but the KEEP_SNAPSHOTS newest,
+ * the newest "before start_auction" (the day's starting point) and any
+ * rehearsal's rewind point (endRehearsal needs it). A few chunks per step,
+ * then it schedules itself again, so no step reads more than a few MiB.
+ */
+export const pruneSnapshots = internalMutation({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args): Promise<{ done: boolean }> => {
+    const snapshots = await ctx.db
+      .query("tournamentSnapshots")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+      .order("desc")
+      .collect();
+    const rooms = await ctx.db
+      .query("auctionRooms")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+      .collect();
+    const protectedIds = new Set<Id<"tournamentSnapshots">>([
+      ...snapshots.slice(0, KEEP_SNAPSHOTS).map((s) => s._id),
+      ...rooms.flatMap((r) => (r.rehearsalSnapshotId ? [r.rehearsalSnapshotId] : [])),
+    ]);
+    const newestStart = snapshots.find((s) => s.reason === "before start_auction");
+    if (newestStart) protectedIds.add(newestStart._id);
+
+    const victim = snapshots.find((s) => !protectedIds.has(s._id));
+    if (!victim) return { done: true };
+    const chunks = await ctx.db
+      .query("snapshotChunks")
+      .withIndex("by_snapshot", (q) => q.eq("snapshotId", victim._id))
+      .take(PRUNE_CHUNKS_PER_STEP);
+    await Promise.all(chunks.map((c) => ctx.db.delete(c._id)));
+    if (chunks.length < PRUNE_CHUNKS_PER_STEP) await ctx.db.delete(victim._id);
+    await ctx.scheduler.runAfter(0, internal.snapshots.pruneSnapshots, args);
+    return { done: false };
+  },
+});
 
 /** A tournament's snapshots, newest first (no row data). Staff only. */
 export const listForTournament = query({

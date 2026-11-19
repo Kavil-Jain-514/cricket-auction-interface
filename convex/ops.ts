@@ -85,6 +85,69 @@ export const purgeOld = internalMutation({
   },
 });
 
+// ── Retention (AUDIT 2026-11 PERF-009) ───────────────────────────────────────
+const RESOLVED_RAISE_DAYS = 30;
+const OUTBOX_DAYS = 90;
+const PURGE_BATCH = 500;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Daily cron: owner raises resolved more than 30 days ago. Only pending
+ * raises affect bidding; the auditLogs rows of accepted/rejected raises
+ * stay, so nothing an auditor needs is lost.
+ */
+export const purgeOldBidRequests = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - RESOLVED_RAISE_DAYS * DAY_MS;
+    const old = (
+      await Promise.all(
+        (["accepted", "rejected", "superseded"] as const).map((status) =>
+          ctx.db
+            .query("bidRequests")
+            .withIndex("by_status_createdAt", (q) => q.eq("status", status).lt("createdAt", cutoff))
+            .take(PURGE_BATCH),
+        ),
+      )
+    ).flat();
+    await Promise.all(old.map((row) => ctx.db.delete(row._id)));
+    return { deleted: old.length };
+  },
+});
+
+/**
+ * Daily cron: WhatsApp and email outbox rows finished more than 90 days ago.
+ * They hold phone numbers and email addresses, which aren't needed once a
+ * message is long settled. Queued and in-flight rows are never touched.
+ */
+export const purgeOldOutboxRows = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - OUTBOX_DAYS * DAY_MS;
+    const [notifications, emails] = await Promise.all([
+      Promise.all(
+        (["sent", "delivered", "failed", "skipped"] as const).map((status) =>
+          ctx.db
+            .query("notifications")
+            .withIndex("by_status_next", (q) => q.eq("status", status).lt("nextAttemptAt", cutoff))
+            .take(PURGE_BATCH),
+        ),
+      ),
+      Promise.all(
+        (["sent", "failed", "skipped"] as const).map((status) =>
+          ctx.db
+            .query("emails")
+            .withIndex("by_status_next", (q) => q.eq("status", status).lt("nextAttemptAt", cutoff))
+            .take(PURGE_BATCH),
+        ),
+      ),
+    ]);
+    const rows = [...notifications.flat(), ...emails.flat()];
+    await Promise.all(rows.map((row) => ctx.db.delete(row._id)));
+    return { deleted: rows.length };
+  },
+});
+
 /** Everything the live-ops panel shows. Super-admin only. */
 export const liveOverview = query({
   args: {},
