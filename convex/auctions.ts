@@ -32,7 +32,7 @@ import {
   syncTournamentAuctionCounts,
 } from "./auctionCounts";
 import { toPublicPlayer } from "./projections";
-import { nextPresentationSet } from "./presentation";
+import { allSquadsFull, chooseNext, shuffleInPlace } from "./rounds";
 import { withIdempotency } from "./idempotency";
 import { takeSnapshot } from "./snapshots";
 import { completeAuction, goLive, loadRoomForStaff } from "./auctionLifecycle";
@@ -57,25 +57,6 @@ import {
   maxAllowedBid,
   reserveBasePrice,
 } from "./bidRules";
-
-/** In-place Fisher–Yates shuffle. Used to reshuffle each unsold round's queue. */
-function shuffleInPlace<T>(arr: T[]): T[] {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-// Round bookkeeping written alongside currentPlayerId when a player is presented.
-type RoomRoundPatch = {
-  auctionPhase?: "main" | "unsold";
-  roundNumber?: number;
-  unsoldQueue?: Id<"players">[];
-  unsoldCursor?: number;
-  unsoldRoundTotal?: number;
-  currentSetId?: string;
-};
 
 /**
  * Create a new auction room for a tournament.
@@ -852,231 +833,113 @@ export const startNextPlayer = mutation({
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     if (!tournament) throw new Error("Tournament not found");
 
-    // Check if all teams have filled their squads
-    const maxPlayersPerTeam = tournament.settings.maxPlayersPerTeam;
     const teams = await ctx.db
       .query("teams")
-      .withIndex("by_tournament", (q) =>
-        q.eq("tournamentId", auctionRoom.tournamentId),
-      )
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", auctionRoom.tournamentId))
       .collect();
-
-    if (teams.length > 0) {
-      const soldPlayers = await ctx.db
+    const byStatus = (status: "sold" | "pending" | "unsold") =>
+      ctx.db
         .query("players")
         .withIndex("by_tournament_status", (q) =>
-          q
-            .eq("tournamentId", auctionRoom.tournamentId)
-            .eq("auctionStatus", "sold"),
+          q.eq("tournamentId", auctionRoom.tournamentId).eq("auctionStatus", status),
         )
         .collect();
 
-      // Build O(n) count map instead of O(n*m) nested filter
-      const soldCountByTeam = new Map<string, number>();
-      for (const p of soldPlayers) {
-        if (p.teamId) {
-          soldCountByTeam.set(
-            p.teamId,
-            (soldCountByTeam.get(p.teamId) ?? 0) + 1,
-          );
-        }
-      }
-
-      const allSquadsFull = teams.every(
-        (team) => (soldCountByTeam.get(team._id) ?? 0) >= maxPlayersPerTeam,
-      );
-
-      if (allSquadsFull) {
-        return await completeAuction(ctx, auctionRoom, { user: admin, reason: "all squads full" });
-      }
+    if (allSquadsFull(teams.map((t) => t._id), (await byStatus("sold")).map((p) => p.teamId), tournament.settings.maxPlayersPerTeam)) {
+      return await completeAuction(ctx, auctionRoom, { user: admin, reason: "all squads full" });
     }
 
     // Team captains are pre-assigned and must never be put up for auction.
     const captainPlayerIds = captainIdsOf(teams);
+    const notCaptain = (p: Doc<"players">) => !captainPlayerIds.has(p._id);
+    const pending = (await byStatus("pending")).filter(notCaptain);
+    // The unsold pool is only needed once the main round is over.
+    const unsold = pending.length > 0 ? [] : (await byStatus("unsold")).filter(notCaptain);
 
-    // Get all pending players and pick randomly (excluding captains)
-    const pendingPlayers = (
-      await ctx.db
-        .query("players")
-        .withIndex("by_tournament_status", (q) =>
-          q
-            .eq("tournamentId", auctionRoom.tournamentId)
-            .eq("auctionStatus", "pending"),
-        )
-        .collect()
-    ).filter((p) => !captainPlayerIds.has(p._id));
-
-    // Put a player into the auction ring and broadcast it. `roomPatch` carries
-    // the round bookkeeping (phase / roundNumber / queue cursor) for this case.
-    const presentPlayer = async (
-      player: Doc<"players">,
-      roomPatch: RoomRoundPatch,
-    ) => {
-      const now = Date.now();
-      const basePrice = playerBasePriceFor(player, tournament);
-      await Promise.all([
-        ctx.db.patch(player._id, {
-          auctionStatus: "in_auction",
-          updatedAt: now,
-        }),
-        ctx.db.patch(args.auctionRoomId, {
-          currentPlayerId: player._id,
-          bidTimerEndsAt: bidTimerEndsAt(tournament.settings, now),
-          roundStalled: undefined,
-          updatedAt: now,
-          ...roomPatch,
-        }),
-        ctx.db.insert("auctionEvents", {
-          auctionRoomId: args.auctionRoomId,
-          type: "player_started",
-          data: { playerId: player._id, playerName: player.name, basePrice },
-          timestamp: now,
-        }),
-        logAdminAction(ctx, {
-          userId: admin._id,
-          userEmail: admin.email,
-          action: "start_next_player",
-          targetType: "player",
-          targetId: player._id,
-          newData: { playerName: player.name, basePrice },
-          tournamentId: auctionRoom.tournamentId,
-          auctionRoomId: args.auctionRoomId,
-        }),
-      ]);
-      // The picked player just moved pending/unsold -> in_auction; refresh counts.
-      await syncTournamentAuctionCounts(ctx, auctionRoom.tournamentId);
-      return { success: true, player };
-    };
-
-    const endWithNoPlayersLeft = () =>
-      completeAuction(ctx, auctionRoom, { user: admin, reason: "no players left" });
-
-    // ── Main round: dynamic random pick from the pending pool ────────────────
-    // With presentationOrder "by_category" the pool is narrowed to the current
-    // set first (see presentation.ts). Entering a new named set announces it
-    // WITHOUT loading a player, exactly like the unsold-round banner below:
-    // clients show "Now: <set>", then the auto-loader calls back in.
-    if (pendingPlayers.length > 0) {
-      let pool = pendingPlayers;
-      let setPatch: RoomRoundPatch = {};
-      if (tournament.settings.presentationOrder === "by_category") {
-        const set = nextPresentationSet(
-          pendingPlayers,
-          tournament.settings.categories,
-        )!;
-        if (set.category && set.setId !== auctionRoom.currentSetId) {
-          await ctx.db.patch(args.auctionRoomId, {
-            auctionPhase: "main",
-            roundNumber: 1,
-            currentSetId: set.setId,
-            currentPlayerId: undefined,
-            bidTimerEndsAt: undefined,
-            updatedAt: Date.now(),
-          });
-          return { success: true, completed: false, enteredSet: set.setId };
-        }
-        pool = set.players;
-        setPatch = { currentSetId: set.setId };
-      }
-      const nextPlayer = pool[Math.floor(Math.random() * pool.length)];
-      return await presentPlayer(nextPlayer, {
-        auctionPhase: "main",
-        roundNumber: 1,
-        ...setPatch,
-      });
-    }
-
-    // ── Unsold rounds ────────────────────────────────────────────────────────
-    const unsoldPlayers = (
-      await ctx.db
-        .query("players")
-        .withIndex("by_tournament_status", (q) =>
-          q
-            .eq("tournamentId", auctionRoom.tournamentId)
-            .eq("auctionStatus", "unsold"),
-        )
-        .collect()
-    ).filter((p) => !captainPlayerIds.has(p._id));
-
-    // Everyone is sold or final_unsold → the cycle is over.
-    if (unsoldPlayers.length === 0) {
-      return await endWithNoPlayersLeft();
-    }
-
-    const unsoldIds = new Set(unsoldPlayers.map((p) => p._id));
-
-    // First crossing main → unsold: announce the round (drives the one-time
-    // banner on every client) and build round 2's queue WITHOUT loading a
-    // player. The client shows the banner, then the auto-loader calls back in
-    // to present the first player — so the banner is never overridden.
-    if (auctionRoom.auctionPhase !== "unsold") {
-      const queue = shuffleInPlace(unsoldPlayers.map((p) => p._id));
-      const now = Date.now();
-      await ctx.db.patch(args.auctionRoomId, {
-        auctionPhase: "unsold",
-        roundNumber: 2,
-        unsoldQueue: queue,
-        unsoldCursor: 0,
-        unsoldRoundTotal: queue.length,
-        roundStalled: undefined,
-        currentPlayerId: undefined,
-        bidTimerEndsAt: undefined,
-        updatedAt: now,
-      });
-      return { success: true, completed: false, enteredUnsoldRound: true };
-    }
-
-    // Mid-round: present the next queued player that is still unsold. The
-    // status check skips anyone sold or marked final_unsold since the queue was
-    // built (so a final_unsold player is never re-presented, even mid-round).
-    const queue = auctionRoom.unsoldQueue ?? [];
-    let cursor = auctionRoom.unsoldCursor ?? 0;
-    while (cursor < queue.length) {
-      const pid = queue[cursor];
-      cursor++;
-      if (unsoldIds.has(pid)) {
-        const player = await ctx.db.get(pid);
-        if (player) {
-          return await presentPlayer(player, {
-            auctionPhase: "unsold",
-            unsoldCursor: cursor,
-          });
-        }
-      }
-    }
-
-    // Round complete. Infinite-loop guard: the round made progress iff at least
-    // one player from THIS round's snapshot queue left the unsold pool (got
-    // sold or marked final_unsold). Compare membership against the snapshot —
-    // not just counts — because the count can stay equal while membership
-    // changes (e.g. a queued player sells while another becomes unsold via an
-    // admin action). Only stall when every queued player is still unsold.
-    const noProgress =
-      queue.length > 0 && queue.every((pid) => unsoldIds.has(pid));
-    if (noProgress) {
-      const now = Date.now();
-      await ctx.db.patch(args.auctionRoomId, {
-        roundStalled: true,
-        currentPlayerId: undefined,
-        bidTimerEndsAt: undefined,
-        updatedAt: now,
-      });
-      return { success: true, completed: false, stalled: true };
-    }
-
-    // Progress was made → roll into the next unsold round (reshuffled). No
-    // banner for subsequent rounds; load the first player immediately.
-    const nextQueue = shuffleInPlace(unsoldPlayers.map((p) => p._id));
-    const nextRound = (auctionRoom.roundNumber ?? 2) + 1;
-    const first = await ctx.db.get(nextQueue[0]);
-    if (!first) return await endWithNoPlayersLeft();
-    return await presentPlayer(first, {
-      auctionPhase: "unsold",
-      roundNumber: nextRound,
-      unsoldQueue: nextQueue,
-      unsoldCursor: 1,
-      unsoldRoundTotal: nextQueue.length,
+    const decision = chooseNext({
+      room: auctionRoom,
+      presentationOrder: tournament.settings.presentationOrder,
+      categories: tournament.settings.categories,
+      pending,
+      unsold,
     });
+    const now = Date.now();
+
+    switch (decision.kind) {
+      case "complete":
+        return await completeAuction(ctx, auctionRoom, { user: admin, reason: "no players left" });
+
+      // Announcements load nobody: every client shows the banner, then the
+      // auto-loader calls back in for the first player.
+      case "enterSet":
+        await ctx.db.patch(args.auctionRoomId, {
+          auctionPhase: "main",
+          roundNumber: 1,
+          currentSetId: decision.setId,
+          currentPlayerId: undefined,
+          bidTimerEndsAt: undefined,
+          updatedAt: now,
+        });
+        return { success: true, completed: false, enteredSet: decision.setId };
+
+      case "enterUnsoldRound":
+        await ctx.db.patch(args.auctionRoomId, {
+          auctionPhase: "unsold",
+          roundNumber: 2,
+          unsoldQueue: decision.queue,
+          unsoldCursor: 0,
+          unsoldRoundTotal: decision.queue.length,
+          roundStalled: undefined,
+          currentPlayerId: undefined,
+          bidTimerEndsAt: undefined,
+          updatedAt: now,
+        });
+        return { success: true, completed: false, enteredUnsoldRound: true };
+
+      case "stall":
+        await ctx.db.patch(args.auctionRoomId, {
+          roundStalled: true,
+          currentPlayerId: undefined,
+          bidTimerEndsAt: undefined,
+          updatedAt: now,
+        });
+        return { success: true, completed: false, stalled: true };
+
+      case "present": {
+        // Put the player in the ring and broadcast it.
+        const { player, roomPatch } = decision;
+        const basePrice = playerBasePriceFor(player, tournament);
+        await Promise.all([
+          ctx.db.patch(player._id, { auctionStatus: "in_auction", updatedAt: now }),
+          ctx.db.patch(args.auctionRoomId, {
+            currentPlayerId: player._id,
+            bidTimerEndsAt: bidTimerEndsAt(tournament.settings, now),
+            roundStalled: undefined,
+            updatedAt: now,
+            ...roomPatch,
+          }),
+          ctx.db.insert("auctionEvents", {
+            auctionRoomId: args.auctionRoomId,
+            type: "player_started",
+            data: { playerId: player._id, playerName: player.name, basePrice },
+            timestamp: now,
+          }),
+          logAdminAction(ctx, {
+            userId: admin._id,
+            userEmail: admin.email,
+            action: "start_next_player",
+            targetType: "player",
+            targetId: player._id,
+            newData: { playerName: player.name, basePrice },
+            tournamentId: auctionRoom.tournamentId,
+            auctionRoomId: args.auctionRoomId,
+          }),
+        ]);
+        // The picked player just moved pending/unsold -> in_auction.
+        await syncTournamentAuctionCounts(ctx, auctionRoom.tournamentId);
+        return { success: true, player };
+      }
+    }
   },
 });
 
