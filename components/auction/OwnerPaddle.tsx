@@ -67,7 +67,14 @@ function buzz(pattern: number | number[]) {
 export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen, insights }: OwnerPaddleProps) {
   const raiseBid = useMutation(api.auctions.raiseBid);
   const reportClientError = useMutation(api.ops.reportClientError);
-  const [step, setStep] = useState<(typeof STEPS)[number]>(1);
+  // The chosen step, remembered with the player it was chosen for, so a new
+  // player starts back at step 1 without an effect.
+  const [chosenStep, setChosenStep] = useState<{ playerId: typeof paddle.currentPlayerId; step: (typeof STEPS)[number] }>({
+    playerId: paddle.currentPlayerId,
+    step: 1,
+  });
+  const step = chosenStep.playerId === paddle.currentPlayerId ? chosenStep.step : 1;
+  const setStep = (next: (typeof STEPS)[number]) => setChosenStep({ playerId: paddle.currentPlayerId, step: next });
   const [sending, setSending] = useState(false);
   const [flash, setFlash] = useState<Flash | null>(null);
 
@@ -75,11 +82,6 @@ export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen, insights }: Ow
     setFlash({ tone, text, key: Date.now() });
     buzz(tone === 'bad' ? [80, 40, 80] : 60);
   };
-
-  // Reset the step for each new player.
-  useEffect(() => {
-    setStep(1);
-  }, [paddle.currentPlayerId]);
 
   // Auctioneer's decision on a confirm-mode raise. Skip whatever outcome is
   // already there on first render so reopening the page doesn't re-announce it.
@@ -93,6 +95,9 @@ export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen, insights }: Ow
     if (!resolved || resolved._id === seenResolved.current) return;
     seenResolved.current = resolved._id;
     if (resolved.status === 'accepted') {
+      // Responds to the auctioneer's decision arriving from the server, with a
+      // vibration as well as the flash: an effect is the right place for it.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       showFlash('good', `Accepted at ${formatCurrency(resolved.amount)}`);
     } else if (resolved.status === 'rejected') {
       showFlash('bad', resolved.reason || 'Raise declined');

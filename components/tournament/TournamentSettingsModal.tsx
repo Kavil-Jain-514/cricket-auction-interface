@@ -20,7 +20,7 @@ import type { SquadRule } from '@/convex/squadRules';
 import { bidTimerLabel, bidTimerOptions } from '@/lib/bidTimer';
 import { StaffManager } from './StaffManager';
 import { formatRupees } from '@/convex/bidRules';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getErrorMessage } from '@/lib/utils';
 import {
   AuctionRulesEditor,
   categoriesFromForm,
@@ -214,9 +214,7 @@ export function TournamentSettingsModal({
       toast.success('Tournament updated successfully!');
       onClose();
     } catch (error) {
-      toast.error('Failed to update settings', {
-        description: (error as Error).message
-      });
+      toast.error(getErrorMessage(error, 'Failed to update settings'));
     } finally {
       setLoading(false);
     }

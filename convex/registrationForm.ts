@@ -6,6 +6,7 @@
 import { v } from "convex/values";
 import { isWholeRupees } from "./bidRules";
 import { normalizeEmail, normalizePhone } from "./validation";
+import { isOurUpload } from "./uploads";
 
 export const QUESTION_TYPES = [
   "short_text",
@@ -152,7 +153,6 @@ const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 // Only files uploaded through the form's own signed upload (registrations
 // folder on our Cloudinary account) are accepted as answers.
-const UPLOAD_PREFIX = "https://res.cloudinary.com/";
 const UPLOAD_FOLDER = "/cricket-auction/registrations/";
 
 export const cleanText = (s: string) => s.replace(CONTROL_CHARS, "").trim();
@@ -268,7 +268,7 @@ function checkAnswer(q: Question, value: AnswerValue): { value: AnswerValue } | 
       return email ? { value: email } : bad("enter a valid email address");
     }
     case "file":
-      return typeof value === "string" && value.startsWith(UPLOAD_PREFIX) && value.includes(UPLOAD_FOLDER)
+      return typeof value === "string" && isOurUpload(value, "registrations") && value.includes(UPLOAD_FOLDER)
         ? { value }
         : bad("upload the file with the form's upload button");
   }

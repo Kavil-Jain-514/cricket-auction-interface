@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { Upload, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { cn, getErrorMessage } from '@/lib/utils';
 import { UPLOAD_FOLDERS, type UploadFolder } from '@/lib/cloudinary';
 
 interface ImageUploadProps {
@@ -42,9 +42,9 @@ export function ImageUpload({
       return;
     }
 
-    // Validate file size (5MB max)
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('File is too large. Maximum size is 5MB');
+    // Validate file size (4 MB max: the server's limit, under Vercel's body cap)
+    if (file.size > 4 * 1024 * 1024) {
+      toast.error('File is too large. Maximum size is 4 MB');
       return;
     }
 
@@ -70,7 +70,7 @@ export function ImageUpload({
       toast.success('Image uploaded successfully!');
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to upload image');
+      toast.error(getErrorMessage(error, 'Failed to upload image'));
     } finally {
       setIsUploading(false);
     }
@@ -185,7 +185,7 @@ export function ImageUpload({
                 <span className="font-semibold text-blue-400">Click to upload</span>
                 {' '}or drag and drop
               </p>
-              <p className="text-xs text-slate-500 mt-1">PNG, JPG, WebP (max 5MB)</p>
+              <p className="text-xs text-slate-500 mt-1">PNG, JPG, WebP (max 4 MB)</p>
             </>
           )}
         </div>

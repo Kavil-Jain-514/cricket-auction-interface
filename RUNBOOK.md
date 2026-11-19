@@ -126,6 +126,13 @@ The **frontend (Vercel)** and **backend (Convex)** deploy separately — check w
 
 ## Organisers, plans and payments (one-time setup)
 
+- **First super-admin on a new deployment:** nobody becomes admin by signing in first. Sign in once, then
+  `npx convex run auth:bootstrapAdmin '{"email": "you@example.com"}'`. It refuses once any admin exists;
+  after that, promote people from /admin/users.
+- **"This email is already linked to another sign-in":** accounts belong to a Clerk sign-in, not an email
+  address, so a new Clerk account with an existing person's email doesn't inherit their roles. If it really is
+  the same person (they deleted and recreated their Clerk account), confirm it with them, then
+  `npx convex run auth:unlinkSignIn '{"email": "them@example.com"}'` and ask them to sign in again.
 - **After deploying organiser isolation, run once:** `npx convex run staff:backfillTournamentOwners`
   (makes every existing tournament's creator its owner; safe to re-run).
 - **Plans:** new tournaments start on Free (4 teams, 60 players). Club ₹999 (8/150), League ₹2,999 (12/250),

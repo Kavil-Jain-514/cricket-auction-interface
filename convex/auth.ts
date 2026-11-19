@@ -1,9 +1,10 @@
 // convex/auth.ts - Role-Based Access Control utilities
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
+import { internalMutation, mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { canCreateTournament, intentOf } from "./policy";
+import { claimStaffInvites } from "./staff";
 
 export type UserRole = "admin" | "user";
 
@@ -11,14 +12,80 @@ export type UserRole = "admin" | "user";
 // CORE AUTH HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** The signed-in person's row, deactivated or not. Most code wants getCurrentUser. */
+/**
+ * The signed-in person's row, deactivated or not. Most code wants getCurrentUser.
+ *
+ * Found by the sign-in (tokenIdentifier), not the email claim, so roles never
+ * follow an email address from one account to another (AUDIT 2026-11
+ * SEC-006). A row from before sign-ins were stored has no tokenIdentifier; it
+ * is found by email until ensureUser links it to the sign-in that claims it.
+ */
 export async function getUserRow(ctx: QueryCtx | MutationCtx): Promise<Doc<"users"> | null> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity?.email) return null;
-  return await ctx.db
+  if (!identity) return null;
+  const linked = await ctx.db
+    .query("users")
+    .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
+    .first();
+  if (linked) return linked;
+  return await unlinkedRowByEmail(ctx, identity.email);
+}
+
+/** A row with this email that no sign-in has claimed yet, or null. */
+async function unlinkedRowByEmail(
+  ctx: QueryCtx | MutationCtx,
+  email: string | undefined,
+): Promise<Doc<"users"> | null> {
+  if (!email) return null;
+  const row = await ctx.db
+    .query("users")
+    .withIndex("by_email", (q) => q.eq("email", email))
+    .first();
+  return row && row.tokenIdentifier === undefined ? row : null;
+}
+
+export const EMAIL_LINKED_MESSAGE =
+  "This email is already linked to another sign-in. Contact Bid11Pro support to move it to this one.";
+
+/**
+ * The signed-in person's row, linked to their sign-in and created if needed
+ * (as a plain "user"). Keeps the stored email and name in step with the
+ * identity provider. Refuses when the email belongs to a row another sign-in
+ * has claimed. Doesn't check deactivation; callers decide.
+ */
+export async function linkOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity?.email) throw new ConvexError("Not authenticated");
+  const row = await getUserRow(ctx);
+  if (row) {
+    const patch: Partial<Doc<"users">> = {};
+    if (row.tokenIdentifier === undefined) patch.tokenIdentifier = identity.tokenIdentifier;
+    if (identity.name && identity.name !== row.name) patch.name = identity.name;
+    if (identity.email !== row.email) {
+      // The address changed at the provider; follow it unless another row has it.
+      const taken = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", identity.email!))
+        .first();
+      if (!taken) patch.email = identity.email;
+    }
+    if (Object.keys(patch).length > 0) await ctx.db.patch(row._id, patch);
+    return { ...row, ...patch };
+  }
+  const sameEmail = await ctx.db
     .query("users")
     .withIndex("by_email", (q) => q.eq("email", identity.email!))
     .first();
+  if (sameEmail) throw new ConvexError(EMAIL_LINKED_MESSAGE);
+  // Everyone starts as a "user"; the first admin comes from auth:bootstrapAdmin.
+  const userId = await ctx.db.insert("users", {
+    email: identity.email,
+    name: identity.name,
+    tokenIdentifier: identity.tokenIdentifier,
+    role: "user",
+    createdAt: Date.now(),
+  });
+  return (await ctx.db.get(userId))!;
 }
 
 export const DEACTIVATED_MESSAGE = "This account has been deactivated. Contact Bid11Pro support if you think this is a mistake.";
@@ -42,8 +109,8 @@ export async function requireUser(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"users">> {
   const user = await getUserRow(ctx);
-  if (!user) throw new Error("Not authenticated");
-  if (user.deactivatedAt !== undefined) throw new Error(DEACTIVATED_MESSAGE);
+  if (!user) throw new ConvexError("Not authenticated");
+  if (user.deactivatedAt !== undefined) throw new ConvexError(DEACTIVATED_MESSAGE);
   return user;
 }
 
@@ -63,7 +130,7 @@ export async function requireAdmin(
 ): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
   if (user.role !== "admin") {
-    throw new Error("Admin access required");
+    throw new ConvexError("Admin access required");
   }
   return user;
 }
@@ -96,12 +163,14 @@ interface AuditLogParams {
 // TOURNAMENT-SCOPED ACCESS (organisers)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export type TournamentRole = "owner" | "auctioneer";
+export type TournamentRole = "owner" | "auctioneer" | "registrar";
 
 /** Runs the auction on the day, including sale corrections and purse tools. */
 export const RUN_AUCTION: TournamentRole[] = ["owner", "auctioneer"];
 /** Settings, teams, players, staff, invites, draws, exports, restart, delete. */
 export const OWNER_ONLY: TournamentRole[] = ["owner"];
+/** Review player registrations: list, approve, reject, mark paid, category. */
+export const REVIEW_REGISTRATIONS: TournamentRole[] = ["owner", "registrar"];
 
 /**
  * The caller's access to a tournament: "super_admin" (users.role "admin",
@@ -122,6 +191,18 @@ export async function getTournamentRole(
     )
     .first();
   return staff?.role ?? null;
+}
+
+/**
+ * True when `tournament` is deactivated and the caller isn't its staff, i.e.
+ * a shared viewer query must return nothing. Identity is read only for a
+ * deactivated tournament, so the normal result stays shared across viewers.
+ */
+export async function isHiddenFrom(
+  ctx: QueryCtx | MutationCtx,
+  tournament: Pick<Doc<"tournaments">, "_id" | "isActive"> | null,
+): Promise<boolean> {
+  return tournament?.isActive === false && !(await getTournamentRole(ctx, tournament._id));
 }
 
 /** True for a super-admin or anyone on the tournament's staff. */
@@ -146,7 +227,7 @@ export async function requireTournamentRole(
   if (role === "super_admin" || (role !== null && roles.includes(role))) {
     return user;
   }
-  throw new Error("You don't have access to this tournament");
+  throw new ConvexError("You don't have access to this tournament");
 }
 
 /**
@@ -211,8 +292,8 @@ export const me = query({
 
 /**
  * Admin audit log, newest first, one page at a time. Filters: tournament
- * (by_tournament index), action, and a timestamp range (by_timestamp index
- * when no tournament is given). Non-admins get an empty page.
+ * and a timestamp range through the indexes (by_tournament_timestamp, or
+ * by_timestamp without a tournament), then action. Non-admins get an empty page.
  */
 export const listAuditLogs = query({
   args: {
@@ -229,29 +310,24 @@ export const listAuditLogs = query({
     }
 
     const { tournamentId, action, from, to } = args;
+    // Both indexes end in timestamp, so the date range is an index range either way.
     const base = tournamentId
-      ? ctx.db
-          .query("auditLogs")
-          .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId))
+      ? ctx.db.query("auditLogs").withIndex("by_tournament_timestamp", (q) => {
+          const t = q.eq("tournamentId", tournamentId);
+          if (from !== undefined && to !== undefined) return t.gte("timestamp", from).lte("timestamp", to);
+          if (from !== undefined) return t.gte("timestamp", from);
+          if (to !== undefined) return t.lte("timestamp", to);
+          return t;
+        })
       : ctx.db.query("auditLogs").withIndex("by_timestamp", (q) => {
-          if (from !== undefined && to !== undefined) {
-            return q.gte("timestamp", from).lte("timestamp", to);
-          }
+          if (from !== undefined && to !== undefined) return q.gte("timestamp", from).lte("timestamp", to);
           if (from !== undefined) return q.gte("timestamp", from);
           if (to !== undefined) return q.lte("timestamp", to);
           return q;
         });
 
-    // The tournament index can't range on time, so dates filter there.
-    const filterDates = tournamentId !== undefined;
     return await base
-      .filter((q) =>
-        q.and(
-          action !== undefined ? q.eq(q.field("action"), action) : true,
-          filterDates && from !== undefined ? q.gte(q.field("timestamp"), from) : true,
-          filterDates && to !== undefined ? q.lte(q.field("timestamp"), to) : true,
-        ),
-      )
+      .filter((q) => (action !== undefined ? q.eq(q.field("action"), action) : true))
       .order("desc")
       .paginate(args.paginationOpts);
   },
@@ -273,16 +349,18 @@ export const setUserRole = mutation({
     const admin = await requireAdmin(ctx);
 
     const targetUser = await ctx.db.get(args.userId);
-    if (!targetUser) throw new Error("User not found");
+    if (!targetUser) throw new ConvexError("User not found");
 
     // Never leave the app with no admin: the last one can't be demoted
     // (in practice, the only admin demoting themselves).
     if (targetUser.role === "admin" && args.role !== "admin") {
-      const admins = (await ctx.db.query("users").collect()).filter(
-        (u) => u.role === "admin",
-      );
+      // Two rows are enough to know whether another admin exists.
+      const admins = await ctx.db
+        .query("users")
+        .withIndex("by_role", (q) => q.eq("role", "admin"))
+        .take(2);
       if (admins.length <= 1) {
-        throw new Error(
+        throw new ConvexError(
           "You are the last admin. Promote someone else before stepping down.",
         );
       }
@@ -304,28 +382,6 @@ export const setUserRole = mutation({
     });
 
     return { success: true };
-  },
-});
-
-/**
- * Get all users (admin only)
- */
-export const getAllUsers = query({
-  args: {},
-  handler: async (ctx) => {
-    const user = await getCurrentUser(ctx);
-    if (!user || user.role !== "admin") {
-      return [];
-    }
-
-    const users = await ctx.db.query("users").collect();
-    return users.map((u) => ({
-      _id: u._id,
-      email: u.email,
-      name: u.name,
-      role: getUserRole(u),
-      createdAt: u.createdAt,
-    }));
   },
 });
 
@@ -401,9 +457,10 @@ export type TournamentPeople = {
 };
 
 const emailKey = (email: string) => email.trim().toLowerCase();
+const STAFF_ORDER: Record<Doc<"tournamentStaff">["role"], number> = { owner: 0, auctioneer: 1, registrar: 2 };
 
 /**
- * Organisers (owners first, then auctioneers), then team owners: joined,
+ * Organisers (owners, then auctioneers, then registration admins), then team owners: joined,
  * awaiting the organiser's approval, and invited but not yet joined (open
  * team links and "add your team" emails, once per address).
  */
@@ -431,7 +488,7 @@ export const tournamentPeople = query({
     const teamNames = new Map(teams.map((t) => [t._id, t.name]));
 
     const organisers = [...staff]
-      .sort((a, b) => Number(a.role === "auctioneer") - Number(b.role === "auctioneer"))
+      .sort((a, b) => STAFF_ORDER[a.role] - STAFF_ORDER[b.role])
       .map((row) => ({
         userId: row.userId,
         name: users.get(row.userId)?.name,
@@ -483,7 +540,7 @@ export const setUserIntent = mutation({
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
     const target = await ctx.db.get(args.userId);
-    if (!target) throw new Error("User not found");
+    if (!target) throw new ConvexError("User not found");
     const previous = intentOf(target);
     await ctx.db.patch(args.userId, { accountType: args.accountType, accountTypeChosenAt: Date.now() });
     await logAdminAction(ctx, {
@@ -509,10 +566,10 @@ export const setUserActive = mutation({
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
     const target = await ctx.db.get(args.userId);
-    if (!target) throw new Error("User not found");
+    if (!target) throw new ConvexError("User not found");
     if (!args.active) {
-      if (target._id === admin._id) throw new Error("You can't deactivate yourself");
-      if (target.role === "admin") throw new Error("Remove their admin role first");
+      if (target._id === admin._id) throw new ConvexError("You can't deactivate yourself");
+      if (target.role === "admin") throw new ConvexError("Remove their admin role first");
     }
     if ((target.deactivatedAt === undefined) === args.active) return { success: true };
     await ctx.db.patch(args.userId, { deactivatedAt: args.active ? undefined : Date.now() });
@@ -552,45 +609,77 @@ export const ensureUser = mutation({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity?.email) {
-      throw new Error("No email in identity");
+      throw new ConvexError("No email in identity");
     }
+    // Links a legacy row to this sign-in, or creates the row. Everyone starts
+    // as a "user": there is no "first sign-in becomes admin" rule (AUDIT
+    // 2026-11 SEC-007, PERF-002). Two simultaneous first sign-ins can't both
+    // insert: the reads are in this transaction, so the second conflicts,
+    // retries, and finds the row.
+    const user = await linkOrCreateUser(ctx);
+    // Staff roles offered to this address before (or since) they signed up.
+    if (user.deactivatedAt === undefined) await claimStaffInvites(ctx, user);
+    return user._id;
+  },
+});
 
-    const existingUser = await ctx.db
+/**
+ * Support tool: release a row from the sign-in it is linked to, so the same
+ * person's new sign-in (e.g. after recreating their account) can claim it on
+ * next sign-in. CLI only:
+ *   npx convex run auth:unlinkSignIn '{"email": "them@example.com"}'
+ */
+export const unlinkSignIn = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const email = args.email.trim();
+    const user = await ctx.db
       .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
+      .withIndex("by_email", (q) => q.eq("email", email))
       .first();
-
-    if (existingUser) {
-      // Update name if changed
-      if (identity.name && identity.name !== existingUser.name) {
-        await ctx.db.patch(existingUser._id, { name: identity.name });
-      }
-      return existingUser._id;
-    }
-
-    // Create new user with default 'user' role
-    // First user gets admin role
-    const userCount = await ctx.db.query("users").collect();
-    const isFirstUser = userCount.length === 0;
-
-    // Race condition guard: if two requests arrive simultaneously,
-    // the second insert may conflict on the by_email unique index.
-    // Re-check after collecting user count.
-    const raceCheck = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
-      .first();
-    if (raceCheck) {
-      return raceCheck._id;
-    }
-
-    const userId = await ctx.db.insert("users", {
-      email: identity.email,
-      name: identity.name,
-      role: isFirstUser ? "admin" : "user",
-      createdAt: Date.now(),
+    if (!user) throw new ConvexError(`No account for ${email}`);
+    await ctx.db.patch(user._id, { tokenIdentifier: undefined });
+    await logAdminAction(ctx, {
+      userId: user._id,
+      userEmail: user.email,
+      action: "unlink_sign_in",
+      targetType: "user",
+      targetId: user._id,
+      previousData: { tokenIdentifier: user.tokenIdentifier },
     });
+    return { success: true };
+  },
+});
 
-    return userId;
+/**
+ * Make the platform's first super-admin. CLI only, and only while there is
+ * no admin at all; after that, admins promote each other in /admin/users.
+ * The person must have signed in once so their user row exists:
+ *   npx convex run auth:bootstrapAdmin '{"email": "you@example.com"}'
+ */
+export const bootstrapAdmin = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const existingAdmin = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) => q.eq("role", "admin"))
+      .first();
+    if (existingAdmin) throw new ConvexError("This deployment already has an admin; promote people from /admin/users");
+    const email = args.email.trim();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .first();
+    if (!user) throw new ConvexError(`No account for ${email}. Sign in once first.`);
+    await ctx.db.patch(user._id, { role: "admin" });
+    await logAdminAction(ctx, {
+      userId: user._id,
+      userEmail: user.email,
+      action: "bootstrap_admin",
+      targetType: "user",
+      targetId: user._id,
+      newData: { role: "admin" },
+    });
+    return { success: true };
   },
 });

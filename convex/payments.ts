@@ -3,7 +3,7 @@
 // (recordOrder, as the owner); the customer pays in Razorpay Checkout;
 // Razorpay calls convex/http.ts, which verifies the signature and calls
 // applyRazorpayPayment. The plan only changes from that signed webhook.
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation } from "./_generated/server";
 import { logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
 import { PLAN_ORDER, PLAN_TIERS, upgradePrice } from "./planTiers";
@@ -19,19 +19,19 @@ export const recordOrder = mutation({
   },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const owner = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
-    if (!tournament.plan) throw new Error("This tournament predates plans and has no limits; no upgrade needed");
+    if (!tournament.plan) throw new ConvexError("This tournament predates plans and has no limits; no upgrade needed");
     const expected = upgradePrice(tournament.plan.tier, args.tier);
-    if (expected === null) throw new Error(`${PLAN_TIERS[args.tier].label} is not an upgrade from ${PLAN_TIERS[tournament.plan.tier].label}`);
-    if (args.amount !== expected) throw new Error(`Wrong amount: expected ${expected} paise`);
+    if (expected === null) throw new ConvexError(`${PLAN_TIERS[args.tier].label} is not an upgrade from ${PLAN_TIERS[tournament.plan.tier].label}`);
+    if (args.amount !== expected) throw new ConvexError(`Wrong amount: expected ${expected} paise`);
 
     const existing = await ctx.db
       .query("paymentOrders")
       .withIndex("by_order", (q) => q.eq("razorpayOrderId", args.razorpayOrderId))
       .first();
-    if (existing) throw new Error("That order is already recorded");
+    if (existing) throw new ConvexError("That order is already recorded");
 
     return await ctx.db.insert("paymentOrders", {
       tournamentId: args.tournamentId,

@@ -56,6 +56,16 @@ afterEach(() => {
   delete process.env.RAZORPAY_WEBHOOK_SECRET;
 });
 
+describe("malformed webhook bodies (REL-004)", () => {
+  test("a signed body that isn't JSON is recorded and answered 200, not a 500", async () => {
+    const t = convexTest(schema, modules);
+    const res = await postWebhook(t, "not json {");
+    expect(res.status).toBe(200);
+    const events = await t.run((ctx) => ctx.db.query("webhookEvents").collect());
+    expect(events.map((e) => e.outcome)).toEqual(["malformed payload"]);
+  });
+});
+
 describe("upgradePrice", () => {
   test("charges the difference between tiers, in paise", () => {
     expect(upgradePrice("free", "club")).toBe(99_900);

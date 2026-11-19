@@ -5,17 +5,18 @@
 // in http.ts marks it paid). The organiser approves, which creates the
 // player through the same validation as players:create. Registrants may pick
 // a category; they can never set auction fields such as price or status.
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action, internalMutation, mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { consumeRateLimit } from "./rateLimit";
-import { logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
+import { logAdminAction, OWNER_ONLY, REVIEW_REGISTRATIONS, requireTournamentRole } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { insertValidatedPlayer } from "./players";
 import { normalizePhone, validatePlayerFields } from "./validation";
 import { cloudinarySignature } from "./cloudinarySignature";
+import { cloudinaryPublicId, isOurUpload, ourCloudName } from "./uploads";
 import { answersValidator, missingRequiredField, resolveRequiredFields, validateAnswers } from "./registrationForm";
 import { customQuestionsEnabled, latestFormVersion } from "./registrationForms";
 import { enqueueRegistrationNotification } from "./notifications";
@@ -25,6 +26,10 @@ const MAX_PER_PHONE_PER_DAY = 3;
 // a real registration rush (a link shared in a group) stays under it.
 const SUBMIT_LIMIT = { limit: 30, windowMs: 60 * 1000 };
 const UPLOAD_SIGNATURE_LIMIT = { limit: 60, windowMs: 60 * 1000 };
+// And per day, so a tournament can't be used as free image hosting.
+const UPLOAD_DAILY_LIMIT = { limit: 2000, windowMs: 24 * 60 * 60 * 1000 };
+/** How long an upload may wait for its registration to be submitted. */
+const UPLOAD_GRANT_TTL_MS = 6 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PHOTO_FOLDER = "cricket-auction/registrations";
 const PHOTO_FORMATS = "jpg,jpeg,png,webp";
@@ -41,12 +46,13 @@ function playerPhone(p: Doc<"players">): string | undefined {
   return phone.ok ? phone.phone : p.phoneNumber;
 }
 
-const isUploadedImage = (url: string) => url.startsWith("https://res.cloudinary.com/");
+/** A file a registrant uploaded through getUploadSignature (AUDIT 2026-11 SEC-004). */
+const isUploadedImage = (url: string) => isOurUpload(url, "registrations");
 
 /** Throws unless `categoryId` is absent or one of the tournament's categories. */
 function assertKnownCategory(tournament: Doc<"tournaments">, categoryId: string | undefined) {
   if (categoryId !== undefined && !(tournament.settings.categories ?? []).some((c) => c.id === categoryId)) {
-    throw new Error("Pick a category from the tournament's list");
+    throw new ConvexError("Pick a category from the tournament's list");
   }
 }
 
@@ -69,6 +75,7 @@ export const getPublicInfo = query({
       name: tournament.name,
       description: tournament.description,
       logoUrl: tournament.logoUrl,
+      organizationLogoUrl: tournament.organizationLogoUrl,
       open: tournament.settings.registrationOpen === true && tournament.status !== "completed",
       fee: tournament.settings.registrationFee ?? 0,
       paymentQrUrl: tournament.settings.paymentQrUrl,
@@ -89,20 +96,67 @@ export const getUploadSignature = action({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
     const info = await ctx.runQuery(api.registrations.getPublicInfo, { tournamentId: args.tournamentId });
-    if (!info?.open) throw new Error("Registration is closed");
-    const allowed = await ctx.runMutation(internal.rateLimit.consume, {
-      key: `upload:${args.tournamentId}`,
-      ...UPLOAD_SIGNATURE_LIMIT,
-    });
-    if (!allowed) throw new Error("Too many uploads right now. Try again in a minute.");
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME ?? process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    if (!info?.open) throw new ConvexError("Registration is closed");
+    const cloudName = ourCloudName();
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
-    if (!cloudName || !apiKey || !apiSecret) throw new Error("Photo upload isn't set up; you can register without a photo");
-    const params = { allowed_formats: PHOTO_FORMATS, folder: PHOTO_FOLDER, timestamp: Math.floor(Date.now() / 1000) };
+    if (!cloudName || !apiKey || !apiSecret) throw new ConvexError("Photo upload isn't set up; you can register without a photo");
+    // The signature names one random file (public_id), recorded as a grant
+    // that submit consumes: a signature can't be reused for more uploads,
+    // and an upload can back one registration only (AUDIT 2026-11 SEC-003).
+    const publicId = crypto.randomUUID().replace(/-/g, "");
+    const issued = await ctx.runMutation(internal.registrations.issueUploadGrant, {
+      tournamentId: args.tournamentId,
+      publicId: `${PHOTO_FOLDER}/${publicId}`,
+    });
+    if (!issued) throw new ConvexError("Too many uploads right now. Try again in a minute.");
+    const params = {
+      allowed_formats: PHOTO_FORMATS,
+      folder: PHOTO_FOLDER,
+      public_id: publicId,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
     return { cloudName, apiKey, ...params, signature: await cloudinarySignature(params, apiSecret) };
   },
 });
+
+/** Count the upload against the tournament's limits and record its grant; false when over. */
+export const issueUploadGrant = internalMutation({
+  args: { tournamentId: v.id("tournaments"), publicId: v.string() },
+  handler: async (ctx, args): Promise<boolean> => {
+    if (!(await consumeRateLimit(ctx, `upload:${args.tournamentId}`, UPLOAD_SIGNATURE_LIMIT))) return false;
+    if (!(await consumeRateLimit(ctx, `upload-day:${args.tournamentId}`, UPLOAD_DAILY_LIMIT))) return false;
+    await ctx.db.insert("uploadGrants", { ...args, expiresAt: Date.now() + UPLOAD_GRANT_TTL_MS });
+    return true;
+  },
+});
+
+/**
+ * Use up the grant behind a registrant's uploaded file: it must have been
+ * signed for this tournament, not yet used and not expired. Throws `message`
+ * otherwise. Without a configured cloud name there are no grants to check
+ * (as before SEC-003).
+ */
+async function consumeUploadGrant(
+  ctx: MutationCtx,
+  url: string,
+  tournamentId: Id<"tournaments">,
+  message: string,
+): Promise<void> {
+  const cloud = ourCloudName();
+  if (!cloud) return;
+  const publicId = cloudinaryPublicId(url, cloud);
+  const grant = publicId
+    ? await ctx.db
+        .query("uploadGrants")
+        .withIndex("by_publicId", (q) => q.eq("publicId", publicId))
+        .first()
+    : null;
+  if (!grant || grant.tournamentId !== tournamentId || grant.usedAt !== undefined || grant.expiresAt < Date.now()) {
+    throw new ConvexError(message);
+  }
+  await ctx.db.patch(grant._id, { usedAt: Date.now() });
+}
 
 /**
  * Validate the registrant's answers against the live form. They must answer
@@ -117,11 +171,18 @@ async function checkAnswers(
   if (!customQuestionsEnabled()) return undefined;
   const form = await latestFormVersion(ctx, tournamentId);
   if (answers && answers.formVersion !== (form?.version ?? 0)) {
-    throw new Error("The organiser just updated this form. Reload the page and fill it in again.");
+    throw new ConvexError("The organiser just updated this form. Reload the page and fill it in again.");
   }
   if (!form) return undefined;
   const { errors, cleaned } = validateAnswers(form.questions, answers?.values ?? []);
-  if (errors.length > 0) throw new Error(errors[0].message);
+  if (errors.length > 0) throw new ConvexError(errors[0].message);
+  // File answers are registrant uploads too: each needs its own grant.
+  const fileQuestions = new Set(form.questions.filter((q) => q.type === "file").map((q) => q.id));
+  for (const a of cleaned) {
+    if (fileQuestions.has(a.questionId) && typeof a.value === "string") {
+      await consumeUploadGrant(ctx, a.value, tournamentId, "Upload the file again with the form's upload button");
+    }
+  }
   return cleaned.length > 0 ? { formVersion: form.version, values: cleaned } : undefined;
 }
 
@@ -150,26 +211,29 @@ export const submit = mutation({
   },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament || tournament.isActive === false) throw new Error("Tournament not found");
+    if (!tournament || tournament.isActive === false) throw new ConvexError("Tournament not found");
     if (!tournament.settings.registrationOpen || tournament.status === "completed") {
-      throw new Error("Registration is closed for this tournament");
+      throw new ConvexError("Registration is closed for this tournament");
     }
     if (args.website.trim() !== "") return { success: true as const, needsPayment: false, fee: 0 };
     if (!(await consumeRateLimit(ctx, `register:${args.tournamentId}`, SUBMIT_LIMIT))) {
-      throw new Error("Too many registrations right now. Try again in a minute.");
+      throw new ConvexError("Too many registrations right now. Try again in a minute.");
     }
 
     const { website: _honeypot, consentWhatsApp, tournamentId, categoryId, answers: rawAnswers, ...fields } = args;
     const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
-    if (errors.length > 0) throw new Error(errors[0].message);
-    if (!phoneNumber) throw new Error("Phone number is required");
+    if (errors.length > 0) throw new ConvexError(errors[0].message);
+    if (!phoneNumber) throw new ConvexError("Phone number is required");
     const required = resolveRequiredFields((await latestFormVersion(ctx, tournamentId))?.requiredFields);
     const missing = missingRequiredField(required, { ...fields, categoryId }, {
       hasCategories: (tournament.settings.categories ?? []).length > 0,
     });
-    if (missing) throw new Error(missing);
+    if (missing) throw new ConvexError(missing);
     if (fields.photoUrl && !isUploadedImage(fields.photoUrl)) {
-      throw new Error("Upload your photo with the form's photo button");
+      throw new ConvexError("Upload your photo with the form's photo button");
+    }
+    if (fields.photoUrl) {
+      await consumeUploadGrant(ctx, fields.photoUrl, tournamentId, "Upload your photo again with the form's photo button");
     }
     assertKnownCategory(tournament, categoryId);
     const answers = await checkAnswers(ctx, tournamentId, rawAnswers);
@@ -180,7 +244,7 @@ export const submit = mutation({
       .withIndex("by_tournament_phone", (q) => q.eq("tournamentId", tournamentId).eq("phoneNumber", phoneNumber))
       .collect();
     if (samePhone.filter((r) => r.createdAt > now - DAY_MS).length >= MAX_PER_PHONE_PER_DAY) {
-      throw new Error("Too many registrations from this phone number today. Try again tomorrow.");
+      throw new ConvexError("Too many registrations from this phone number today. Try again tomorrow.");
     }
 
     // Indexed on the normalised phone: no full roster scan on a public path.
@@ -194,7 +258,7 @@ export const submit = mutation({
       samePhone.some((r) => r.status !== "rejected" && duplicateKey(r.name, r.phoneNumber) === key) ||
       playersWithPhone.some((p) => duplicateKey(p.name, playerPhone(p)) === key)
     ) {
-      throw new Error(`${fields.name.trim()} is already registered for this tournament`);
+      throw new ConvexError(`${fields.name.trim()} is already registered for this tournament`);
     }
 
     const fee = Math.max(0, tournament.settings.registrationFee ?? 0);
@@ -232,22 +296,20 @@ export const recordOrder = mutation({
   args: { registrationId: v.id("registrations"), razorpayOrderId: v.string(), amount: v.number() },
   handler: async (ctx, args) => {
     const registration = await ctx.db.get(args.registrationId);
-    if (!registration) throw new Error("Registration not found");
-    if (registration.status !== "pending_payment") throw new Error("Nothing to pay for this registration");
-    if (args.amount !== registration.fee * 100) throw new Error(`Wrong amount: expected ${registration.fee * 100} paise`);
+    if (!registration) throw new ConvexError("Registration not found");
+    if (registration.status !== "pending_payment") throw new ConvexError("Nothing to pay for this registration");
+    if (args.amount !== registration.fee * 100) throw new ConvexError(`Wrong amount: expected ${registration.fee * 100} paise`);
     const existing = await ctx.db
       .query("registrationOrders")
       .withIndex("by_order", (q) => q.eq("razorpayOrderId", args.razorpayOrderId))
       .first();
-    if (existing) throw new Error("That order is already recorded");
-    const orders = (
-      await ctx.db
-        .query("registrationOrders")
-        .withIndex("by_tournament", (q) => q.eq("tournamentId", registration.tournamentId))
-        .collect()
-    ).filter((o) => o.registrationId === registration._id);
+    if (existing) throw new ConvexError("That order is already recorded");
+    const orders = await ctx.db
+      .query("registrationOrders")
+      .withIndex("by_registration", (q) => q.eq("registrationId", registration._id))
+      .take(MAX_ORDERS_PER_REGISTRATION);
     if (orders.length >= MAX_ORDERS_PER_REGISTRATION) {
-      throw new Error("Too many payment attempts for this registration. Contact the organiser.");
+      throw new ConvexError("Too many payment attempts for this registration. Contact the organiser.");
     }
     await ctx.db.insert("registrationOrders", {
       registrationId: registration._id,
@@ -314,11 +376,17 @@ export const submitPaymentProof = mutation({
   args: { registrationId: v.id("registrations"), proofUrl: v.string() },
   handler: async (ctx, args) => {
     const registration = await ctx.db.get(args.registrationId);
-    if (!registration) throw new Error("Registration not found");
-    if (registration.status !== "pending_payment") throw new Error("Nothing to pay for this registration");
+    if (!registration) throw new ConvexError("Registration not found");
+    if (registration.status !== "pending_payment") throw new ConvexError("Nothing to pay for this registration");
     const tournament = await ctx.db.get(registration.tournamentId);
-    if (!tournament?.settings.paymentQrUrl) throw new Error("This tournament has no payment QR. Pay the organiser directly.");
-    if (!isUploadedImage(args.proofUrl)) throw new Error("Upload the payment screenshot with the form's upload button");
+    if (!tournament?.settings.paymentQrUrl) throw new ConvexError("This tournament has no payment QR. Pay the organiser directly.");
+    if (!isUploadedImage(args.proofUrl)) throw new ConvexError("Upload the payment screenshot with the form's upload button");
+    await consumeUploadGrant(
+      ctx,
+      args.proofUrl,
+      registration.tournamentId,
+      "Upload the payment screenshot again with the form's upload button",
+    );
     await ctx.db.patch(args.registrationId, { status: "paid", paymentMethod: "qr", paymentProofUrl: args.proofUrl });
     return { success: true };
   },
@@ -332,21 +400,21 @@ export const chooseOfflinePayment = mutation({
   args: { registrationId: v.id("registrations") },
   handler: async (ctx, args) => {
     const registration = await ctx.db.get(args.registrationId);
-    if (!registration) throw new Error("Registration not found");
-    if (registration.status !== "pending_payment") throw new Error("Nothing to pay for this registration");
+    if (!registration) throw new ConvexError("Registration not found");
+    if (registration.status !== "pending_payment") throw new ConvexError("Nothing to pay for this registration");
     await ctx.db.patch(args.registrationId, { paymentMethod: "offline" });
     return { success: true };
   },
 });
 
-/** The owner received the fee in person. Owners only; audited. */
+/** The fee was received in person. Owners and registration admins; audited. */
 export const markPaid = mutation({
   args: { registrationId: v.id("registrations") },
   handler: async (ctx, args) => {
     const registration = await ctx.db.get(args.registrationId);
-    if (!registration) throw new Error("Registration not found");
-    const admin = await requireTournamentRole(ctx, registration.tournamentId, OWNER_ONLY);
-    if (registration.status !== "pending_payment") throw new Error("Already paid");
+    if (!registration) throw new ConvexError("Registration not found");
+    const admin = await requireTournamentRole(ctx, registration.tournamentId, REVIEW_REGISTRATIONS);
+    if (registration.status !== "pending_payment") throw new ConvexError("Already paid");
     await ctx.db.patch(args.registrationId, { status: "paid", paymentMethod: "offline" });
     await logAdminAction(ctx, {
       userId: admin._id,
@@ -367,12 +435,12 @@ export const setCategory = mutation({
   args: { registrationId: v.id("registrations"), categoryId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const registration = await ctx.db.get(args.registrationId);
-    if (!registration) throw new Error("Registration not found");
-    await requireTournamentRole(ctx, registration.tournamentId, OWNER_ONLY);
+    if (!registration) throw new ConvexError("Registration not found");
+    await requireTournamentRole(ctx, registration.tournamentId, REVIEW_REGISTRATIONS);
     const tournament = await ctx.db.get(registration.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     assertKnownCategory(tournament, args.categoryId);
-    if (registration.status === "approved") throw new Error("Already approved; change the player's category instead");
+    if (registration.status === "approved") throw new ConvexError("Already approved; change the player's category instead");
     await ctx.db.patch(args.registrationId, { categoryId: args.categoryId });
     return { success: true };
   },
@@ -403,11 +471,11 @@ export const listRefundsDue = query({
   },
 });
 
-/** Owner review list, newest first, with duplicates flagged. Includes phones. */
+/** Review list (owners and registration admins), newest first, with duplicates flagged. Includes phones. */
 export const list = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
-    await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    await requireTournamentRole(ctx, args.tournamentId, REVIEW_REGISTRATIONS);
     const [rows, players] = await Promise.all([
       ctx.db
         .query("registrations")
@@ -433,19 +501,61 @@ export const list = query({
   },
 });
 
-async function approveOne(ctx: MutationCtx, registration: Doc<"registrations">, admin: Doc<"users">): Promise<Id<"players">> {
-  if (registration.status !== "paid") {
-    throw new Error(registration.status === "pending_payment" ? "Not paid yet" : `Already ${registration.status}`);
-  }
-  const tournament = await ctx.db.get(registration.tournamentId);
-  if (!tournament) throw new Error("Tournament not found");
+/**
+ * Counts for the tournament page's Registrations button: ready to review,
+ * waiting for payment, and the current fee (0 = free). Reviewers only.
+ */
+export const summary = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    await requireTournamentRole(ctx, args.tournamentId, REVIEW_REGISTRATIONS);
+    const tournament = await ctx.db.get(args.tournamentId);
+    let ready = 0;
+    let awaitingPayment = 0;
+    for await (const r of ctx.db
+      .query("registrations")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))) {
+      if (r.status === "paid") ready++;
+      else if (r.status === "pending_payment") awaitingPayment++;
+    }
+    return { ready, awaitingPayment, fee: tournament?.settings.registrationFee ?? 0 };
+  },
+});
 
+/**
+ * What approvals need to know about the roster: who is already a player
+ * (name + phone) and its size and next number. Loaded once per call and
+ * kept up to date in memory as players are added, so approving many
+ * registrations reads the players table once, not twice per registration
+ * (AUDIT 2026-11 PERF-003).
+ */
+type Roster = { keys: Set<string>; count: number; nextPlayerNumber: number };
+
+async function loadRoster(ctx: MutationCtx, tournamentId: Id<"tournaments">): Promise<Roster> {
   const players = await ctx.db
     .query("players")
-    .withIndex("by_tournament", (q) => q.eq("tournamentId", registration.tournamentId))
+    .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId))
     .collect();
-  if (players.some((p) => duplicateKey(p.name, playerPhone(p)) === duplicateKey(registration.name, registration.phoneNumber))) {
-    throw new Error(`${registration.name} is already a player`);
+  return {
+    keys: new Set(players.map((p) => duplicateKey(p.name, playerPhone(p)))),
+    count: players.length,
+    nextPlayerNumber: players.reduce((max, p) => Math.max(max, p.playerNumber || 0), 0) + 1,
+  };
+}
+
+async function approveOne(
+  ctx: MutationCtx,
+  registration: Doc<"registrations">,
+  admin: Doc<"users">,
+  tournament: Doc<"tournaments">,
+  roster: Roster,
+): Promise<Id<"players">> {
+  if (registration.status !== "paid") {
+    throw new ConvexError(registration.status === "pending_payment" ? "Not paid yet" : `Already ${registration.status}`);
+  }
+  const key = duplicateKey(registration.name, registration.phoneNumber);
+  if (roster.keys.has(key)) {
+    throw new ConvexError(`${registration.name} is already a player`);
   }
 
   // A category removed since they registered is dropped, not an error.
@@ -453,19 +563,27 @@ async function approveOne(ctx: MutationCtx, registration: Doc<"registrations">, 
     ? registration.categoryId
     : undefined;
   // Same validation, category and plan-limit rules as players:create.
-  const playerId = await insertValidatedPlayer(ctx, tournament, {
-    categoryId,
-    name: registration.name,
-    age: registration.age,
-    role: registration.role,
-    battingBowlingHand: registration.battingBowlingHand,
-    phoneNumber: registration.phoneNumber,
-    photoUrl: registration.photoUrl,
-    jerseyNumber: registration.jerseyNumber,
-    jerseyName: registration.jerseyName,
-    tshirtSize: registration.tshirtSize,
-    consentWhatsApp: registration.consentWhatsApp,
-  });
+  const playerId = await insertValidatedPlayer(
+    ctx,
+    tournament,
+    {
+      categoryId,
+      name: registration.name,
+      age: registration.age,
+      role: registration.role,
+      battingBowlingHand: registration.battingBowlingHand,
+      phoneNumber: registration.phoneNumber,
+      photoUrl: registration.photoUrl,
+      jerseyNumber: registration.jerseyNumber,
+      jerseyName: registration.jerseyName,
+      tshirtSize: registration.tshirtSize,
+      consentWhatsApp: registration.consentWhatsApp,
+    },
+    { count: roster.count, nextPlayerNumber: roster.nextPlayerNumber },
+  );
+  roster.keys.add(key);
+  roster.count++;
+  roster.nextPlayerNumber++;
   await ctx.db.patch(registration._id, { status: "approved", playerId, reviewedAt: Date.now() });
   await enqueueRegistrationNotification(ctx, "registration_approved", { registration, tournament, playerId });
   await logAdminAction(ctx, {
@@ -480,44 +598,65 @@ async function approveOne(ctx: MutationCtx, registration: Doc<"registrations">, 
   return playerId;
 }
 
-/** Approve one registration: creates the player. Owners only. */
+/** Approve one registration: creates the player. Owners and registration admins. */
 export const approve = mutation({
   args: { registrationId: v.id("registrations") },
   handler: async (ctx, args) => {
     const registration = await ctx.db.get(args.registrationId);
-    if (!registration) throw new Error("Registration not found");
-    const admin = await requireTournamentRole(ctx, registration.tournamentId, OWNER_ONLY);
-    const playerId = await approveOne(ctx, registration, admin);
+    if (!registration) throw new ConvexError("Registration not found");
+    const admin = await requireTournamentRole(ctx, registration.tournamentId, REVIEW_REGISTRATIONS);
+    const tournament = await ctx.db.get(registration.tournamentId);
+    if (!tournament) throw new ConvexError("Tournament not found");
+    const playerId = await approveOne(ctx, registration, admin, tournament, await loadRoster(ctx, tournament._id));
     await syncTournamentAuctionCounts(ctx, registration.tournamentId);
     return playerId;
   },
 });
 
-/** Approve every registration that is ready (paid). Failures are reported, not fatal. */
+/** Registrations approved per bulkApprove call: keeps each call well inside one transaction. */
+const BULK_APPROVE_BATCH = 50;
+
+/**
+ * Approve the ready (paid) registrations, oldest first, BULK_APPROVE_BATCH
+ * per call. Failures (duplicates, the plan limit) are reported, not fatal.
+ * Pass the returned `after` back to continue; failed ones stay "paid", so
+ * resuming by position (not by status) is what makes the loop end.
+ */
 export const bulkApprove = mutation({
-  args: { tournamentId: v.id("tournaments") },
+  args: { tournamentId: v.id("tournaments"), after: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    const admin = await requireTournamentRole(ctx, args.tournamentId, REVIEW_REGISTRATIONS);
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) throw new ConvexError("Tournament not found");
     const ready = (
       await ctx.db
         .query("registrations")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
         .collect()
     )
-      .filter((r) => r.status === "paid")
+      .filter((r) => r.status === "paid" && (args.after === undefined || r.createdAt > args.after))
       .sort((a, b) => a.createdAt - b.createdAt);
+    const batch = ready.slice(0, BULK_APPROVE_BATCH);
+
+    const roster = await loadRoster(ctx, args.tournamentId);
     let approved = 0;
     const failed: Array<{ registrationId: Id<"registrations">; name: string; reason: string }> = [];
-    for (const registration of ready) {
+    for (const registration of batch) {
       try {
-        await approveOne(ctx, registration, admin);
+        await approveOne(ctx, registration, admin, tournament, roster);
         approved++;
       } catch (error) {
         failed.push({ registrationId: registration._id, name: registration.name, reason: (error as Error).message });
       }
     }
     if (approved > 0) await syncTournamentAuctionCounts(ctx, args.tournamentId);
-    return { approved, failed };
+    return {
+      approved,
+      failed,
+      remaining: ready.length - batch.length,
+      // Resume point for the next call (createdAt of the last one tried).
+      after: batch.at(-1)?.createdAt ?? args.after,
+    };
   },
 });
 
@@ -526,11 +665,11 @@ export const reject = mutation({
   args: { registrationId: v.id("registrations"), reason: v.string() },
   handler: async (ctx, args) => {
     const registration = await ctx.db.get(args.registrationId);
-    if (!registration) throw new Error("Registration not found");
-    const admin = await requireTournamentRole(ctx, registration.tournamentId, OWNER_ONLY);
+    if (!registration) throw new ConvexError("Registration not found");
+    const admin = await requireTournamentRole(ctx, registration.tournamentId, REVIEW_REGISTRATIONS);
     const reason = args.reason.trim();
-    if (!reason) throw new Error("A reason is required");
-    if (registration.status === "approved") throw new Error("Already approved; delete the player instead");
+    if (!reason) throw new ConvexError("A reason is required");
+    if (registration.status === "approved") throw new ConvexError("Already approved; delete the player instead");
     await ctx.db.patch(args.registrationId, { status: "rejected", rejectReason: reason.slice(0, 200), reviewedAt: Date.now() });
     await logAdminAction(ctx, {
       userId: admin._id,
@@ -552,12 +691,10 @@ export const getPaymentInfo = query({
     const registration = await ctx.db.get(args.registrationId);
     if (!registration) return null;
     const tournament = await ctx.db.get(registration.tournamentId);
-    const orders = (
-      await ctx.db
-        .query("registrationOrders")
-        .withIndex("by_tournament", (q) => q.eq("tournamentId", registration.tournamentId))
-        .collect()
-    ).filter((o) => o.registrationId === registration._id);
+    const orders = await ctx.db
+      .query("registrationOrders")
+      .withIndex("by_registration", (q) => q.eq("registrationId", registration._id))
+      .take(MAX_ORDERS_PER_REGISTRATION);
     return {
       status: registration.status,
       fee: registration.fee,

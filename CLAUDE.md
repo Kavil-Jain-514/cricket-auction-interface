@@ -2,7 +2,7 @@
 
 Bid11Pro (repo: cricket-auction-interface) is a live cricket player-auction app.
 
-Stack: Next.js 16 App Router (all pages are client components), React 19, Tailwind 4, Convex 1.31 backend
+Stack: Next.js 16 App Router (all pages are client components), React 19, Tailwind 4, Convex 1.42 backend
 (`convex/*.ts`), Clerk auth, Cloudinary images, Vitest + convex-test.
 
 ## Commands
@@ -26,10 +26,13 @@ npx tsc --noEmit     # typecheck
   - Never make the hot query read the `players`/`teams` tables broadly. Never make the cold query read the
     `auctionRooms` document.
 - **Tournament access is per tournament.** Tournament-scoped mutations and admin queries call
-  `requireTournamentRole(ctx, tournamentId, RUN_AUCTION | OWNER_ONLY)` (`convex/auth.ts`), after loading
-  the doc that names the tournament and before any other validation. `users.role "admin"` is the platform
+  `requireTournamentRole(ctx, tournamentId, RUN_AUCTION | OWNER_ONLY | REVIEW_REGISTRATIONS)` (`convex/auth.ts`), after loading
+  the doc that names the tournament and before any other validation. Staff roles are `owner`, `auctioneer` and
+  `registrar` (registration admin: reviews registrations only; use `runsAuction` in `convex/policy.ts`, never
+  "has any role", for console access). Staff are invited by email (`staff:add`) and need no account: the
+  invite is claimed by `auth:ensureUser` on sign-in. `users.role "admin"` is the platform
   super-admin and passes every check; `requireAdmin` is only for global functions (`setUserRole`,
-  `setUserIntent`, `setUserActive`, `getAllUsers`, `listUsers`, `listAuditLogs`, and `tournamentPeople`,
+  `setUserIntent`, `setUserActive`, `listUsers`, `listAuditLogs`, and `tournamentPeople`,
   the super-admin People directory). A new public mutation must
   be added to the table in `convex/organiserIsolation.test.ts`.
 - **Account-level rules live in `convex/policy.ts`.** What someone may do because of how they signed up
@@ -48,7 +51,8 @@ npx tsc --noEmit     # typecheck
 
   It must also call `logAdminAction` (`convex/auth.ts`).
 - **Error shape.** In auction mutations, expected rule failures return `{ success: false, reason }`. Only
-  not-found cases throw.
+  not-found cases throw. Everything else throws `ConvexError("message for the user")`, never `Error`: production
+  redacts a plain `Error` to "Server Error". Clients show errors with `getErrorMessage` (`lib/utils.ts`).
 - **Expected state on console actions.** Bid, sell, final-unsold, revert, re-bid and owner raises take
   `expectedPlayerId` / `expectedCurrentBid` (`staleStateReason` in `convex/bidCore.ts`). Clients must always send
   what they showed; a new console action needs the same guard.

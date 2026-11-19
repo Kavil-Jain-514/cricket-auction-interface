@@ -6,6 +6,9 @@
 
 export const DEFAULT_BASE_PRICE = 100000;
 
+/** Squad size assumed only when the tournament itself can't be read. */
+export const DEFAULT_MAX_PLAYERS_PER_TEAM = 15;
+
 /**
  * Every amount is a whole number of rupees (AUDIT 2026-10 P1-3). Rules out
  * fractions, NaN and Infinity, which would otherwise leak into the purses.
@@ -56,6 +59,14 @@ export function reserveBasePrice({
     tournamentBasePrice ??
     DEFAULT_BASE_PRICE
   );
+}
+
+/**
+ * Players pre-assigned as a team's captain. They are never auctioned, so
+ * every count, list and pick leaves them out.
+ */
+export function captainIdsOf<P extends string>(teams: Array<{ captainPlayerId?: P }>): Set<P> {
+  return new Set(teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])));
 }
 
 export function isSquadFull(

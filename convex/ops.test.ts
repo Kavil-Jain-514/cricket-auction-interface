@@ -158,3 +158,24 @@ describe("liveOverview", () => {
     expect(overview.refundsDue).toMatchObject({ plans: 1, registrations: 0 });
   });
 });
+
+describe("ops:consumeRouteQuota — per-user limits for the upload and image-proxy routes (SEC-009)", () => {
+  test("counts per signed-in user and route, and refuses past the limit", async () => {
+    const t = convexTest(schema, modules);
+    await setup(t);
+    const asOrg = t.withIdentity(ORG);
+    for (let i = 0; i < 60; i++) {
+      expect(await asOrg.mutation(api.ops.consumeRouteQuota, { route: "upload" })).toBe(true);
+    }
+    expect(await asOrg.mutation(api.ops.consumeRouteQuota, { route: "upload" })).toBe(false);
+    // Another route, and another user, have their own windows.
+    expect(await asOrg.mutation(api.ops.consumeRouteQuota, { route: "imageProxy" })).toBe(true);
+    expect(await t.withIdentity(OWNER).mutation(api.ops.consumeRouteQuota, { route: "upload" })).toBe(true);
+  });
+
+  test("anyone not signed in is refused", async () => {
+    const t = convexTest(schema, modules);
+    await setup(t);
+    expect(await t.mutation(api.ops.consumeRouteQuota, { route: "upload" })).toBe(false);
+  });
+});

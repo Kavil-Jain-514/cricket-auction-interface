@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { getErrorMessage } from '@/lib/utils';
 
 export default function AuctionError({
     error,
@@ -22,7 +23,7 @@ export default function AuctionError({
                 <div className="space-y-2">
                     <h2 className="text-xl font-semibold text-white">Something went wrong</h2>
                     <p className="text-sm text-slate-400">
-                        {error.message || 'An unexpected error occurred in the auction room.'}
+                        {getErrorMessage(error, 'An unexpected error occurred in the auction room')}
                     </p>
                 </div>
                 <button

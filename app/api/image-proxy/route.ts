@@ -1,5 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@/convex/_generated/api";
 
 /**
  * Server-side image proxy to bypass CORS restrictions.
@@ -91,10 +93,17 @@ async function safeFetch(url: URL): Promise<Response> {
 }
 
 export async function GET(request: NextRequest) {
-  // Authentication: only signed-in users may use the proxy.
-  const { userId } = await auth();
-  if (!userId) {
+  // Authentication: only signed-in users may use the proxy, within an hourly
+  // per-user quota (AUDIT 2026-11 SEC-009): each call can pull up to 7 MB.
+  const { userId, getToken } = await auth();
+  const token = userId ? await getToken({ template: "convex" }) : null;
+  if (!token) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  convex.setAuth(token);
+  if (!(await convex.mutation(api.ops.consumeRouteQuota, { route: "imageProxy" }))) {
+    return NextResponse.json({ error: "Too many image requests in the last hour. Try again later." }, { status: 429 });
   }
 
   const rawUrl = request.nextUrl.searchParams.get("url");

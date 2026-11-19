@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, MutationCtx, query } from "./_generated/server";
 import {
   isTournamentStaff,
@@ -8,7 +8,7 @@ import {
 } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { normalizePhone, validatePlayerFields } from "./validation";
-import { categoryFor, effectiveBasePrice } from "./bidRules";
+import { captainIdsOf, categoryFor, effectiveBasePrice } from "./bidRules";
 import { assertPlayerCapacity } from "./plans";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -62,18 +62,20 @@ export async function insertValidatedPlayer(
   ctx: MutationCtx,
   tournament: Doc<"tournaments">,
   fields: NewPlayerFields,
+  /**
+   * The roster's size and next player number when the caller already has
+   * them (bulk approval inserts many in one transaction and keeps these
+   * itself), so the players table isn't re-read per insert (PERF-003).
+   */
+  roster?: { count: number; nextPlayerNumber: number },
 ): Promise<Id<"players">> {
   const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
-  if (errors.length > 0) throw new Error(errors[0].message);
+  if (errors.length > 0) throw new ConvexError(errors[0].message);
   const categoryError = unknownCategoryError(fields.categoryId, tournament);
-  if (categoryError) throw new Error(categoryError);
+  if (categoryError) throw new ConvexError(categoryError);
 
-  const existingPlayers = await ctx.db
-    .query("players")
-    .withIndex("by_tournament", (q) => q.eq("tournamentId", tournament._id))
-    .collect();
-  assertPlayerCapacity(tournament, existingPlayers.length, 1);
-  const nextPlayerNumber = existingPlayers.reduce((max, p) => Math.max(max, p.playerNumber || 0), 0) + 1;
+  const { count, nextPlayerNumber } = roster ?? (await rosterNumbers(ctx, tournament._id));
+  assertPlayerCapacity(tournament, count, 1);
 
   return await ctx.db.insert("players", {
     tournamentId: tournament._id,
@@ -94,6 +96,21 @@ export async function insertValidatedPlayer(
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
+}
+
+/** How many players a tournament has and the next player number. */
+export async function rosterNumbers(
+  ctx: MutationCtx,
+  tournamentId: Id<"tournaments">,
+): Promise<{ count: number; nextPlayerNumber: number }> {
+  const players = await ctx.db
+    .query("players")
+    .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId))
+    .collect();
+  return {
+    count: players.length,
+    nextPlayerNumber: players.reduce((max, p) => Math.max(max, p.playerNumber || 0), 0) + 1,
+  };
 }
 
 /** Create a single player for a tournament. Auto-assigns the next sequential playerNumber. */
@@ -119,7 +136,7 @@ export const create = mutation({
     // Verify tournament exists
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) {
-      throw new Error("Tournament not found");
+      throw new ConvexError("Tournament not found");
     }
     const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
@@ -173,7 +190,7 @@ export const bulkImport = mutation({
   },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const now = Date.now();
@@ -355,33 +372,38 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     const player = await ctx.db.get(args.id);
-    if (!player) throw new Error("Player not found");
+    if (!player) throw new ConvexError("Player not found");
     const admin = await requireTournamentRole(ctx, player.tournamentId, OWNER_ONLY);
 
     // Check if player is already sold
     if (player.auctionStatus === "sold") {
-      throw new Error("Cannot edit sold player");
+      throw new ConvexError("Cannot edit sold player");
     }
 
     // Check if auction is active for this player
     if (player.auctionStatus === "in_auction") {
-      throw new Error("Cannot edit player currently in auction");
+      throw new ConvexError("Cannot edit player currently in auction");
     }
 
     const tournament = await ctx.db.get(player.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
 
     // Validation (shared with create — convex/validation.ts)
     const { errors, phoneNumber } = validatePlayerFields(
-      { ...args, basePrice: args.basePrice ?? undefined },
+      {
+        ...args,
+        basePrice: args.basePrice ?? undefined,
+        // An unchanged photo isn't re-checked: older records stay editable.
+        photoUrl: args.photoUrl === player.photoUrl ? undefined : args.photoUrl,
+      },
       tournament.settings.basePurse,
     );
-    if (errors.length > 0) throw new Error(errors[0].message);
+    if (errors.length > 0) throw new ConvexError(errors[0].message);
     const categoryError = unknownCategoryError(
       args.categoryId ?? undefined,
       tournament,
     );
-    if (categoryError) throw new Error(categoryError);
+    if (categoryError) throw new ConvexError(categoryError);
 
     const { id, basePrice, categoryId, ...rest } = args;
     // null → clear the field (patching undefined removes it).
@@ -430,19 +452,19 @@ export const deletePlayer = mutation({
   args: { id: v.id("players") },
   handler: async (ctx, args) => {
     const player = await ctx.db.get(args.id);
-    if (!player) throw new Error("Player not found");
+    if (!player) throw new ConvexError("Player not found");
     const admin = await requireTournamentRole(ctx, player.tournamentId, OWNER_ONLY);
 
     // Cannot delete sold players
     if (player.auctionStatus === "sold") {
-      throw new Error(
+      throw new ConvexError(
         "Cannot delete sold player. They are assigned to a team.",
       );
     }
 
     // Cannot delete player in auction
     if (player.auctionStatus === "in_auction") {
-      throw new Error("Cannot delete player currently in auction");
+      throw new ConvexError("Cannot delete player currently in auction");
     }
 
     // Unlink from any team that had this player as captain (the denormalized
@@ -517,9 +539,7 @@ export const deleteAllByTournament = mutation({
         q.eq("tournamentId", args.tournamentId),
       )
       .collect();
-    const captainPlayerIds = new Set(
-      teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])),
-    );
+    const captainPlayerIds = captainIdsOf(teams);
 
     // Filter out sold players unless explicitly included, and always skip captains
     const playersToDelete = (

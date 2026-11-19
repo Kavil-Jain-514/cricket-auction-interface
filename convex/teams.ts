@@ -1,8 +1,9 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import {
   getCurrentUser,
   getTournamentRole,
+  isHiddenFrom,
   isTournamentStaff,
   logAdminAction,
   OWNER_ONLY,
@@ -15,6 +16,10 @@ import { deleteTeamMembershipData, findOwnerMembership } from "./members";
 import { Doc, Id } from "./_generated/dataModel";
 import { toPublicPlayer } from "./projections";
 import { validateOwnerName, validateTeamColours, validateTeamName } from "./validation";
+import { assertImageUrl, isAllowedPlayerPhoto } from "./uploads";
+
+const LOGO_MESSAGE = "Upload the logo with the form's upload button";
+const CAPTAIN_PHOTO_MESSAGE = "Upload the captain's photo with the upload button";
 
 export const TEAM_LOCKED_MESSAGE =
   "Team details are locked because the auction has started. Ask the organiser if something needs to change.";
@@ -110,7 +115,9 @@ export async function insertValidatedTeam(
   // Validation (shared with update — convex/validation.ts)
   const error =
     validateTeamName(fields.name) ?? validateOwnerName(fields.ownerName);
-  if (error) throw new Error(error);
+  if (error) throw new ConvexError(error);
+  assertImageUrl(fields.logoUrl, LOGO_MESSAGE);
+  assertImageUrl(fields.captainPhotoUrl, CAPTAIN_PHOTO_MESSAGE, { allowed: isAllowedPlayerPhoto });
 
   // Check for duplicate team name in tournament
   const existingTeams = await ctx.db
@@ -119,7 +126,7 @@ export async function insertValidatedTeam(
     .collect();
 
   if (isDuplicateTeamName(existingTeams, fields.name)) {
-    throw new Error(`Team "${fields.name}" already exists in this tournament`);
+    throw new ConvexError(`Team "${fields.name}" already exists in this tournament`);
   }
   assertTeamCapacity(tournament, existingTeams.length);
 
@@ -133,12 +140,12 @@ export async function insertValidatedTeam(
   };
   if (fields.captainPlayerId) {
     const captain = await ctx.db.get(fields.captainPlayerId);
-    if (!captain) throw new Error("Selected captain player not found");
+    if (!captain) throw new ConvexError("Selected captain player not found");
     if (captain.tournamentId !== tournament._id) {
-      throw new Error("Captain must be a player in this tournament");
+      throw new ConvexError("Captain must be a player in this tournament");
     }
     if (existingTeams.some((t) => t.captainPlayerId === fields.captainPlayerId)) {
-      throw new Error(`${captain.name} is already the captain of another team`);
+      throw new ConvexError(`${captain.name} is already the captain of another team`);
     }
     captainFields = deriveCaptainFields(captain);
   }
@@ -187,7 +194,7 @@ export const create = mutation({
     const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const { tournamentId: _tournamentId, ...fields } = args;
     const teamId = await insertValidatedTeam(ctx, tournament, fields);
 
@@ -216,7 +223,7 @@ export const listByTournament = query({
     if (!tournament) return [];
 
     // Deactivated tournaments are hidden from everyone but its staff.
-    if (tournament.isActive === false && !(await isTournamentStaff(ctx, args.tournamentId))) {
+    if (await isHiddenFrom(ctx, tournament)) {
       return [];
     }
 
@@ -297,40 +304,43 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     const team = await ctx.db.get(args.id);
-    if (!team) throw new Error("Team not found");
+    if (!team) throw new ConvexError("Team not found");
     const { user: admin, isTeamOwner } = await requireTeamEditor(ctx, team);
 
     // Check if tournament exists
     const tournament = await ctx.db.get(team.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
 
     // Cannot edit completed tournament teams
     if (tournament.status === "completed") {
-      throw new Error("Cannot edit team after tournament is completed");
+      throw new ConvexError("Cannot edit team after tournament is completed");
     }
 
     if (isTeamOwner) {
       if (CAPTAIN_ARGS.some((key) => args[key] !== undefined)) {
-        throw new Error("Only the organiser can change the captain");
+        throw new ConvexError("Only the organiser can change the captain");
       }
       // Read in this transaction: a save racing auctions:startAuction
       // conflicts with it, is retried, and is then refused here.
-      if (await auctionHasStarted(ctx, team.tournamentId)) throw new Error(TEAM_LOCKED_MESSAGE);
+      if (await auctionHasStarted(ctx, team.tournamentId)) throw new ConvexError(TEAM_LOCKED_MESSAGE);
       // The checks teamRequests:submit applies to what owners send.
       const ownerError = validateTeamColours(
         args.colorPrimary ?? team.colorPrimary,
         args.colorSecondary ?? team.colorSecondary,
       );
-      if (ownerError) throw new Error(ownerError);
-      if (args.logoUrl && !args.logoUrl.startsWith("https://")) {
-        throw new Error("Upload the logo with the form's upload button");
-      }
+      if (ownerError) throw new ConvexError(ownerError);
     }
+    // Everyone, owner member or organiser: our uploads only, unless unchanged.
+    assertImageUrl(args.logoUrl, LOGO_MESSAGE, { previous: team.logoUrl });
+    assertImageUrl(args.captainPhotoUrl, CAPTAIN_PHOTO_MESSAGE, {
+      previous: team.captainPhotoUrl,
+      allowed: isAllowedPlayerPhoto,
+    });
 
     const fieldError =
       (args.name !== undefined ? validateTeamName(args.name) : null) ??
       (args.ownerName !== undefined ? validateOwnerName(args.ownerName) : null);
-    if (fieldError) throw new Error(fieldError);
+    if (fieldError) throw new ConvexError(fieldError);
 
     const { id, captainPlayerId, ...updates } = args;
     const patch: Partial<Doc<"teams">> = {
@@ -353,7 +363,7 @@ export const update = mutation({
       args.name.trim().toLowerCase() !== team.name.trim().toLowerCase() &&
       isDuplicateTeamName(otherTeams, args.name, team._id)
     ) {
-      throw new Error(`Team "${args.name}" already exists in this tournament`);
+      throw new ConvexError(`Team "${args.name}" already exists in this tournament`);
     }
 
     if (captainPlayerId === null) {
@@ -361,16 +371,16 @@ export const update = mutation({
       patch.captainPlayerId = undefined;
     } else if (captainPlayerId !== undefined) {
       const captain = await ctx.db.get(captainPlayerId);
-      if (!captain) throw new Error("Selected captain player not found");
+      if (!captain) throw new ConvexError("Selected captain player not found");
       if (captain.tournamentId !== team.tournamentId) {
-        throw new Error("Captain must be a player in this tournament");
+        throw new ConvexError("Captain must be a player in this tournament");
       }
       if (
         otherTeams.some(
           (t) => t._id !== team._id && t.captainPlayerId === captainPlayerId,
         )
       ) {
-        throw new Error(
+        throw new ConvexError(
           `${captain.name} is already the captain of another team`,
         );
       }
@@ -402,16 +412,16 @@ export const deleteTeam = mutation({
   args: { id: v.id("teams") },
   handler: async (ctx, args) => {
     const team = await ctx.db.get(args.id);
-    if (!team) throw new Error("Team not found");
+    if (!team) throw new ConvexError("Team not found");
     const admin = await requireTournamentRole(ctx, team.tournamentId, OWNER_ONLY);
 
     // Check if tournament exists
     const tournament = await ctx.db.get(team.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
 
     // Cannot delete from completed tournament
     if (tournament.status === "completed") {
-      throw new Error("Cannot delete team after tournament is completed");
+      throw new ConvexError("Cannot delete team after tournament is completed");
     }
 
     // Deleting a team mid-auction can corrupt in-flight state: if this team
@@ -425,7 +435,7 @@ export const deleteTeam = mutation({
       .withIndex("by_tournament", (q) => q.eq("tournamentId", team.tournamentId))
       .collect();
     if (rooms.some((room) => room.status === "live" || room.status === "paused")) {
-      throw new Error(
+      throw new ConvexError(
         "Cannot delete a team while the auction is live or paused — complete or restart the auction first",
       );
     }
@@ -438,7 +448,7 @@ export const deleteTeam = mutation({
       .first();
     if (draw && draw.assignments.some((a) => a.teamId === args.id)) {
       if (draw.status === "locked") {
-        throw new Error(
+        throw new ConvexError(
           "Group draw is locked — reset it before deleting a team",
         );
       }

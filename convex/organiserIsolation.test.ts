@@ -125,6 +125,7 @@ async function seed(t: T) {
       counts: { players: 0, teams: 0, bids: 0, events: 0 }, createdAt: now,
     });
     await syncTournamentAuctionCounts(ctx, tA);
+    const staffInvite = await ctx.db.insert("staffInvites", { tournamentId: tA, email: "pending@test.com", role: "registrar", invitedBy: orgA, createdAt: now });
     const notification = await ctx.db.insert("notifications", {
       kind: "registration_received",
       dedupeKey: `registered:${registration}`,
@@ -136,7 +137,7 @@ async function seed(t: T) {
       nextAttemptAt: now,
       createdAt: now,
     });
-    return { notification, teamRequest, snapshotA, registration, orgA, orgB, auctioneerA, tA, tB, teamA1, teamA2, pending, sold, onBlock, roomA, request, member, invite, staffAuctioneer };
+    return { staffInvite, notification, teamRequest, snapshotA, registration, orgA, orgB, auctioneerA, tA, tB, teamA1, teamA2, pending, sold, onBlock, roomA, request, member, invite, staffAuctioneer };
   });
 }
 
@@ -195,6 +196,7 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "players:deleteAllByTournament": (as, fx) => as.mutation(api.players.deleteAllByTournament, { tournamentId: fx.tA }),
   "staff:add": (as, fx) => as.mutation(api.staff.add, { tournamentId: fx.tA, email: ORG_B.email, role: "owner" }),
   "staff:remove": (as, fx) => as.mutation(api.staff.remove, { staffId: fx.staffAuctioneer }),
+  "staff:revokeInvite": (as, fx) => as.mutation(api.staff.revokeInvite, { inviteId: fx.staffInvite }),
   "teamRequests:approve": (as, fx) => as.mutation(api.teamRequests.approve, { requestId: fx.teamRequest }),
   "teamRequests:reject": (as, fx) => as.mutation(api.teamRequests.reject, { requestId: fx.teamRequest, reason: "x" }),
   "teams:create": (as, fx) =>
@@ -202,6 +204,7 @@ const MUTATIONS: Record<string, (as: Caller, fx: Fx) => Promise<unknown>> = {
   "teams:update": (as, fx) => as.mutation(api.teams.update, { id: fx.teamA1, name: "Taken" }),
   "teams:deleteTeam": (as, fx) => as.mutation(api.teams.deleteTeam, { id: fx.teamA2 }),
   "tournaments:update": (as, fx) => as.mutation(api.tournaments.update, { id: fx.tA, name: "Hijacked" }),
+  "tournaments:setRegistrationFee": (as, fx) => as.mutation(api.tournaments.setRegistrationFee, { tournamentId: fx.tA, fee: 0 }),
   "tournaments:setActive": (as, fx) => as.mutation(api.tournaments.setActive, { id: fx.tA, isActive: false }),
   "tournaments:deleteTournament": (as, fx) => as.mutation(api.tournaments.deleteTournament, { id: fx.tA, confirmName: "A Cup" }),
   "snapshots:restoreSnapshot": (as, fx) => as.mutation(api.snapshots.restoreSnapshot, { snapshotId: fx.snapshotA, confirmName: "A Cup" }),
@@ -220,6 +223,7 @@ const NOT_STAFF_SCOPED: Record<string, string> = {
   "members:claimInvite": "claimed with a one-time invite token",
   "ops:heartbeat": "the caller's own presence; ignored unless staff or a team owner (tested in ops.test.ts)",
   "ops:reportClientError": "the caller's own error report; ignored unless staff or a team owner (tested in ops.test.ts)",
+  "ops:consumeRouteQuota": "the caller's own per-user rate limit for /api/upload and /api/image-proxy (tested in ops.test.ts)",
   "plans:grantPlan": "super-admin only (tested in plans.test.ts)",
   "registrations:submit": "public registration form (anonymous; tested in registrations.test.ts)",
   "registrations:recordOrder": "anonymous registrant's fee order; only the signed webhook marks it paid",
@@ -232,7 +236,7 @@ const NOT_STAFF_SCOPED: Record<string, string> = {
 /** Every table a tournament's data lives in, for a before/after comparison. */
 async function snapshot(t: T) {
   return await t.run(async (ctx) => {
-    const tables = ["tournaments", "teams", "players", "auctionRooms", "liveBids", "bidRequests", "teamMembers", "teamInvites", "tournamentStaff", "groupDraws", "paymentOrders", "registrations", "teamRequests"] as const;
+    const tables = ["tournaments", "teams", "players", "auctionRooms", "liveBids", "bidRequests", "teamMembers", "teamInvites", "tournamentStaff", "staffInvites", "groupDraws", "paymentOrders", "registrations", "teamRequests"] as const;
     const out: Record<string, unknown> = {};
     for (const table of tables) out[table] = await ctx.db.query(table).collect();
     return JSON.stringify(out);
@@ -333,10 +337,13 @@ describe("tournament creation and staff", () => {
     const fx = await seed(t);
     const asA = t.withIdentity(ORG_A);
 
+    // An invite, claimed on B's next visit (auth:ensureUser).
     await asA.mutation(api.staff.add, { tournamentId: fx.tA, email: ORG_B.email, role: "auctioneer" });
+    await t.withIdentity(ORG_B).mutation(api.auth.ensureUser, {});
     expect(await t.withIdentity(ORG_B).query(api.tournaments.myRole, { tournamentId: fx.tA })).toBe("auctioneer");
     await expect(asA.mutation(api.staff.add, { tournamentId: fx.tA, email: ORG_B.email, role: "owner" })).rejects.toThrow(/already/);
-    await expect(asA.mutation(api.staff.add, { tournamentId: fx.tA, email: "nobody@test.com", role: "auctioneer" })).rejects.toThrow(/sign in/);
+    // No account needed: the address is invited.
+    await expect(asA.mutation(api.staff.add, { tournamentId: fx.tA, email: "nobody@test.com", role: "auctioneer" })).resolves.toMatchObject({ status: "invited" });
 
     const list = await asA.query(api.staff.list, { tournamentId: fx.tA });
     expect(list.map((s) => s.role).sort()).toEqual(["auctioneer", "auctioneer", "owner"]);
@@ -385,6 +392,39 @@ describe("private data follows tournament access", () => {
     await t.run((ctx) => ctx.db.patch(fx.tA, { isActive: false }));
     expect(await t.withIdentity(ORG_A).query(api.tournaments.getById, { id: fx.tA })).not.toBeNull();
     expect(await t.withIdentity(ORG_B).query(api.tournaments.getById, { id: fx.tA })).toBeNull();
+  });
+
+  test("tournament plan, payment reference and creator are for its staff only (AUDIT 2026-11 SEC-001)", async () => {
+    const t = convexTest(schema, modules);
+    const fx = await seed(t);
+    await t.run((ctx) =>
+      ctx.db.patch(fx.tA, {
+        plan: { tier: "club", maxTeams: 8, maxPlayers: 150, paidAt: Date.now(), paymentRef: "pay_SECRET" },
+      }),
+    );
+
+    const asB = await t.withIdentity(ORG_B).query(api.tournaments.getById, { id: fx.tA });
+    expect(asB).not.toBeNull();
+    expect(asB).toMatchObject({ _id: fx.tA, name: "A Cup", settings: SETTINGS });
+    expect(asB).not.toHaveProperty("plan");
+    expect(asB).not.toHaveProperty("createdBy");
+    expect(asB).not.toHaveProperty("auctionCounts");
+
+    for (const staff of [ORG_A, AUCTIONEER_A, SUPER]) {
+      const doc = await t.withIdentity(staff).query(api.tournaments.getById, { id: fx.tA });
+      // Staff get the whole document (the public projection's type has no plan).
+      expect((doc as Doc<"tournaments"> | null)?.plan?.paymentRef).toBe("pay_SECRET");
+    }
+  });
+
+  test("listAll is the super-admin's tournament picker: names only, nobody else", async () => {
+    const t = convexTest(schema, modules);
+    const fx = await seed(t);
+    expect(await t.withIdentity(ORG_B).query(api.tournaments.listAll, {})).toEqual([]);
+    expect(await t.withIdentity(ORG_A).query(api.tournaments.listAll, {})).toEqual([]);
+    const all = await t.withIdentity(SUPER).query(api.tournaments.listAll, {});
+    expect(all.map((x) => x._id).sort()).toEqual([fx.tA, fx.tB].sort());
+    for (const row of all) expect(Object.keys(row).sort()).toEqual(["_id", "name"]);
   });
 
   test("console-only queries refuse other organisers", async () => {

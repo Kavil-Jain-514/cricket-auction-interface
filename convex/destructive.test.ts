@@ -5,6 +5,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
+import { MAX_ROWS_PER_OPERATION } from "./batch";
 import type { Id } from "./_generated/dataModel";
 
 const modules = import.meta.glob(["./**/*.{ts,js}", "!./**/*.test.{ts,js}"]);
@@ -234,5 +235,33 @@ describe("audit rows for bulk status changes (P1-6)", () => {
     expect(res).toMatchObject({ completed: true });
     const audit = await t.run(async (ctx) => (await ctx.db.query("auditLogs").collect()).map((l) => l.action));
     expect(audit).toContain("complete_auction");
+  });
+});
+
+describe("whole-tournament operations refuse what one transaction can't hold (PERF-004)", () => {
+  test("restart, delete and restore refuse a tournament over the row limit, without changing anything", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity({ email: "big@test.com", subject: "big|1" });
+    const { tournamentId, roomId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const userId = await ctx.db.insert("users", { email: "big@test.com", role: "admin", createdAt: now });
+      const tournamentId = await ctx.db.insert("tournaments", {
+        name: "Big Cup", createdBy: userId, status: "active",
+        settings: { basePurse: 1_000_000, minBidIncrement: 25_000, maxPlayersPerTeam: 3 }, createdAt: now, updatedAt: now,
+      });
+      const roomId = await ctx.db.insert("auctionRooms", {
+        tournamentId, name: "Room", status: "waiting", createdBy: userId, createdAt: now, updatedAt: now,
+      });
+      // A long history: more event rows than one transaction can rewrite.
+      for (let i = 0; i < MAX_ROWS_PER_OPERATION + 1; i++) {
+        await ctx.db.insert("auctionEvents", { auctionRoomId: roomId, type: "auction_paused", data: {}, timestamp: now + i });
+      }
+      return { tournamentId, roomId };
+    });
+    const tooBig = /too large to .* in one step/;
+    await expect(asAdmin.mutation(api.auctions.restartAuction, { auctionRoomId: roomId, confirmName: "Big Cup" })).rejects.toThrow(tooBig);
+    await expect(asAdmin.mutation(api.tournaments.deleteTournament, { id: tournamentId, confirmName: "Big Cup" })).rejects.toThrow(tooBig);
+    expect(await t.run((ctx) => ctx.db.get(tournamentId))).not.toBeNull();
+    expect(await t.run((ctx) => ctx.db.query("tournamentSnapshots").collect())).toHaveLength(0);
   });
 });

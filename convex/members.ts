@@ -1,10 +1,12 @@
 // convex/members.ts - Team owners: invite links, claiming, and membership
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import {
   DEACTIVATED_MESSAGE,
+  getCurrentUser,
   getUserRow,
+  linkOrCreateUser,
   getTournamentRole,
   logAdminAction,
   OWNER_ONLY,
@@ -38,22 +40,12 @@ function generateInviteToken(): string {
     .replace(/=+$/, "");
 }
 
-/** The signed-in user's row, created on first use (like auth:ensureUser). */
+/** The signed-in user's row, linked or created on first use (like auth:ensureUser). */
 export async function getOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> {
   // A deactivated account is refused, never replaced by a fresh row.
   const existing = await getUserRow(ctx);
-  if (existing?.deactivatedAt !== undefined) throw new Error(DEACTIVATED_MESSAGE);
-  if (existing) return existing;
-
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity?.email) throw new Error("Not authenticated");
-  const userId = await ctx.db.insert("users", {
-    email: identity.email,
-    name: identity.name,
-    role: "user",
-    createdAt: Date.now(),
-  });
-  return (await ctx.db.get(userId))!;
+  if (existing?.deactivatedAt !== undefined) throw new ConvexError(DEACTIVATED_MESSAGE);
+  return await linkOrCreateUser(ctx);
 }
 
 /**
@@ -65,13 +57,13 @@ export const createInvite = mutation({
   args: { teamId: v.id("teams"), email: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const team = await ctx.db.get(args.teamId);
-    if (!team) throw new Error("Team not found");
+    if (!team) throw new ConvexError("Team not found");
     const admin = await requireTournamentRole(ctx, team.tournamentId, OWNER_ONLY);
 
     let email: string | undefined;
     if (args.email?.trim()) {
       email = normalizeEmail(args.email) ?? undefined;
-      if (!email) throw new Error("Enter a valid email address, or leave it empty to just copy the link");
+      if (!email) throw new ConvexError("Enter a valid email address, or leave it empty to just copy the link");
       await consumeInviteEmailQuota(ctx, admin._id);
     }
 
@@ -265,7 +257,7 @@ export const removeMember = mutation({
   args: { memberId: v.id("teamMembers") },
   handler: async (ctx, args) => {
     const member = await ctx.db.get(args.memberId);
-    if (!member) throw new Error("Member not found");
+    if (!member) throw new ConvexError("Member not found");
     const admin = await requireTournamentRole(ctx, member.tournamentId, OWNER_ONLY);
 
     const pending = (
@@ -300,7 +292,7 @@ export const revokeInvite = mutation({
   args: { inviteId: v.id("teamInvites") },
   handler: async (ctx, args) => {
     const invite = await ctx.db.get(args.inviteId);
-    if (!invite) throw new Error("Invite not found");
+    if (!invite) throw new ConvexError("Invite not found");
     const admin = await requireTournamentRole(ctx, invite.tournamentId, OWNER_ONLY);
     if (invite.usedBy !== undefined) {
       return { success: false, reason: "Invite was already used — remove the member instead" };
@@ -323,6 +315,21 @@ export const revokeInvite = mutation({
   },
 });
 
+/**
+ * The caller's own team id in a tournament (they are its owner member), or
+ * null. Reads only users and teamMembers, never the auction room, so a
+ * subscription to it doesn't re-run on every bid; the auction page uses it to
+ * decide whether to subscribe to auctions:getMyPaddle (AUDIT 2026-11 PERF-001).
+ */
+export const myOwnedTeamId = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args): Promise<Id<"teams"> | null> => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return null;
+    return (await findOwnerMembership(ctx, user._id, args.tournamentId))?.teamId ?? null;
+  },
+});
+
 /** A user's owner membership in a tournament, if any (at most one). */
 export async function findOwnerMembership(
   ctx: QueryCtx,
@@ -331,13 +338,9 @@ export async function findOwnerMembership(
 ): Promise<Doc<"teamMembers"> | null> {
   const memberships = await ctx.db
     .query("teamMembers")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .withIndex("by_user_tournament", (q) => q.eq("userId", userId).eq("tournamentId", tournamentId))
     .collect();
-  return (
-    memberships.find(
-      (m) => m.tournamentId === tournamentId && m.role === "owner",
-    ) ?? null
-  );
+  return memberships.find((m) => m.role === "owner") ?? null;
 }
 
 /** Delete every owner-bidding row for a team (used by teams:deleteTeam). */

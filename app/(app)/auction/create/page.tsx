@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { ArrowLeft, Play, Trophy } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { getCaptainPlayerIds } from '@/lib/utils';
+import { getCaptainPlayerIds, getErrorMessage } from '@/lib/utils';
 
 function CreateAuctionContent() {
   const router = useRouter();
@@ -38,7 +38,8 @@ function CreateAuctionContent() {
 
   const createAuctionRoom = useMutation(api.auctions.createAuctionRoom);
 
-  const [name, setName] = useState('');
+  // null until the organiser types: until then the name follows the tournament.
+  const [typedName, setName] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Captains are pre-assigned and never auctioned — exclude them from the
@@ -46,11 +47,7 @@ function CreateAuctionContent() {
   const captainPlayerIds = getCaptainPlayerIds(teams);
   const auctionablePlayers = (players ?? []).filter(p => !captainPlayerIds.has(p._id));
 
-  useEffect(() => {
-    if (tournament) {
-      setName(`${tournament.name} - Live Auction`);
-    }
-  }, [tournament]);
+  const name = typedName ?? (tournament ? `${tournament.name} - Live Auction` : '');
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,9 +78,7 @@ function CreateAuctionContent() {
       toast.success('Auction room created!');
       router.push(`/auction/${auctionRoomId}`);
     } catch (error) {
-      toast.error('Failed to create auction', { 
-        description: (error as Error).message 
-      });
+      toast.error(getErrorMessage(error, 'Failed to create the auction'));
     } finally {
       setLoading(false);
     }

@@ -13,6 +13,9 @@ export function useStoredChoice<T extends string>(key: string, fallback: T, allo
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(key);
+      // Read after mount on purpose: the server can't see localStorage, so the
+      // first render must match it (hydration). One extra render is the cost.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (stored && (allowed as readonly string[]).includes(stored)) setValue(stored as T);
     } catch {
       // Private mode or blocked storage: keep the fallback.

@@ -3,13 +3,14 @@
 // tournament's owners verifies and approves it, which creates the team
 // (same rules as teams:create) and makes the requester its owner member, so
 // they can bid from their paddle. Nothing is created until approval.
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUser, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
 import { getOrCreateUser } from "./members";
 import { canRequestTeam } from "./policy";
 import { consumeInviteEmailQuota, enqueueEmail, requeueEmail } from "./emails";
 import { insertValidatedTeam } from "./teams";
+import { assertImageUrl } from "./uploads";
 import { normalizeEmail, validateOwnerName, validateTeamColours, validateTeamName } from "./validation";
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -28,37 +29,37 @@ export const submit = mutation({
   handler: async (ctx, args) => {
     const user = await getOrCreateUser(ctx);
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament || tournament.isActive === false) throw new Error("Tournament not found");
-    if (!canRequestTeam(user)) throw new Error('Only team owners can register a team. Choose "I own a team" on your dashboard first.');
-    if (tournament.status === "completed") throw new Error("This tournament is closed");
+    if (!tournament || tournament.isActive === false) throw new ConvexError("Tournament not found");
+    if (!canRequestTeam(user)) throw new ConvexError('Only team owners can register a team. Choose "I own a team" on your dashboard first.');
+    if (tournament.status === "completed") throw new ConvexError("This tournament is closed");
 
     const error =
       validateTeamName(args.name) ??
       validateOwnerName(args.ownerName) ??
       validateTeamColours(args.colorPrimary, args.colorSecondary);
-    if (error) throw new Error(error);
-    if (args.logoUrl && !args.logoUrl.startsWith("https://")) throw new Error("Upload the logo with the form's upload button");
+    if (error) throw new ConvexError(error);
+    assertImageUrl(args.logoUrl, "Upload the logo with the form's upload button");
 
     const memberships = await ctx.db
       .query("teamMembers")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
     if (memberships.some((m) => m.tournamentId === args.tournamentId)) {
-      throw new Error("You already own a team in this tournament");
+      throw new ConvexError("You already own a team in this tournament");
     }
     const mine = await ctx.db
       .query("teamRequests")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
     if (mine.some((r) => r.tournamentId === args.tournamentId && r.status === "pending")) {
-      throw new Error("You already have a request waiting for this tournament");
+      throw new ConvexError("You already have a request waiting for this tournament");
     }
     const teams = await ctx.db
       .query("teams")
       .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
       .collect();
     if (teams.some((t) => sameName(t.name, args.name))) {
-      throw new Error(`Team "${args.name.trim()}" already exists in this tournament`);
+      throw new ConvexError(`Team "${args.name.trim()}" already exists in this tournament`);
     }
 
     return await ctx.db.insert("teamRequests", {
@@ -132,18 +133,18 @@ export const approve = mutation({
   args: { requestId: v.id("teamRequests") },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
-    if (!request) throw new Error("Request not found");
+    if (!request) throw new ConvexError("Request not found");
     const admin = await requireTournamentRole(ctx, request.tournamentId, OWNER_ONLY);
-    if (request.status !== "pending") throw new Error(`Already ${request.status}`);
+    if (request.status !== "pending") throw new ConvexError(`Already ${request.status}`);
     const tournament = await ctx.db.get(request.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
 
     const memberships = await ctx.db
       .query("teamMembers")
       .withIndex("by_user", (q) => q.eq("userId", request.userId))
       .collect();
     if (memberships.some((m) => m.tournamentId === request.tournamentId)) {
-      throw new Error("They already own a team in this tournament");
+      throw new ConvexError("They already own a team in this tournament");
     }
 
     const teamId = await insertValidatedTeam(ctx, tournament, {
@@ -181,11 +182,11 @@ export const reject = mutation({
   args: { requestId: v.id("teamRequests"), reason: v.string() },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
-    if (!request) throw new Error("Request not found");
+    if (!request) throw new ConvexError("Request not found");
     const admin = await requireTournamentRole(ctx, request.tournamentId, OWNER_ONLY);
     const reason = args.reason.trim();
-    if (!reason) throw new Error("A reason is required");
-    if (request.status !== "pending") throw new Error(`Already ${request.status}`);
+    if (!reason) throw new ConvexError("A reason is required");
+    if (request.status !== "pending") throw new ConvexError(`Already ${request.status}`);
     await ctx.db.patch(request._id, { status: "rejected", rejectReason: reason.slice(0, 200), reviewedAt: Date.now() });
     await logAdminAction(ctx, {
       userId: admin._id,
@@ -210,11 +211,11 @@ export const inviteOwner = mutation({
   args: { tournamentId: v.id("tournaments"), email: v.string() },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const owner = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
     const email = normalizeEmail(args.email);
-    if (!email) throw new Error("Enter a valid email address");
-    if (tournament.status === "completed") throw new Error("This tournament is closed");
+    if (!email) throw new ConvexError("Enter a valid email address");
+    if (tournament.status === "completed") throw new ConvexError("This tournament is closed");
 
     const day = new Date().toISOString().slice(0, 10);
     const dedupeKey = `team-signup:${args.tournamentId}:${email}:${day}`;
@@ -222,7 +223,7 @@ export const inviteOwner = mutation({
       .query("emails")
       .withIndex("by_dedupe", (q) => q.eq("dedupeKey", dedupeKey))
       .first();
-    if (existing && existing.status !== "failed") throw new Error(`${email} was already invited today`);
+    if (existing && existing.status !== "failed") throw new ConvexError(`${email} was already invited today`);
     await consumeInviteEmailQuota(ctx, owner._id);
     if (existing) {
       await requeueEmail(ctx, existing._id);

@@ -8,11 +8,11 @@
 // happened on the floor, so rewriting them would lose that history. The export
 // therefore takes only timing (sale order, time, bid count) from the
 // `player_sold` events and flags rows that changed after the sale.
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { OWNER_ONLY, requireTournamentRole } from "./auth";
-import { effectiveBasePrice } from "./bidRules";
+import { captainIdsOf, effectiveBasePrice } from "./bidRules";
 
 const TOP_BUYS = 5;
 
@@ -44,7 +44,7 @@ export const getPublicResults = query({
         .collect(),
     ]);
     const playersById = new Map(players.map((p) => [p._id, p]));
-    const captainIds = new Set(teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])));
+    const captainIds = captainIdsOf(teams);
 
     // Explicit public projection: never spread a player doc (phoneNumber).
     const publicPlayer = (p: Doc<"players">) => ({
@@ -113,7 +113,7 @@ export const getResultsExport = query({
   args: { tournamentId: v.id("tournaments"), includeContacts: v.boolean() },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const [teams, players, rooms] = await Promise.all([

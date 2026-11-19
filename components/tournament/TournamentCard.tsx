@@ -5,7 +5,7 @@ import { formatRupees } from '@/convex/bidRules';
 import { cn } from '@/lib/utils';
 
 export type TournamentCardData = FunctionReturnType<typeof api.tournaments.listPublic>['page'][number] & {
-  myRole?: 'owner' | 'auctioneer';
+  myRole?: 'owner' | 'auctioneer' | 'registrar';
   teamName?: string;
 };
 
@@ -96,7 +96,7 @@ export function TournamentCard({ tournament }: { tournament: TournamentCardData 
         </dl>
 
         <div className="mt-4 flex items-center justify-between border-t border-slate-700 pt-4 text-xs text-slate-400">
-          <span>{tournament.myRole ? (tournament.myRole === 'owner' ? 'You own this' : 'You are an auctioneer') : `Created ${new Date(tournament.createdAt).toLocaleDateString('en-IN')}`}</span>
+          <span>{tournament.myRole ? ({ owner: 'You own this', auctioneer: 'You are an auctioneer', registrar: 'You review registrations' } as const)[tournament.myRole] : `Created ${new Date(tournament.createdAt).toLocaleDateString('en-IN')}`}</span>
           <span className="font-medium text-orange-400 group-hover:underline">{tournament.isLive ? 'Watch live →' : 'View details →'}</span>
         </div>
       </article>

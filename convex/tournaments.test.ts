@@ -147,6 +147,19 @@ describe("tournaments.create — validation", () => {
     ).rejects.toThrow(/players/i);
   });
 
+  test("applies the same registration-fee rule as update (SEC-012)", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    await setup(t);
+    for (const registrationFee of [10.5, -1, 100_001]) {
+      await expect(
+        asAdmin.mutation(api.tournaments.create, { name: "Fee Cup", settings: { ...SETTINGS, registrationFee } }),
+      ).rejects.toThrow(/Registration fee must be a whole number/);
+    }
+    const id = await asAdmin.mutation(api.tournaments.create, { name: "Fee Cup", settings: { ...SETTINGS, registrationFee: 250 } });
+    expect((await t.run((ctx) => ctx.db.get(id)))?.settings.registrationFee).toBe(250);
+  });
+
   test("accepts a small purse and increment (no minimum)", async () => {
     const t = convexTest(schema, modules);
     const asAdmin = t.withIdentity(ADMIN_IDENTITY);

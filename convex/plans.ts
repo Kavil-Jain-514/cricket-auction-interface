@@ -1,7 +1,7 @@
 // convex/plans.ts - Per-tournament plans (organiser SaaS tiers): limits
 // enforced on create, usage for the UI, and the super-admin manual grant.
 // Tiers and prices live in planTiers.ts (pure, safe to import client-side).
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { logAdminAction, requireAdmin, requireTournamentRole, RUN_AUCTION } from "./auth";
@@ -18,7 +18,7 @@ function planName(tournament: Doc<"tournaments">): string {
 export function assertTeamCapacity(tournament: Doc<"tournaments">, existingTeams: number): void {
   const limits = planLimits(tournament);
   if (limits && existingTeams + 1 > limits.maxTeams) {
-    throw new Error(
+    throw new ConvexError(
       `Your ${planName(tournament)} plan allows ${limits.maxTeams} teams. Upgrade the tournament's plan to add more.`,
     );
   }
@@ -33,7 +33,7 @@ export function assertPlayerCapacity(
   const limits = planLimits(tournament);
   if (limits && existingPlayers + adding > limits.maxPlayers) {
     const room = Math.max(0, limits.maxPlayers - existingPlayers);
-    throw new Error(
+    throw new ConvexError(
       `Your ${planName(tournament)} plan allows ${limits.maxPlayers} players (room for ${room} more). Upgrade the tournament's plan to add more.`,
     );
   }
@@ -77,9 +77,9 @@ export const grantPlan = mutation({
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const reason = args.reason.trim();
-    if (!reason) throw new Error("A reason is required");
+    if (!reason) throw new ConvexError("A reason is required");
 
     const { maxTeams, maxPlayers } = PLAN_TIERS[args.tier];
     const plan = { tier: args.tier, maxTeams, maxPlayers, paidAt: Date.now(), paymentRef: `manual: ${reason}` };

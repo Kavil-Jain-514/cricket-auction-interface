@@ -47,6 +47,11 @@ export function ConsoleMoreMenu({ auctionRoomId, currentPlayerName, bidCount }: 
     setBusy(true);
     try {
       const res = await clearBids({ auctionRoomId, reason });
+      if (!res.success) {
+        // A refusal (nobody on the block, a different player now) is not a success.
+        toast.error(res.reason);
+        return;
+      }
       toast.success(res.message);
       setDialogOpen(false);
       setReason('');

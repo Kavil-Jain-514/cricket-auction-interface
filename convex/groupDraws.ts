@@ -1,6 +1,6 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { isTournamentStaff, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
+import { isHiddenFrom, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
 import {
   computeGroupAssignments,
   validateGroupConfig,
@@ -11,7 +11,7 @@ export const getByTournament = query({
   handler: async (ctx, args) => {
     // Deactivated tournaments are hidden from everyone but its staff.
     const tournament = await ctx.db.get(args.tournamentId);
-    if (tournament?.isActive === false && !(await isTournamentStaff(ctx, args.tournamentId))) {
+    if (await isHiddenFrom(ctx, tournament)) {
       return null;
     }
     return await ctx.db
@@ -38,9 +38,9 @@ export const runDraw = mutation({
     const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     if (tournament.status === "completed") {
-      throw new Error("Cannot run a group draw after tournament is completed");
+      throw new ConvexError("Cannot run a group draw after tournament is completed");
     }
 
     const teams = await ctx.db
@@ -51,7 +51,7 @@ export const runDraw = mutation({
       .collect();
 
     const error = validateGroupConfig(teams.length, args.numGroups);
-    if (error) throw new Error(error);
+    if (error) throw new ConvexError(error);
 
     const existing = await ctx.db
       .query("groupDraws")
@@ -61,7 +61,7 @@ export const runDraw = mutation({
       .first();
 
     if (existing?.status === "locked") {
-      throw new Error(
+      throw new ConvexError(
         "Group draw is locked. Reset the draw before re-shuffling.",
       );
     }
@@ -121,7 +121,7 @@ export const lockDraw = mutation({
       )
       .first();
 
-    if (!draw) throw new Error("No group draw found for this tournament");
+    if (!draw) throw new ConvexError("No group draw found for this tournament");
     if (draw.status === "locked") return { success: true };
 
     await ctx.db.patch(draw._id, {
@@ -158,7 +158,7 @@ export const resetDraw = mutation({
       )
       .first();
 
-    if (!draw) throw new Error("No group draw found for this tournament");
+    if (!draw) throw new ConvexError("No group draw found for this tournament");
 
     await ctx.db.delete(draw._id);
 

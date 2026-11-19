@@ -9,7 +9,7 @@ import { Upload, FileSpreadsheet, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
-import { formatCurrency, PLAYER_ROLES } from '@/lib/utils';
+import { formatCurrency, getErrorMessage, PLAYER_ROLES } from '@/lib/utils';
 import type { PlayerCategory } from '@/convex/bidRules';
 
 interface PlayerImportProps {
@@ -157,14 +157,6 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
   const startingPlayerNumber = (existingPlayers?.reduce((max, p) =>
     Math.max(max, p.playerNumber || 0), 0) || 0) + 1;
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      parseExcel(selectedFile);
-    }
-  }, []);
-
   const parseExcel = async (file: File) => {
     setParsing(true);
     setErrors([]);
@@ -295,6 +287,14 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
     }
   };
 
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      parseExcel(selectedFile);
+    }
+  }, []);
+
   const handleDownloadTemplate = useCallback(() => {
     try {
       const templateRows = [
@@ -385,7 +385,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
       toast.success(`Imported ${parsed.length} players successfully!`);
       onComplete();
     } catch (error) {
-      toast.error('Failed to import players', { description: (error as Error).message });
+      toast.error(getErrorMessage(error, 'Failed to import players'));
     }
   };
 
