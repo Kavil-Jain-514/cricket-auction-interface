@@ -1452,8 +1452,17 @@ export const getAuctionRoster = query({
           ))
         : null;
 
+      // Only what auction screens show: this payload goes to every viewer on
+      // every player change, and whole team docs were ~90% of it
+      // (AUDIT 2026-11 PERF-006). Owner, sponsor and captain details live on
+      // the tournament's team pages (teams:listByTournament).
       return {
-        ...team,
+        _id: team._id,
+        name: team.name,
+        logoUrl: team.logoUrl,
+        colorPrimary: team.colorPrimary,
+        purseRemaining: team.purseRemaining,
+        purseSpent: team.purseSpent,
         playerCount: currentTeamPlayerCount,
         playersNeeded: maxPlayersPerTeam - currentTeamPlayerCount,
         isSquadFull: isSquadFull(currentTeamPlayerCount, maxPlayersPerTeam),

@@ -682,6 +682,21 @@ describe("public viewer — no sign-in", () => {
     expect(payload).not.toContain("+91-900000000");
   });
 
+  test("the roster sends each team only what auction screens show (PERF-006)", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId, teamA } = await setup(t);
+    await t.run((ctx) =>
+      ctx.db.patch(teamA, { logoUrl: "https://res.cloudinary.com/x/a.png", sponsorName: "Acme", captainName: "Cap" }),
+    );
+    const roster = await t.query(api.auctions.getAuctionRoster, { tournamentId });
+    expect(Object.keys(roster!.teams.find((tm) => tm._id === teamA)!).sort()).toEqual(
+      [
+        "_id", "name", "logoUrl", "colorPrimary", "purseRemaining", "purseSpent",
+        "playerCount", "playersNeeded", "isSquadFull", "maxAllowedBid", "ruleBlock", "ruleStatus",
+      ].sort(),
+    );
+  });
+
   const SIGNED_IN_USER = { email: "viewer@test.com", subject: "user|viewer" };
   const callers = [
     { label: "an anonymous caller", identity: null },
