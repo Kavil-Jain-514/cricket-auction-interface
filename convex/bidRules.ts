@@ -61,6 +61,14 @@ export function reserveBasePrice({
   );
 }
 
+/**
+ * Players pre-assigned as a team's captain. They are never auctioned, so
+ * every count, list and pick leaves them out.
+ */
+export function captainIdsOf<P extends string>(teams: Array<{ captainPlayerId?: P }>): Set<P> {
+  return new Set(teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])));
+}
+
 export function isSquadFull(
   playersOnTeam: number,
   maxPlayersPerTeam: number,

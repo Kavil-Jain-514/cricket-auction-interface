@@ -12,7 +12,7 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { OWNER_ONLY, requireTournamentRole } from "./auth";
-import { effectiveBasePrice } from "./bidRules";
+import { captainIdsOf, effectiveBasePrice } from "./bidRules";
 
 const TOP_BUYS = 5;
 
@@ -44,7 +44,7 @@ export const getPublicResults = query({
         .collect(),
     ]);
     const playersById = new Map(players.map((p) => [p._id, p]));
-    const captainIds = new Set(teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])));
+    const captainIds = captainIdsOf(teams);
 
     // Explicit public projection: never spread a player doc (phoneNumber).
     const publicPlayer = (p: Doc<"players">) => ({

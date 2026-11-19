@@ -5,7 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { logAdminAction, requireTournamentRole, RUN_AUCTION } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { loadRoomForStaff } from "./auctionLifecycle";
-import { expectedStateArgs, expirePendingRaises, staleStateReason } from "./bidCore";
+import { deleteLiveBidsFor, expectedStateArgs, expirePendingRaises, staleStateReason } from "./bidCore";
 import {
   bidTimerEndsAt,
   DEFAULT_BASE_PRICE,
@@ -475,20 +475,7 @@ export const clearCurrentPlayerBids = mutation({
     });
     if (stale) return { success: false as const, reason: stale };
 
-    // Get all live bids for this player
-    const bids = await ctx.db
-      .query("liveBids")
-      .withIndex("by_player", (q) =>
-        q.eq("playerId", auctionRoom.currentPlayerId!),
-      )
-      .collect();
-
-    // Delete all live bids sequentially to avoid excessive parallel writes
-    const CHUNK_SIZE = 100;
-    for (let i = 0; i < bids.length; i += CHUNK_SIZE) {
-      const chunk = bids.slice(i, i + CHUNK_SIZE);
-      await Promise.all(chunk.map((bid) => ctx.db.delete(bid._id)));
-    }
+    const bidCount = await deleteLiveBidsFor(ctx, auctionRoom.currentPlayerId);
 
     await expirePendingRaises(ctx, auctionRoom._id, auctionRoom.currentPlayerId, "Price moved");
 
@@ -508,13 +495,13 @@ export const clearCurrentPlayerBids = mutation({
       action: "clear_player_bids",
       targetType: "auction",
       targetId: args.auctionRoomId,
-      previousData: { bidCount: bids.length },
+      previousData: { bidCount },
       newData: { reason },
       tournamentId: auctionRoom.tournamentId,
       auctionRoomId: args.auctionRoomId,
     });
 
-    return { success: true as const, message: `Cleared ${bids.length} bids` };
+    return { success: true as const, message: `Cleared ${bidCount} bids` };
   },
 });
 

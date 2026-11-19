@@ -7,7 +7,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { verifyMetaSignature, verifyRazorpaySignature } from "./razorpaySignature";
-import { normalizePhone } from "./notifications";
+import { toE164 } from "./notifications";
 
 const http = httpRouter();
 
@@ -146,7 +146,7 @@ http.route({
 
     for (const message of values.flatMap((v) => v.messages ?? [])) {
       const word = message.text?.body?.trim().toLowerCase() ?? "";
-      const phone = message.from ? normalizePhone(`+${message.from}`, "91") : null;
+      const phone = message.from ? toE164(`+${message.from}`, "91") : null;
       if (!phone) continue;
       if (STOP_WORDS.has(word)) await ctx.runMutation(internal.notifications.setOptOut, { phone, optedOut: true });
       else if (START_WORDS.has(word)) await ctx.runMutation(internal.notifications.setOptOut, { phone, optedOut: false });

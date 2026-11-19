@@ -8,7 +8,7 @@ import {
 } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { normalizePhone, validatePlayerFields } from "./validation";
-import { categoryFor, effectiveBasePrice } from "./bidRules";
+import { captainIdsOf, categoryFor, effectiveBasePrice } from "./bidRules";
 import { assertPlayerCapacity } from "./plans";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -522,9 +522,7 @@ export const deleteAllByTournament = mutation({
         q.eq("tournamentId", args.tournamentId),
       )
       .collect();
-    const captainPlayerIds = new Set(
-      teams.flatMap((t) => (t.captainPlayerId ? [t.captainPlayerId] : [])),
-    );
+    const captainPlayerIds = captainIdsOf(teams);
 
     // Filter out sold players unless explicitly included, and always skip captains
     const playersToDelete = (

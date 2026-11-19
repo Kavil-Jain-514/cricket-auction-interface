@@ -4,7 +4,8 @@
 // started", which locks team owners out of editing their team.
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireTournamentRole, type TournamentRole } from "./auth";
+import { logAdminAction, requireTournamentRole, type TournamentRole } from "./auth";
+import { syncTournamentAuctionCounts } from "./auctionCounts";
 
 /**
  * Load a room and authorize the caller on its tournament, in that order and
@@ -69,4 +70,41 @@ export async function goLive(ctx: MutationCtx, room: Doc<"auctionRooms">) {
       timestamp: now,
     }),
   ]);
+}
+
+/**
+ * End the auction: room and tournament "completed", nobody on the block,
+ * counts resynced. With `audit`, logs "complete_auction" with its reason;
+ * callers that log their own action (resolveStalledRound) leave it out.
+ */
+export async function completeAuction(
+  ctx: MutationCtx,
+  room: Doc<"auctionRooms">,
+  audit?: { user: Doc<"users">; reason: string },
+): Promise<{ success: true; completed: true }> {
+  const now = Date.now();
+  await Promise.all([
+    ctx.db.patch(room._id, {
+      status: "completed",
+      currentPlayerId: undefined,
+      bidTimerEndsAt: undefined,
+      roundStalled: undefined,
+      updatedAt: now,
+    }),
+    ctx.db.patch(room.tournamentId, { status: "completed", updatedAt: now }),
+  ]);
+  await syncTournamentAuctionCounts(ctx, room.tournamentId);
+  if (audit) {
+    await logAdminAction(ctx, {
+      userId: audit.user._id,
+      userEmail: audit.user.email,
+      action: "complete_auction",
+      targetType: "auction",
+      targetId: room._id,
+      newData: { reason: audit.reason },
+      tournamentId: room.tournamentId,
+      auctionRoomId: room._id,
+    });
+  }
+  return { success: true, completed: true };
 }

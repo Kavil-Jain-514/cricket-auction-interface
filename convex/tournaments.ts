@@ -29,6 +29,7 @@ import { canCreateTournament, canUploadTournamentLogo, isSuperAdmin } from "./po
 import { takeSnapshot } from "./snapshots";
 import { scheduleTournamentPurge } from "./fileCleanup";
 import { assertImageUrl } from "./uploads";
+import { inChunks } from "./batch";
 import {
   confirmsTournamentName,
   normalizeFooterText,
@@ -914,16 +915,8 @@ export const deleteTournament = mutation({
     // Helper: delete a chunk at a time so only one chunk of writes is in
     // flight at once. The delete is still one transaction: it commits whole or
     // not at all, within Convex's per-transaction limits (AUDIT 2026-11 PERF-004).
-    async function deleteInChunks(
-      ids: { _id: Parameters<typeof ctx.db.delete>[0] }[],
-      chunkSize = 200,
-    ) {
-      for (let i = 0; i < ids.length; i += chunkSize) {
-        await Promise.all(
-          ids.slice(i, i + chunkSize).map((doc) => ctx.db.delete(doc._id)),
-        );
-      }
-    }
+    const deleteInChunks = (docs: { _id: Parameters<typeof ctx.db.delete>[0] }[]) =>
+      inChunks(docs.map((doc) => () => ctx.db.delete(doc._id)));
 
     // Audit before deleting (the log row outlives the tournament).
     await logAdminAction(ctx, {
