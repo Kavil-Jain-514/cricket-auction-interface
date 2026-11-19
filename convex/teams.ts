@@ -3,6 +3,7 @@ import { mutation, query, type MutationCtx } from "./_generated/server";
 import {
   getCurrentUser,
   getTournamentRole,
+  isHiddenFrom,
   isTournamentStaff,
   logAdminAction,
   OWNER_ONLY,
@@ -222,7 +223,7 @@ export const listByTournament = query({
     if (!tournament) return [];
 
     // Deactivated tournaments are hidden from everyone but its staff.
-    if (tournament.isActive === false && !(await isTournamentStaff(ctx, args.tournamentId))) {
+    if (await isHiddenFrom(ctx, tournament)) {
       return [];
     }
 

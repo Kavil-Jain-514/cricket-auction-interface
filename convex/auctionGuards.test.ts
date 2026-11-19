@@ -421,9 +421,10 @@ describe("pauseAuction — only a live auction can be paused (AUDIT 2026-11 DATA
     await t.run((ctx) => ctx.db.patch(ids.roomId, { status: "completed" }));
 
     await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: ids.roomId });
-    await expect(
-      asAdmin.mutation(api.auctions.resumeAuction, { auctionRoomId: ids.roomId }),
-    ).rejects.toThrow("Auction is not paused");
+    expect(await asAdmin.mutation(api.auctions.resumeAuction, { auctionRoomId: ids.roomId })).toEqual({
+      success: false,
+      reason: "Auction is not paused",
+    });
     expect((await t.run((ctx) => ctx.db.get(ids.roomId)))?.status).toBe("completed");
   });
 
@@ -435,5 +436,41 @@ describe("pauseAuction — only a live auction can be paused (AUDIT 2026-11 DATA
     expect(await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: ids.roomId })).toMatchObject({ success: true });
     expect(await asAdmin.mutation(api.auctions.pauseAuction, { auctionRoomId: ids.roomId })).toEqual({ success: true, alreadyPaused: true });
     expect((await t.run((ctx) => ctx.db.get(ids.roomId)))?.status).toBe("paused");
+  });
+});
+
+describe("console rule failures are results, not exceptions (AUDIT 2026-11 REL-003)", () => {
+  test("each refusal returns { success: false, reason } and changes nothing", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const ids = await setup(t);
+    const room = { auctionRoomId: ids.roomId };
+
+    // Live, nobody on the block.
+    expect(await asAdmin.mutation(api.auctions.revertLastBid, room)).toEqual({ success: false, reason: "No player currently in auction" });
+    expect(await asAdmin.mutation(api.auctions.restartCurrentPlayer, room)).toEqual({ success: false, reason: "No player currently in auction" });
+    expect(await asAdmin.mutation(api.admin.clearCurrentPlayerBids, { ...room, reason: "test" })).toEqual({
+      success: false,
+      reason: "No player currently in auction",
+    });
+
+    // A player up, no bids yet.
+    await putUp(t, ids, "X");
+    expect(await asAdmin.mutation(api.auctions.revertLastBid, room)).toEqual({ success: false, reason: "No bids to revert" });
+
+    // Not live.
+    await t.run((ctx) => ctx.db.patch(ids.roomId, { status: "completed", currentPlayerId: undefined }));
+    expect(await asAdmin.mutation(api.auctions.startNextPlayer, room)).toMatchObject({ success: false, reason: "Auction is not live" });
+    expect(await asAdmin.mutation(api.auctions.startAuction, room)).toEqual({ success: false, reason: "Auction has already completed" });
+    expect(await asAdmin.mutation(api.auctions.resumeAuction, room)).toEqual({ success: false, reason: "Auction is not paused" });
+    expect((await t.run((ctx) => ctx.db.get(ids.roomId)))?.status).toBe("completed");
+  });
+
+  test("a missing room still throws (not-found is the one exception)", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const ids = await setup(t);
+    await t.run((ctx) => ctx.db.delete(ids.roomId));
+    await expect(asAdmin.mutation(api.auctions.revertLastBid, { auctionRoomId: ids.roomId })).rejects.toThrow("Auction room not found");
   });
 });

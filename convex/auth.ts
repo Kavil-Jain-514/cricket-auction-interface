@@ -124,6 +124,18 @@ export async function getTournamentRole(
   return staff?.role ?? null;
 }
 
+/**
+ * True when `tournament` is deactivated and the caller isn't its staff, i.e.
+ * a shared viewer query must return nothing. Identity is read only for a
+ * deactivated tournament, so the normal result stays shared across viewers.
+ */
+export async function isHiddenFrom(
+  ctx: QueryCtx | MutationCtx,
+  tournament: Pick<Doc<"tournaments">, "_id" | "isActive"> | null,
+): Promise<boolean> {
+  return tournament?.isActive === false && !(await getTournamentRole(ctx, tournament._id));
+}
+
 /** True for a super-admin or anyone on the tournament's staff. */
 export async function isTournamentStaff(
   ctx: QueryCtx | MutationCtx,

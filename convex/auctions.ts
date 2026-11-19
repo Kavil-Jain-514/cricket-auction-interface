@@ -5,6 +5,7 @@ import { Id, Doc } from "./_generated/dataModel";
 import {
   getCurrentUser,
   getTournamentRole,
+  isHiddenFrom,
   logAdminAction,
   OWNER_ONLY,
   requireTournamentRole,
@@ -33,7 +34,7 @@ import { toPublicPlayer } from "./projections";
 import { nextPresentationSet } from "./presentation";
 import { withIdempotency } from "./idempotency";
 import { takeSnapshot } from "./snapshots";
-import { goLive } from "./auctionLifecycle";
+import { goLive, loadRoomForStaff } from "./auctionLifecycle";
 import { enqueueSoldNotification } from "./notifications";
 import { confirmsTournamentName } from "./validation";
 import {
@@ -121,16 +122,14 @@ export const startAuction = mutation({
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
-    const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
-    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+    const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
 
     if (auctionRoom.status === "live") {
       return { success: true, message: "Auction already live" };
     }
 
     if (auctionRoom.status === "completed") {
-      throw new Error("Auction has already completed");
+      return { success: false, reason: "Auction has already completed" };
     }
 
     // The state the auction starts from, so the day can always be rewound.
@@ -149,9 +148,7 @@ export const pauseAuction = mutation({
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
-    const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
-    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+    const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
 
     if (auctionRoom.status === "paused") {
       return { success: true, alreadyPaused: true };
@@ -210,16 +207,14 @@ export const resumeAuction = mutation({
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
-    const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
-    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+    const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
 
     if (auctionRoom.status === "live") {
       return { success: true, alreadyLive: true };
     }
 
     if (auctionRoom.status !== "paused") {
-      throw new Error("Auction is not paused");
+      return { success: false, reason: "Auction is not paused" };
     }
 
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
@@ -286,9 +281,7 @@ async function placeBidImpl(
   args: { auctionRoomId: Id<"auctionRooms">; teamId: Id<"teams">; amount: number } & ExpectedState,
 ) {
   // Only the tournament's staff can call bids from the console
-  const auctionRoom = await ctx.db.get(args.auctionRoomId);
-  if (!auctionRoom) throw new Error("Auction room not found");
-  const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+  const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
 
   const team = await ctx.db.get(args.teamId);
   if (!team) throw new Error("Team not found");
@@ -573,9 +566,7 @@ async function finalizePlayerSaleImpl(
   ctx: MutationCtx,
   args: { auctionRoomId: Id<"auctionRooms"> } & ExpectedState,
 ) {
-  const auctionRoom = await ctx.db.get(args.auctionRoomId);
-  if (!auctionRoom) throw new Error("Auction room not found");
-  const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+  const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
 
   if (auctionRoom.status !== "live") {
     return { success: false, reason: "Auction is not live" };
@@ -754,9 +745,7 @@ export const markPlayerFinalUnsold = mutation({
     expectedPlayerId: expectedStateArgs.expectedPlayerId,
   },
   handler: async (ctx, args) => {
-    const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
-    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+    const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
 
     if (auctionRoom.status !== "live") {
       return { success: false, reason: "Auction is not live" };
@@ -845,12 +834,10 @@ export const startNextPlayer = mutation({
     auctionRoomId: v.id("auctionRooms"),
   },
   handler: async (ctx, args) => {
-    const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
-    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+    const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
 
     if (auctionRoom.status !== "live") {
-      throw new Error("Auction must be live to get next player");
+      return { success: false, completed: false, reason: "Auction is not live" };
     }
 
     // Guard: refuse to load a new player while one is still in auction.
@@ -1166,9 +1153,7 @@ export const resolveStalledRound = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
-    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+    const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
     if (!auctionRoom.roundStalled) {
       // Idempotent: nothing to resolve (another tab already handled it).
       return { success: true, alreadyResolved: true };
@@ -1299,12 +1284,10 @@ export const revertLastBid = mutation({
     ...expectedStateArgs,
   },
   handler: async (ctx, args) => {
-    const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
-    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+    const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
 
     if (!auctionRoom.currentPlayerId) {
-      throw new Error("No player currently in auction");
+      return { success: false as const, reason: "No player currently in auction" };
     }
 
     const latestBid = await ctx.db
@@ -1319,7 +1302,7 @@ export const revertLastBid = mutation({
     if (stale) return { success: false as const, reason: stale };
 
     if (!latestBid) {
-      throw new Error("No bids to revert");
+      return { success: false as const, reason: "No bids to revert" };
     }
 
     await ctx.db.delete(latestBid._id);
@@ -1354,12 +1337,10 @@ export const restartCurrentPlayer = mutation({
     expectedPlayerId: expectedStateArgs.expectedPlayerId,
   },
   handler: async (ctx, args) => {
-    const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
-    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+    const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
 
     if (!auctionRoom.currentPlayerId) {
-      throw new Error("No player currently in auction");
+      return { success: false as const, reason: "No player currently in auction" };
     }
     const stale = staleStateReason(auctionRoom, null, {
       expectedPlayerId: args.expectedPlayerId,
@@ -1575,8 +1556,7 @@ export const getAuctionRoster = query({
       ]);
     // Deactivated: staff only (identity is read only in this case).
     if (
-      tournament?.isActive === false &&
-      !(await getTournamentRole(ctx, args.tournamentId))
+      (await isHiddenFrom(ctx, tournament))
     ) {
       return null;
     }
@@ -1780,8 +1760,7 @@ export const getSoldPlayers = query({
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) return [];
     if (
-      tournament.isActive === false &&
-      !(await getTournamentRole(ctx, args.tournamentId))
+      (await isHiddenFrom(ctx, tournament))
     ) {
       return [];
     }
@@ -2003,8 +1982,7 @@ export const getLatestSaleEvent = query({
     // (which changes on every bid).
     const tournament = player ? await ctx.db.get(player.tournamentId) : null;
     if (
-      tournament?.isActive === false &&
-      !(await getTournamentRole(ctx, tournament._id))
+      (await isHiddenFrom(ctx, tournament))
     ) {
       return null;
     }
@@ -2069,8 +2047,7 @@ export const getAuctionHistory = query({
     ]);
 
     if (
-      tournament?.isActive === false &&
-      !(await getTournamentRole(ctx, args.tournamentId))
+      (await isHiddenFrom(ctx, tournament))
     ) {
       return { sold: [], unsold: [] };
     }
@@ -2218,8 +2195,7 @@ export const getAuctionRooms = query({
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
     if (
-      tournament?.isActive === false &&
-      !(await getTournamentRole(ctx, args.tournamentId))
+      (await isHiddenFrom(ctx, tournament))
     ) {
       return [];
     }
@@ -2244,9 +2220,7 @@ export const restartAuction = mutation({
     confirmName: v.string(),
   },
   handler: async (ctx, args) => {
-    const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
-    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, OWNER_ONLY);
+    const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, OWNER_ONLY);
 
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
     if (!tournament) throw new Error("Tournament not found");

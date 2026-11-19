@@ -4,6 +4,7 @@ import { mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { logAdminAction, requireTournamentRole, RUN_AUCTION } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { loadRoomForStaff } from "./auctionLifecycle";
 import { expectedStateArgs, expirePendingRaises, staleStateReason } from "./bidCore";
 import {
   bidTimerEndsAt,
@@ -463,13 +464,11 @@ export const clearCurrentPlayerBids = mutation({
     expectedPlayerId: expectedStateArgs.expectedPlayerId,
   },
   handler: async (ctx, args) => {
-    const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
-    const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
+    const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
     const reason = requireReason(args.reason);
 
     if (!auctionRoom.currentPlayerId) {
-      throw new Error("No player currently in auction");
+      return { success: false as const, reason: "No player currently in auction" };
     }
     const stale = staleStateReason(auctionRoom, null, {
       expectedPlayerId: args.expectedPlayerId,

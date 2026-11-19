@@ -965,7 +965,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <Button
                     onClick={async () => {
                       try {
-                        await startAuction({ auctionRoomId });
+                        const res = await startAuction({ auctionRoomId });
+                        if (!res.success) {
+                          toast.error(res.reason);
+                          return;
+                        }
                         // The auto-loader effect picks up the first player once the
                         // room goes live — no manual "Next" needed.
                         toast.success('Auction started!');
@@ -1053,7 +1057,11 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   <Button
                     onClick={async () => {
                       try {
-                        await resumeAuction({ auctionRoomId });
+                        const res = await resumeAuction({ auctionRoomId });
+                        if (!res.success) {
+                          toast.error(res.reason);
+                          return;
+                        }
                         toast.success('Auction resumed!');
                       } catch {
                         toast.error('Failed to resume auction');

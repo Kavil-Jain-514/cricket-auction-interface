@@ -4,6 +4,23 @@
 // started", which locks team owners out of editing their team.
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { requireTournamentRole, type TournamentRole } from "./auth";
+
+/**
+ * Load a room and authorize the caller on its tournament, in that order and
+ * before any other validation (CLAUDE.md). A missing room throws: not-found
+ * is the one case auction mutations throw for.
+ */
+export async function loadRoomForStaff(
+  ctx: MutationCtx,
+  auctionRoomId: Id<"auctionRooms">,
+  roles: TournamentRole[],
+): Promise<{ room: Doc<"auctionRooms">; user: Doc<"users"> }> {
+  const room = await ctx.db.get(auctionRoomId);
+  if (!room) throw new Error("Auction room not found");
+  const user = await requireTournamentRole(ctx, room.tournamentId, roles);
+  return { room, user };
+}
 
 /**
  * A room has started once it leaves "waiting" (live, paused or completed).
