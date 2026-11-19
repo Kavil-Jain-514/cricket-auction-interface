@@ -109,11 +109,11 @@ export function TournamentSettingsModal({
   if (name.length < 3 || name.length > 50) {
     fieldErrors.name = 'Name must be 3–50 characters';
   }
-  if (formData.basePurse.trim() === '' || !Number.isFinite(parsed.basePurse) || parsed.basePurse < 100000 || parsed.basePurse > 1000000000) {
-    fieldErrors.basePurse = 'Enter an amount between ₹1L and ₹100Cr';
+  if (formData.basePurse.trim() === '' || !Number.isFinite(parsed.basePurse) || parsed.basePurse <= 0 || parsed.basePurse > 1000000000) {
+    fieldErrors.basePurse = 'Enter an amount above ₹0, up to ₹100Cr';
   }
-  if (formData.minBidIncrement.trim() === '' || !Number.isFinite(parsed.minBidIncrement) || parsed.minBidIncrement < 5000) {
-    fieldErrors.minBidIncrement = 'Must be at least ₹5,000';
+  if (formData.minBidIncrement.trim() === '' || !Number.isFinite(parsed.minBidIncrement) || parsed.minBidIncrement <= 0) {
+    fieldErrors.minBidIncrement = 'Must be greater than 0';
   } else if (!fieldErrors.basePurse && parsed.minBidIncrement > parsed.basePurse / 10) {
     fieldErrors.minBidIncrement = 'Cannot exceed 10% of the base purse';
   }
