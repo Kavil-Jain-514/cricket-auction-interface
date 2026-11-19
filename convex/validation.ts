@@ -4,6 +4,7 @@
 // create and update paths can never drift apart. Each returns an error message,
 // or null when the value is fine.
 import { isWholeRupees } from "./bidRules";
+import { isAllowedPlayerPhoto, isOurUpload } from "./uploads";
 
 /** True when `typed` is the tournament's name (trimmed, any case). */
 export function confirmsTournamentName(typed: string, name: string): boolean {
@@ -109,20 +110,24 @@ export function normalizeFooterText(
   return { ok: true, text: text === "" ? undefined : text };
 }
 
-const MAX_IMAGE_URL = 500;
-
-/** An uploaded image link: https only, so it can't carry script. */
-function isImageUrl(url: string): boolean {
-  return url.startsWith("https://") && url.length <= MAX_IMAGE_URL;
+/**
+ * An image we uploaded (uploads.ts), or one already stored here: values saved
+ * before the "our uploads only" rule stay editable (AUDIT 2026-11 SEC-004).
+ */
+function isAcceptedImage(url: string, previous: ReadonlySet<string> | undefined): boolean {
+  return previous?.has(url) === true || isOurUpload(url);
 }
 
 /** Trim the registration payment QR link. Blank means "none" (undefined). */
 export function normalizePaymentQrUrl(
   raw: string,
+  previous?: string,
 ): { ok: true; url: string | undefined } | { ok: false; error: string } {
   const url = raw.trim();
   if (url === "") return { ok: true, url: undefined };
-  if (!isImageUrl(url)) return { ok: false, error: "Upload the payment QR as an image" };
+  if (!isAcceptedImage(url, previous ? new Set([previous]) : undefined)) {
+    return { ok: false, error: "Upload the payment QR as an image" };
+  }
   return { ok: true, url };
 }
 
@@ -131,6 +136,7 @@ export const MAX_SPONSORS = 12;
 /** Trimmed sponsors for the registration form, or an error. */
 export function normalizeSponsors(
   sponsors: Array<{ name: string; logoUrl?: string }>,
+  previousLogoUrls?: ReadonlySet<string>,
 ): { ok: true; sponsors: Array<{ name: string; logoUrl?: string }> } | { ok: false; error: string } {
   if (sponsors.length > MAX_SPONSORS) {
     return { ok: false, error: `Add at most ${MAX_SPONSORS} sponsors` };
@@ -140,7 +146,7 @@ export function normalizeSponsors(
     const error = lengthError("Sponsor name", sponsor.name, 1, 60);
     if (error) return { ok: false, error };
     const logoUrl = sponsor.logoUrl?.trim() || undefined;
-    if (logoUrl && !isImageUrl(logoUrl)) {
+    if (logoUrl && !isAcceptedImage(logoUrl, previousLogoUrls)) {
       return { ok: false, error: `Upload ${sponsor.name.trim()}'s logo as an image` };
     }
     out.push(logoUrl ? { name: sponsor.name.trim(), logoUrl } : { name: sponsor.name.trim() });
@@ -217,6 +223,8 @@ export function validatePlayerFields(
     jerseyNumber?: number;
     phoneNumber?: string;
     basePrice?: number;
+    /** Checked only when given; callers leave it out when it didn't change. */
+    photoUrl?: string;
   },
   tournamentBasePurse: number,
 ): { errors: FieldError[]; phoneNumber: string | undefined } {
@@ -246,6 +254,10 @@ export function validatePlayerFields(
       "basePrice",
       "Base price must be greater than 0 and no more than the base purse",
     );
+  }
+
+  if (fields.photoUrl && !isAllowedPlayerPhoto(fields.photoUrl)) {
+    push("photoUrl", "Upload the photo with the photo button, or link a Google Drive image");
   }
 
   const phone = normalizePhone(fields.phoneNumber);

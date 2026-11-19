@@ -373,7 +373,12 @@ export const update = mutation({
 
     // Validation (shared with create — convex/validation.ts)
     const { errors, phoneNumber } = validatePlayerFields(
-      { ...args, basePrice: args.basePrice ?? undefined },
+      {
+        ...args,
+        basePrice: args.basePrice ?? undefined,
+        // An unchanged photo isn't re-checked: older records stay editable.
+        photoUrl: args.photoUrl === player.photoUrl ? undefined : args.photoUrl,
+      },
       tournament.settings.basePurse,
     );
     if (errors.length > 0) throw new Error(errors[0].message);

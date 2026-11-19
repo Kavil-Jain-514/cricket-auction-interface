@@ -28,6 +28,7 @@ import { initialPlan } from "./plans";
 import { canCreateTournament, canUploadTournamentLogo, isSuperAdmin } from "./policy";
 import { takeSnapshot } from "./snapshots";
 import { scheduleTournamentPurge } from "./fileCleanup";
+import { assertImageUrl } from "./uploads";
 import {
   confirmsTournamentName,
   normalizeFooterText,
@@ -41,11 +42,9 @@ import {
   validateTournamentName,
 } from "./validation";
 
-/** Logos must come from our own upload (Cloudinary over https). */
+/** Logos must be our own upload (uploads.ts, AUDIT 2026-11 SEC-004). */
 function assertUploadedLogo(logoUrl: string | undefined) {
-  if (logoUrl !== undefined && !logoUrl.startsWith("https://res.cloudinary.com/")) {
-    throw new Error("Upload the logo with the logo button");
-  }
+  assertImageUrl(logoUrl, "Upload the logo with the logo button");
 }
 
 // Who may bid (see schema.ts). Not a locked setting: the auctioneer can fall
@@ -532,7 +531,7 @@ export const update = mutation({
     if (feeError) throw new Error(feeError);
     let paymentQrUrl = tournament.settings.paymentQrUrl;
     if (args.settings?.paymentQrUrl !== undefined) {
-      const qr = normalizePaymentQrUrl(args.settings.paymentQrUrl);
+      const qr = normalizePaymentQrUrl(args.settings.paymentQrUrl, tournament.settings.paymentQrUrl);
       if (!qr.ok) throw new Error(qr.error);
       paymentQrUrl = qr.url;
     }
@@ -546,7 +545,10 @@ export const update = mutation({
 
     let sponsors = tournament.sponsors;
     if (args.sponsors !== undefined) {
-      const normalized = normalizeSponsors(args.sponsors);
+      const normalized = normalizeSponsors(
+        args.sponsors,
+        new Set((tournament.sponsors ?? []).flatMap((s) => (s.logoUrl ? [s.logoUrl] : []))),
+      );
       if (!normalized.ok) throw new Error(normalized.error);
       sponsors = normalized.sponsors;
     }

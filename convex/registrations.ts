@@ -16,6 +16,7 @@ import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { insertValidatedPlayer } from "./players";
 import { normalizePhone, validatePlayerFields } from "./validation";
 import { cloudinarySignature } from "./cloudinarySignature";
+import { isOurUpload, ourCloudName } from "./uploads";
 import { answersValidator, missingRequiredField, resolveRequiredFields, validateAnswers } from "./registrationForm";
 import { customQuestionsEnabled, latestFormVersion } from "./registrationForms";
 import { enqueueRegistrationNotification } from "./notifications";
@@ -41,7 +42,8 @@ function playerPhone(p: Doc<"players">): string | undefined {
   return phone.ok ? phone.phone : p.phoneNumber;
 }
 
-const isUploadedImage = (url: string) => url.startsWith("https://res.cloudinary.com/");
+/** A file a registrant uploaded through getUploadSignature (AUDIT 2026-11 SEC-004). */
+const isUploadedImage = (url: string) => isOurUpload(url, "registrations");
 
 /** Throws unless `categoryId` is absent or one of the tournament's categories. */
 function assertKnownCategory(tournament: Doc<"tournaments">, categoryId: string | undefined) {
@@ -95,7 +97,7 @@ export const getUploadSignature = action({
       ...UPLOAD_SIGNATURE_LIMIT,
     });
     if (!allowed) throw new Error("Too many uploads right now. Try again in a minute.");
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME ?? process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const cloudName = ourCloudName();
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
     if (!cloudName || !apiKey || !apiSecret) throw new Error("Photo upload isn't set up; you can register without a photo");
