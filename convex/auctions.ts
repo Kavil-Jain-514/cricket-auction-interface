@@ -45,6 +45,8 @@ import {
 import {
   bidTimerEndsAt,
   bidTimerSeconds,
+  DEFAULT_BASE_PRICE,
+  DEFAULT_MAX_PLAYERS_PER_TEAM,
   effectiveBasePrice,
   teamPurseTotal,
   isSquadFull,
@@ -1590,9 +1592,9 @@ export const getAuctionRoster = query({
       .filter((p) => !captainPlayerIds.has(p._id))
       .map(toSoldPlayerSummary);
 
-    const maxPlayersPerTeam = tournament?.settings.maxPlayersPerTeam || 15;
+    const maxPlayersPerTeam = tournament?.settings.maxPlayersPerTeam ?? DEFAULT_MAX_PLAYERS_PER_TEAM;
     const tournamentSettings = tournament?.settings ?? {};
-    const tournamentBasePrice = tournament?.settings.basePrice ?? 100000;
+    const tournamentBasePrice = tournament?.settings.basePrice ?? DEFAULT_BASE_PRICE;
     // Player's own price, else its category's, else the tournament's.
     const currentPlayerBasePrice = currentPlayer
       ? effectiveBasePrice(currentPlayer, tournamentSettings)
@@ -2016,7 +2018,7 @@ export const getLatestSaleEvent = query({
     // after an unsold result. (P1-2). Fallbacks cover legacy events.
     let amount = data.amount ?? 0;
     if (!sold) {
-      amount = data.basePrice ?? player?.basePrice ?? 100000;
+      amount = data.basePrice ?? player?.basePrice ?? DEFAULT_BASE_PRICE;
     }
 
     return {
@@ -2297,9 +2299,10 @@ export const restartAuction = mutation({
         .collect(),
     ]);
 
-    // Helper: execute thunks in sequential chunks to stay within Convex's
-    // per-mutation write limit (~1000 ops). Accepts thunks so that DB writes
-    // are only initiated for the current chunk, not all at once upfront.
+    // Helper: run thunks a chunk at a time so only one chunk of writes is in
+    // flight at once. This does NOT make the transaction smaller: everything
+    // here still commits (or fails) as one mutation, against Convex's
+    // per-transaction limits (AUDIT 2026-11 PERF-004).
     async function runInChunks<T>(
       thunks: (() => Promise<T>)[],
       chunkSize = 200,

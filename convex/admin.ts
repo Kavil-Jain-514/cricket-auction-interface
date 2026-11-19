@@ -1,6 +1,6 @@
 // convex/admin.ts - Admin-only mutations for managing auction data
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { logAdminAction, requireTournamentRole, RUN_AUCTION } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
@@ -8,6 +8,7 @@ import { expectedStateArgs, expirePendingRaises, staleStateReason } from "./bidC
 import {
   bidTimerEndsAt,
   DEFAULT_BASE_PRICE,
+  DEFAULT_MAX_PLAYERS_PER_TEAM,
   isSquadFull,
   isWholeRupees,
   maxAllowedBid,
@@ -43,7 +44,7 @@ function assertCanAffordPlayer(
   tournament: Doc<"tournaments"> | null,
   args: { purseRemaining: number; playersOnTeam: number; price: number },
 ) {
-  const maxPlayersPerTeam = tournament?.settings?.maxPlayersPerTeam || 15;
+  const maxPlayersPerTeam = tournament?.settings?.maxPlayersPerTeam ?? DEFAULT_MAX_PLAYERS_PER_TEAM;
   if (isSquadFull(args.playersOnTeam, maxPlayersPerTeam)) {
     throw new Error(
       `This team's squad is full (${maxPlayersPerTeam} players).`,
@@ -644,39 +645,5 @@ export const recalculateTeamPurse = mutation({
     });
 
     return { success: true, purseRemaining, purseSpent };
-  },
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// QUERIES FOR ADMIN
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Get detailed player info with team for admin view
- */
-export const getPlayerWithTeam = query({
-  args: {
-    playerId: v.id("players"),
-  },
-  handler: async (ctx, args) => {
-    const player = await ctx.db.get(args.playerId);
-    if (!player) return null;
-    await requireTournamentRole(ctx, player.tournamentId, RUN_AUCTION);
-
-    const team = player.teamId ? await ctx.db.get(player.teamId) : null;
-
-    return {
-      ...player,
-      team: team
-        ? {
-            _id: team._id,
-            name: team.name,
-            purseRemaining: team.purseRemaining,
-            purseSpent: team.purseSpent,
-            colorPrimary: team.colorPrimary,
-            logoUrl: team.logoUrl,
-          }
-        : null,
-    };
   },
 });

@@ -909,8 +909,9 @@ export const deleteTournament = mutation({
       ),
     );
 
-    // Helper: delete in sequential chunks to stay within Convex's per-mutation
-    // write limit (~1000 ops) and avoid partial-deletion if the mutation times out.
+    // Helper: delete a chunk at a time so only one chunk of writes is in
+    // flight at once. The delete is still one transaction: it commits whole or
+    // not at all, within Convex's per-transaction limits (AUDIT 2026-11 PERF-004).
     async function deleteInChunks(
       ids: { _id: Parameters<typeof ctx.db.delete>[0] }[],
       chunkSize = 200,
@@ -980,19 +981,5 @@ export const deleteTournament = mutation({
     await ctx.db.delete(args.id);
 
     return { success: true };
-  },
-});
-
-// Check if tournament can be edited/deleted
-export const canModify = query({
-  args: { id: v.id("tournaments") },
-  handler: async (ctx, args) => {
-    const tournament = await ctx.db.get(args.id);
-    if (!tournament) return { canEdit: false, canDelete: false };
-
-    const canEdit = tournament.status !== "completed";
-    const canDelete = true;
-
-    return { canEdit, canDelete };
   },
 });

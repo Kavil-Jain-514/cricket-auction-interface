@@ -2,7 +2,7 @@
 
 Bid11Pro (repo: cricket-auction-interface) is a live cricket player-auction app.
 
-Stack: Next.js 16 App Router (all pages are client components), React 19, Tailwind 4, Convex 1.31 backend
+Stack: Next.js 16 App Router (all pages are client components), React 19, Tailwind 4, Convex 1.42 backend
 (`convex/*.ts`), Clerk auth, Cloudinary images, Vitest + convex-test.
 
 ## Commands
