@@ -15,6 +15,7 @@ import {
 } from "./bidRules";
 import type { Doc, Id } from "./_generated/dataModel";
 import { purseFromSales } from "./money";
+import { MAX_BASE_PURSE } from "./validation";
 
 // Helper: format purse amount for error messages
 function formatPurse(amount: number): string {
@@ -551,6 +552,10 @@ export const adjustTeamPurse = mutation({
     const reason = requireReason(args.reason);
     if (!Number.isInteger(args.amount) || args.amount === 0) {
       throw new Error("Adjustment must be a non-zero whole number of rupees");
+    }
+    // A slipped zero (₹10,00,00,00,000) must not reach the purse (DATA-005).
+    if (Math.abs(args.amount) > MAX_BASE_PURSE) {
+      throw new Error(`An adjustment can be at most ${formatPurse(MAX_BASE_PURSE)} either way`);
     }
 
     const purseRemaining = team.purseRemaining + args.amount;

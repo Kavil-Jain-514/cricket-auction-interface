@@ -38,8 +38,9 @@ export function validateSettings(settings: {
   minBidIncrement: number;
   maxPlayersPerTeam: number;
   basePrice?: number;
+  registrationFee?: number;
 }): string | null {
-  const { basePurse, minBidIncrement, maxPlayersPerTeam, basePrice } = settings;
+  const { basePurse, minBidIncrement, maxPlayersPerTeam, basePrice, registrationFee } = settings;
 
   for (const [label, amount] of [
     ["Base purse", basePurse],
@@ -77,7 +78,17 @@ export function validateSettings(settings: {
   ) {
     return "Base price must be greater than 0 and no more than the base purse";
   }
-  return null;
+  return validateRegistrationFee(registrationFee);
+}
+
+export const MAX_REGISTRATION_FEE = 100_000;
+
+/** Rupees, 0 (free) to ₹1,00,000; absent is fine. Shared by create and update. */
+export function validateRegistrationFee(fee: number | undefined): string | null {
+  if (fee === undefined) return null;
+  return Number.isInteger(fee) && fee >= 0 && fee <= MAX_REGISTRATION_FEE
+    ? null
+    : "Registration fee must be a whole number of rupees from 0 to 1,00,000";
 }
 
 export const MAX_FOOTER_TEXT = 120;

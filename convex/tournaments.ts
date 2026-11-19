@@ -35,6 +35,7 @@ import {
   normalizeSponsors,
   validateCategories,
   validateIncrementSlabs,
+  validateRegistrationFee,
   validateSettings,
   validateSquadRules,
   validateTournamentName,
@@ -527,12 +528,8 @@ export const update = mutation({
     // Nor are the public registration form settings.
     const registrationOpen = args.settings?.registrationOpen ?? tournament.settings.registrationOpen;
     const registrationFee = args.settings?.registrationFee ?? tournament.settings.registrationFee;
-    if (
-      registrationFee !== undefined &&
-      (!Number.isInteger(registrationFee) || registrationFee < 0 || registrationFee > 100_000)
-    ) {
-      throw new Error("Registration fee must be a whole number of rupees from 0 to 1,00,000");
-    }
+    const feeError = validateRegistrationFee(registrationFee);
+    if (feeError) throw new Error(feeError);
     let paymentQrUrl = tournament.settings.paymentQrUrl;
     if (args.settings?.paymentQrUrl !== undefined) {
       const qr = normalizePaymentQrUrl(args.settings.paymentQrUrl);
