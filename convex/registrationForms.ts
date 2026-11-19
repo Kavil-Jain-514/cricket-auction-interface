@@ -6,7 +6,14 @@ import { v } from "convex/values";
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getTournamentRole, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
-import { normalizeQuestions, questionValidator, validateFormQuestions, type Question } from "./registrationForm";
+import {
+  normalizeQuestions,
+  questionValidator,
+  requiredFieldsValidator,
+  resolveRequiredFields,
+  validateFormQuestions,
+  type Question,
+} from "./registrationForm";
 
 /**
  * Off switch for a live event: REGISTRATION_CUSTOM_QUESTIONS=off in the
@@ -101,6 +108,7 @@ export const get = query({
     return {
       version: latest?.version ?? 0,
       questions: latest?.questions ?? [],
+      requiredFields: resolveRequiredFields(latest?.requiredFields),
       answerCounts: await answerCounts(ctx, args.tournamentId),
       labels,
     };
@@ -108,13 +116,15 @@ export const get = query({
 });
 
 /**
- * Save the questions as a new version. Owners only. `expectedVersion` is the
+ * Save the questions and which standard details are required as a new
+ * version. Owners only. Without `requiredFields` the previous rules are kept. `expectedVersion` is the
  * version the editor loaded; if someone saved since, nothing is overwritten.
  */
 export const save = mutation({
   args: {
     tournamentId: v.id("tournaments"),
     questions: v.array(questionValidator),
+    requiredFields: v.optional(requiredFieldsValidator),
     expectedVersion: v.number(),
   },
   handler: async (ctx, args) => {
@@ -131,8 +141,14 @@ export const save = mutation({
     if (args.expectedVersion !== current) {
       throw new Error("Someone else changed the form since you opened it. Reload to see their changes.");
     }
+    const previousRules = resolveRequiredFields(latest?.requiredFields);
+    const requiredFields = args.requiredFields ? resolveRequiredFields(args.requiredFields) : previousRules;
     // Stored objects can come back with keys reordered: compare normalised.
-    if (latest && JSON.stringify(normalizeQuestions(latest.questions)) === JSON.stringify(questions)) {
+    if (
+      latest &&
+      JSON.stringify(normalizeQuestions(latest.questions)) === JSON.stringify(questions) &&
+      JSON.stringify(previousRules) === JSON.stringify(requiredFields)
+    ) {
       return { version: current };
     }
 
@@ -149,6 +165,7 @@ export const save = mutation({
       tournamentId: args.tournamentId,
       version,
       questions,
+      requiredFields,
       createdBy: owner._id,
       createdAt: Date.now(),
     });
@@ -158,8 +175,8 @@ export const save = mutation({
       action: "save_registration_form",
       targetType: "tournament",
       targetId: args.tournamentId,
-      previousData: { version: current },
-      newData: { version, questions: questions.length },
+      previousData: { version: current, requiredFields: previousRules },
+      newData: { version, questions: questions.length, requiredFields },
       tournamentId: args.tournamentId,
     });
     return { version };

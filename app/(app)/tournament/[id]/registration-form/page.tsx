@@ -15,7 +15,7 @@ import { FormBuilder } from '@/components/registration/FormBuilder';
 import { CustomQuestions, type AnswerMap } from '@/components/registration/CustomQuestions';
 import { ShareRegistration } from '@/components/registration/ShareRegistration';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
-import { normalizeQuestions, validateFormQuestions, type Question } from '@/convex/registrationForm';
+import { DEFAULT_REQUIRED_FIELDS, normalizeQuestions, validateFormQuestions, type Question, type RequiredFields } from '@/convex/registrationForm';
 import { getErrorMessage } from '@/lib/utils';
 
 /** Drop blank option lines before validating (the textarea keeps them while typing). */
@@ -32,16 +32,21 @@ export default function RegistrationFormPage({ params }: { params: Promise<{ id:
   const save = useMutation(api.registrationForms.save);
 
   // The draft starts from the saved form and is re-based whenever a save lands.
-  const [draft, setDraft] = useState<{ base: number; questions: Question[] } | null>(null);
+  type Draft = { base: number; questions: Question[]; requiredFields: RequiredFields };
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [previewAnswers, setPreviewAnswers] = useState<AnswerMap>({});
 
-  if (saved && (draft === null || (draft.base !== saved.version && !isDirty(draft.questions, saved.questions)))) {
-    setDraft({ base: saved.version, questions: saved.questions });
+  if (saved && (draft === null || (draft.base !== saved.version && !isDirty(draft, saved)))) {
+    setDraft({ base: saved.version, questions: saved.questions, requiredFields: saved.requiredFields });
   }
   const questions = draft?.questions ?? [];
-  const dirty = draft !== null && saved !== undefined && isDirty(draft.questions, saved.questions);
+  const dirty = draft !== null && saved !== undefined && isDirty(draft, saved);
+  const patchDraft = (patch: Partial<Omit<Draft, 'base'>>) =>
+    setDraft((d) =>
+      d ? { ...d, ...patch } : saved ? { base: saved.version, questions: saved.questions, requiredFields: saved.requiredFields, ...patch } : d,
+    );
   const formUrl = typeof window !== 'undefined' ? `${window.location.origin}/register/${tournamentId}` : `/register/${tournamentId}`;
 
   const handleSave = async () => {
@@ -51,8 +56,8 @@ export default function RegistrationFormPage({ params }: { params: Promise<{ id:
     if (error) return toast.error(error);
     setSaving(true);
     try {
-      const { version } = await save({ tournamentId, questions: cleaned, expectedVersion: draft.base });
-      setDraft({ base: version, questions: cleaned });
+      const { version } = await save({ tournamentId, questions: cleaned, requiredFields: draft.requiredFields, expectedVersion: draft.base });
+      setDraft({ base: version, questions: cleaned, requiredFields: draft.requiredFields });
       toast.success('Form saved. New registrations see it now.');
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not save the form'));
@@ -91,7 +96,7 @@ export default function RegistrationFormPage({ params }: { params: Promise<{ id:
       <div>
         <h1 className="text-2xl font-bold sm:text-3xl">Registration form</h1>
         <p className="text-sm text-slate-400">
-          Add your own questions after the standard player details. Changes apply to new registrations; earlier answers are kept as they were.
+          Choose which standard player details are required, and add your own questions after them. Changes apply to new registrations; earlier answers are kept as they were.
         </p>
       </div>
 
@@ -99,7 +104,9 @@ export default function RegistrationFormPage({ params }: { params: Promise<{ id:
 
       <FormBuilder
         questions={questions}
-        onChange={(next) => setDraft((d) => ({ base: d?.base ?? saved?.version ?? 0, questions: next }))}
+        onChange={(next) => patchDraft({ questions: next })}
+        requiredFields={draft?.requiredFields ?? saved?.requiredFields ?? DEFAULT_REQUIRED_FIELDS}
+        onRequiredFieldsChange={(next) => patchDraft({ requiredFields: next })}
         answerCounts={saved?.answerCounts ?? {}}
       />
 
@@ -144,6 +151,12 @@ export default function RegistrationFormPage({ params }: { params: Promise<{ id:
   );
 }
 
-function isDirty(draft: Question[], saved: Question[]): boolean {
-  return JSON.stringify(normalizeQuestions(draft)) !== JSON.stringify(normalizeQuestions(saved));
+function isDirty(
+  draft: { questions: Question[]; requiredFields: RequiredFields },
+  saved: { questions: Question[]; requiredFields: RequiredFields },
+): boolean {
+  return (
+    JSON.stringify(normalizeQuestions(draft.questions)) !== JSON.stringify(normalizeQuestions(saved.questions)) ||
+    JSON.stringify(draft.requiredFields) !== JSON.stringify(saved.requiredFields)
+  );
 }

@@ -49,18 +49,18 @@ describe("validateSettings", () => {
       }
     }
   });
-  test("enforces the purse range", () => {
-    expect(validateSettings({ ...goodSettings, basePurse: 99_999 })).toMatch(
-      /purse/i,
-    );
+  test("has no minimum purse, only the ₹100 Crore cap", () => {
+    expect(
+      validateSettings({ ...goodSettings, basePurse: 10_000, minBidIncrement: 100, basePrice: 500 }),
+    ).toBeNull();
+    expect(validateSettings({ ...goodSettings, basePurse: 99_999, minBidIncrement: 5_000, basePrice: 5_000 })).toBeNull();
     expect(
       validateSettings({ ...goodSettings, basePurse: 1_000_000_001 }),
     ).toMatch(/purse/i);
   });
-  test("enforces the increment range", () => {
-    expect(
-      validateSettings({ ...goodSettings, minBidIncrement: 4_999 }),
-    ).toMatch(/increment/i);
+  test("has no minimum increment, only the 10% of purse cap", () => {
+    expect(validateSettings({ ...goodSettings, minBidIncrement: 1 })).toBeNull();
+    expect(validateSettings({ ...goodSettings, minBidIncrement: 4_999 })).toBeNull();
     expect(
       validateSettings({ ...goodSettings, minBidIncrement: 100_001 }),
     ).toMatch(/10%/);
@@ -204,8 +204,9 @@ describe("validateIncrementSlabs", () => {
     ).not.toBeNull();
   });
 
-  test("rejects increments below ₹5,000 or above 10% of the purse, and negative thresholds", () => {
-    expect(validateIncrementSlabs([{ fromAmount: 0, increment: 1_000 }], 10_000_000)).not.toBeNull();
+  test("accepts any positive increment up to 10% of the purse; rejects zero and negative thresholds", () => {
+    expect(validateIncrementSlabs([{ fromAmount: 0, increment: 1_000 }], 10_000_000)).toBeNull();
+    expect(validateIncrementSlabs([{ fromAmount: 0, increment: 0 }], 10_000_000)).not.toBeNull();
     expect(validateIncrementSlabs([{ fromAmount: 0, increment: 2_000_000 }], 10_000_000)).not.toBeNull();
     expect(validateIncrementSlabs([{ fromAmount: -1, increment: 25_000 }], 10_000_000)).not.toBeNull();
   });

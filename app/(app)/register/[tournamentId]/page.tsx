@@ -15,7 +15,7 @@ import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { PLAYER_ROLES, cn, getErrorMessage, getRoleBadgeBg } from '@/lib/utils';
 import { openRazorpayCheckout } from '@/lib/razorpayCheckout';
 import { formatRupees } from '@/convex/bidRules';
-import { validateAnswers } from '@/convex/registrationForm';
+import { DEFAULT_REQUIRED_FIELDS, missingRequiredField, validateAnswers, type StandardField } from '@/convex/registrationForm';
 import { CustomQuestions, answersToSubmit, type AnswerMap } from '@/components/registration/CustomQuestions';
 import { SponsorBand } from '@/components/registration/SponsorBand';
 
@@ -128,7 +128,21 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (form.role.length === 0) return toast.error('Choose at least one role');
+    // The organiser's required standard details: the same check the server runs.
+    const missing = missingRequiredField(
+      required,
+      {
+        photoUrl,
+        age: form.age.trim() ? Number(form.age) : undefined,
+        role: form.role,
+        categoryId: form.categoryId || undefined,
+        tshirtSize: form.tshirtSize || undefined,
+        jerseyNumber: form.jerseyNumber ? Number(form.jerseyNumber) : undefined,
+        jerseyName: form.jerseyName,
+      },
+      { hasCategories: categories.length > 0 },
+    );
+    if (missing) return toast.error(missing);
     // The organiser's questions: the same check the server runs.
     const customForm = info?.form ?? null;
     const values = customForm ? answersToSubmit(customForm.questions, answers) : [];
@@ -146,7 +160,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         tournamentId,
         name: form.name,
         phoneNumber: form.phoneNumber,
-        age: Number(form.age) || 0,
+        age: form.age.trim() ? Number(form.age) : undefined,
         role: form.role,
         battingBowlingHand: form.battingBowlingHand,
         jerseyNumber: form.jerseyNumber ? Number(form.jerseyNumber) : undefined,
@@ -196,6 +210,9 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
 
   // Older deployments return no categories or sponsors.
   const categories = info?.categories ?? [];
+  const required = info?.requiredFields ?? DEFAULT_REQUIRED_FIELDS;
+  /** "Age *" when the organiser requires it, plain "Age" otherwise. */
+  const label = (text: string, field: StandardField) => (required[field] ? `${text} *` : text);
   const sponsors = info?.sponsors ?? [];
 
   if (info === undefined) {
@@ -303,7 +320,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         <SectionHeading icon={UserRound} title="About you" />
         <div className="grid grid-cols-[6.5rem_1fr] gap-4 sm:grid-cols-[8rem_1fr]">
           <div>
-            <span className="text-sm font-medium text-slate-300">Photo</span>
+            <span className="text-sm font-medium text-slate-300">{label('Photo', 'photo')}</span>
             <label className="mt-1.5 flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border-2 border-dashed border-slate-600 text-center text-xs text-slate-400 hover:border-blue-500">
               {photoUrl ? (
                 <ImgWithFallback src={photoUrl} alt="Your photo" className="h-full w-full object-cover" fallback={<Upload className="w-5 h-5" />} />
@@ -323,8 +340,8 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
             <Field label="Mobile *" htmlFor="reg-phone">
               <Input id="reg-phone" required inputMode="tel" value={form.phoneNumber} onChange={(e) => patch({ phoneNumber: e.target.value })} placeholder="98765 43210" className={formInputCls} autoComplete="tel" />
             </Field>
-            <Field label="Age *" htmlFor="reg-age">
-              <Input id="reg-age" required type="number" min="5" max="80" value={form.age} onChange={(e) => patch({ age: e.target.value })} className={formInputCls} />
+            <Field label={label('Age', 'age')} htmlFor="reg-age">
+              <Input id="reg-age" required={required.age} type="number" min="5" max="80" value={form.age} onChange={(e) => patch({ age: e.target.value })} className={formInputCls} />
             </Field>
           </div>
         </div>
@@ -335,7 +352,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
       <section className="space-y-4">
         <SectionHeading icon={Activity} title="Playing style" />
         <fieldset>
-          <legend className="text-sm font-medium text-slate-300">Role *</legend>
+          <legend className="text-sm font-medium text-slate-300">{label('Role', 'role')}</legend>
           <div className="mt-2 flex flex-wrap gap-2">
             {PLAYER_ROLES.map((r) => {
               const on = form.role.includes(r);
@@ -360,7 +377,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
 
         {categories.length > 0 && (
           <fieldset>
-            <legend className="text-sm font-medium text-slate-300">Your category</legend>
+            <legend className="text-sm font-medium text-slate-300">{label('Your category', 'category')}</legend>
             <p className="text-xs text-slate-500">Pick the group you belong to. The organiser can change it.</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {categories.map((c) => {
@@ -405,17 +422,17 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         </div>
 
         <div className="grid grid-cols-3 gap-3">
-          <Field label="T-shirt size" htmlFor="reg-size">
-            <NativeSelect id="reg-size" value={form.tshirtSize} onChange={(e) => patch({ tshirtSize: e.target.value as typeof form.tshirtSize })} className={formInputCls}>
+          <Field label={label('T-shirt size', 'tshirtSize')} htmlFor="reg-size">
+            <NativeSelect id="reg-size" required={required.tshirtSize} value={form.tshirtSize} onChange={(e) => patch({ tshirtSize: e.target.value as typeof form.tshirtSize })} className={formInputCls}>
               <option value="">—</option>
               {TSHIRT_SIZES.map((s) => <option key={s}>{s}</option>)}
             </NativeSelect>
           </Field>
-          <Field label="Jersey #" htmlFor="reg-jersey">
-            <Input id="reg-jersey" type="number" min="1" max="99" value={form.jerseyNumber} onChange={(e) => patch({ jerseyNumber: e.target.value })} className={formInputCls} />
+          <Field label={label('Jersey #', 'jerseyNumber')} htmlFor="reg-jersey">
+            <Input id="reg-jersey" required={required.jerseyNumber} type="number" min="1" max="99" value={form.jerseyNumber} onChange={(e) => patch({ jerseyNumber: e.target.value })} className={formInputCls} />
           </Field>
-          <Field label="Name on jersey" htmlFor="reg-jname">
-            <Input id="reg-jname" value={form.jerseyName} onChange={(e) => patch({ jerseyName: e.target.value })} className={cn(formInputCls, 'uppercase')} />
+          <Field label={label('Name on jersey', 'jerseyName')} htmlFor="reg-jname">
+            <Input id="reg-jname" required={required.jerseyName} value={form.jerseyName} onChange={(e) => patch({ jerseyName: e.target.value })} className={cn(formInputCls, 'uppercase')} />
           </Field>
         </div>
       </section>

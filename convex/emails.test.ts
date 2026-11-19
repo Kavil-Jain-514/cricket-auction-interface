@@ -6,7 +6,7 @@
 // there for why _generated stays in the glob).
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { escapeHtml } from "./emails";
 
@@ -177,6 +177,60 @@ describe("staff added email", () => {
     await t.withIdentity(OWNER).mutation(api.staff.add, { tournamentId, email: "auctioneer@test.com", role: "owner" });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(sent()[0].body.subject).toBe("You're now an owner of Coastal <Cup>");
+  });
+});
+
+describe("reply-to and timeout", () => {
+  test("every kind of invite email replies to the inviting organiser", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId, teamId } = await setup(t);
+    const asOwner = t.withIdentity(OWNER);
+    await asOwner.mutation(api.members.createInvite, { teamId, email: "sam@example.com" });
+    await asOwner.mutation(api.staff.add, { tournamentId, email: "auctioneer@test.com", role: "auctioneer" });
+    await asOwner.mutation(api.teamRequests.inviteOwner, { tournamentId, email: "new@example.com" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(sent()).toHaveLength(3);
+    for (const { body } of sent()) expect(body.reply_to).toBe(OWNER.email);
+  });
+
+  test("a row without a reply-to sends without one", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("emails", {
+        kind: "team_signup_invite",
+        dedupeKey: "legacy",
+        tournamentId,
+        to: "x@example.com",
+        payload: { tournamentId, tournamentName: "Cup", inviterName: "Olive" },
+        status: "queued",
+        attempts: 0,
+        nextAttemptAt: 0,
+        createdAt: 0,
+      });
+    });
+    await t.action(internal.emails.processEmails, {});
+    expect(sent()[0].body).not.toHaveProperty("reply_to");
+  });
+
+  test("each send to Resend carries an abort signal, so a hung request can't hold the row", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await t.withIdentity(OWNER).mutation(api.staff.add, { tournamentId, email: "auctioneer@test.com", role: "auctioneer" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(sent()[0].init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("a timed-out send is retried, not failed", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    resendMock.mockImplementationOnce(async () => {
+      throw new DOMException("The operation timed out.", "TimeoutError");
+    });
+    await t.withIdentity(OWNER).mutation(api.staff.add, { tournamentId, email: "auctioneer@test.com", role: "auctioneer" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(resendMock).toHaveBeenCalledTimes(2);
+    expect((await outbox(t))[0]).toMatchObject({ status: "sent" });
   });
 });
 

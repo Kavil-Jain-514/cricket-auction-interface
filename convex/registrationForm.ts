@@ -50,6 +50,83 @@ export const questionValidator = v.object({
   archived: v.optional(v.boolean()),
 });
 
+/**
+ * The standard player details the organiser may make required or optional.
+ * Full name and mobile are always required (duplicate check, per-number spam
+ * limit, WhatsApp and payment follow-up) and the batting hand always has a
+ * value, so they are not listed. Absent keys use DEFAULT_REQUIRED_FIELDS,
+ * which is how the form behaved before organisers could choose.
+ */
+export const STANDARD_FIELDS = ["photo", "age", "role", "category", "tshirtSize", "jerseyNumber", "jerseyName"] as const;
+export type StandardField = (typeof STANDARD_FIELDS)[number];
+export type RequiredFields = Record<StandardField, boolean>;
+
+export const STANDARD_FIELD_LABELS: Record<StandardField, string> = {
+  photo: "Photo",
+  age: "Age",
+  role: "Role",
+  category: "Category",
+  tshirtSize: "T-shirt size",
+  jerseyNumber: "Jersey number",
+  jerseyName: "Name on jersey",
+};
+
+export const DEFAULT_REQUIRED_FIELDS: RequiredFields = {
+  photo: false,
+  age: true,
+  role: true,
+  category: false,
+  tshirtSize: false,
+  jerseyNumber: false,
+  jerseyName: false,
+};
+
+export const requiredFieldsValidator = v.object({
+  photo: v.optional(v.boolean()),
+  age: v.optional(v.boolean()),
+  role: v.optional(v.boolean()),
+  category: v.optional(v.boolean()),
+  tshirtSize: v.optional(v.boolean()),
+  jerseyNumber: v.optional(v.boolean()),
+  jerseyName: v.optional(v.boolean()),
+});
+
+/** Stored (partial) rules with the defaults filled in, keys in a fixed order. */
+export function resolveRequiredFields(stored: Partial<RequiredFields> | undefined): RequiredFields {
+  return Object.fromEntries(STANDARD_FIELDS.map((f) => [f, stored?.[f] ?? DEFAULT_REQUIRED_FIELDS[f]])) as RequiredFields;
+}
+
+/** The first required standard field left blank, as an error message, or null. */
+export function missingRequiredField(
+  required: RequiredFields,
+  values: {
+    photoUrl?: string;
+    age?: number;
+    role: readonly string[];
+    categoryId?: string;
+    tshirtSize?: string;
+    jerseyNumber?: number;
+    jerseyName?: string;
+  },
+  opts: { hasCategories: boolean },
+): string | null {
+  const blank: Record<StandardField, boolean> = {
+    photo: !values.photoUrl?.trim(),
+    age: values.age === undefined,
+    role: values.role.length === 0,
+    // Only askable when the tournament has categories.
+    category: opts.hasCategories && !values.categoryId,
+    tshirtSize: !values.tshirtSize,
+    jerseyNumber: values.jerseyNumber === undefined,
+    jerseyName: !values.jerseyName?.trim(),
+  };
+  const field = STANDARD_FIELDS.find((f) => required[f] && blank[f]);
+  if (!field) return null;
+  if (field === "role") return "Choose at least one role";
+  if (field === "photo") return "A photo is required: upload one with the photo button";
+  return `${STANDARD_FIELD_LABELS[field]} is required`;
+}
+
 export const answerValueValidator = v.union(v.string(), v.number(), v.array(v.string()));
 
 export const answersValidator = v.object({

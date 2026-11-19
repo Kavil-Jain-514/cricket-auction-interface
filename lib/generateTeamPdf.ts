@@ -5,7 +5,7 @@ interface Player {
   name: string;
   role: string;
   soldPrice?: number;
-  age: number;
+  age?: number;
   jerseyNumber?: number;
   jerseyName?: string;
   battingBowlingHand: string;

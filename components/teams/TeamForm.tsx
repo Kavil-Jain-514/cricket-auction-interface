@@ -73,10 +73,16 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
     setStep(1);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Enter on the details step moves on; on the captain step it does nothing,
+  // so the team is only created by clicking "Create Team" or "Skip captain".
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (step === 0) return handleNext();
+    if (step === 0) handleNext();
+  };
 
+  const create = async ({ withCaptain }: { withCaptain: boolean }) => {
+    if (loading) return;
+    const c: Partial<CaptainValues> = withCaptain ? captain : {};
     setLoading(true);
     try {
       await createTeam({
@@ -87,14 +93,14 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
         logoUrl: details.logoUrl || undefined,
         colorPrimary: details.colorPrimary,
         colorSecondary: details.colorSecondary,
-        captainPlayerId: captain.captainPlayerId
-          ? (captain.captainPlayerId as Id<"players">)
+        captainPlayerId: c.captainPlayerId
+          ? (c.captainPlayerId as Id<"players">)
           : undefined,
-        captainName: captain.captainName || undefined,
-        captainPhotoUrl: captain.captainPhotoUrl || undefined,
-        captainAge: captain.captainAge,
-        captainRole: captain.captainRole || undefined,
-        captainHand: captain.captainHand || undefined,
+        captainName: c.captainName || undefined,
+        captainPhotoUrl: c.captainPhotoUrl || undefined,
+        captainAge: c.captainAge,
+        captainRole: c.captainRole || undefined,
+        captainHand: c.captainHand || undefined,
       });
 
       toast.success('Team created successfully!');
@@ -116,28 +122,35 @@ export function TeamForm({ tournamentId, onClose }: TeamFormProps) {
       onClose={onClose}
       onSubmit={handleSubmit}
       nav={<FormSteps steps={['Team details', 'Captain']} current={step} />}
+      // Every button is type="button" with its own key. Reusing one DOM
+      // button that flips to type="submit" during the "Next" click made the
+      // browser submit the form and skip the captain step.
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
           {step === 0 ? (
-            <Button type="button" variant="outline" onClick={onClose} className="h-10 sm:min-w-28">
-              Cancel
-            </Button>
+            <>
+              <Button key="cancel" type="button" variant="outline" onClick={onClose} className="h-10 sm:min-w-28">
+                Cancel
+              </Button>
+              <Button key="next" type="button" onClick={handleNext} className="h-10 sm:min-w-36">
+                Next: Captain
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </>
           ) : (
-            <Button type="button" variant="outline" onClick={() => setStep(0)} className="h-10 sm:min-w-28">
-              <ChevronLeft className="mr-1 h-4 w-4" />
-              Back
-            </Button>
-          )}
-          {step === 0 ? (
-            <Button type="button" onClick={handleNext} className="h-10 sm:min-w-36">
-              Next: Captain
-              <ChevronRight className="ml-1 h-4 w-4" />
-            </Button>
-          ) : (
-            <Button type="submit" disabled={loading} className="h-10 sm:min-w-36">
-              {loading ? 'Creating…' : 'Create Team'}
-              {!loading && <Check className="ml-1 h-4 w-4" />}
-            </Button>
+            <>
+              <Button key="back" type="button" variant="outline" onClick={() => setStep(0)} disabled={loading} className="h-10 sm:min-w-28">
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Back
+              </Button>
+              <Button key="skip" type="button" variant="outline" onClick={() => create({ withCaptain: false })} disabled={loading} className="h-10 sm:min-w-32">
+                Skip captain
+              </Button>
+              <Button key="create" type="button" onClick={() => create({ withCaptain: true })} disabled={loading} className="h-10 sm:min-w-36">
+                {loading ? 'Creating…' : 'Create Team'}
+                {!loading && <Check className="ml-1 h-4 w-4" />}
+              </Button>
+            </>
           )}
         </div>
       }

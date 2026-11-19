@@ -10,6 +10,9 @@
 // MAX_ATTEMPTS, and fails at once on 4xx (a bad address or an unverified
 // sending domain won't fix itself). Each send carries the row's dedupeKey as
 // Resend's Idempotency-Key, so a retry after a timeout never sends twice.
+// A send gives up after SEND_TIMEOUT_MS and is retried, rather than leaving
+// the row in "sending" until the 5-minute reclaim. Replies go to the
+// inviting organiser (replyTo) when the row has one.
 //
 // A team-owner invite's one-time link is the only secret here: it is kept
 // in the row just until the email is sent or abandoned, then wiped, and an
@@ -27,6 +30,7 @@ const MAX_ATTEMPTS = 5;
 const BATCH_SIZE = 10;
 const RETRY_BASE_MS = 30_000; // 30s, 60s, 2m, 4m
 const STUCK_SENDING_MS = 5 * 60_000;
+const SEND_TIMEOUT_MS = 15_000;
 // Where links point. Same as SITE_URL in lib/marketing/content.ts; set
 // APP_URL in the Convex env for other deployments (e.g. http://localhost:3000).
 const DEFAULT_APP_URL = "https://bid11pro.kaviljain.com";
@@ -62,7 +66,7 @@ function maskEmail(email: string): string {
 /** Insert one outbox row unless already queued, and wake the worker. */
 export async function enqueueEmail(
   ctx: MutationCtx,
-  row: Pick<Email, "kind" | "dedupeKey" | "tournamentId" | "to" | "payload"> & Partial<Pick<Email, "inviteId">>,
+  row: Pick<Email, "kind" | "dedupeKey" | "tournamentId" | "to" | "payload"> & Partial<Pick<Email, "inviteId" | "replyTo">>,
 ): Promise<Id<"emails"> | null> {
   const existing = await ctx.db
     .query("emails")
@@ -168,7 +172,7 @@ type SendResult = { outcome: "sent"; id?: string } | { outcome: "retry" | "faile
 
 /** Where email goes: Resend in production, or the log (EMAIL_PROVIDER=log). */
 export interface EmailProvider {
-  send(email: { to: string; idempotencyKey: string } & Rendered): Promise<SendResult>;
+  send(email: { to: string; replyTo?: string; idempotencyKey: string } & Rendered): Promise<SendResult>;
 }
 
 const resendProvider = (apiKey: string, from: string): EmailProvider => ({
@@ -177,7 +181,15 @@ const resendProvider = (apiKey: string, from: string): EmailProvider => ({
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "Idempotency-Key": email.idempotencyKey },
-        body: JSON.stringify({ from, to: [email.to], subject: email.subject, text: email.text, html: email.html }),
+        body: JSON.stringify({
+          from,
+          to: [email.to],
+          ...(email.replyTo ? { reply_to: email.replyTo } : {}),
+          subject: email.subject,
+          text: email.text,
+          html: email.html,
+        }),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
       if (res.ok) return { outcome: "sent", id: ((await res.json()) as { id?: string }).id };
       const detail = `resend_${res.status}: ${(await res.text()).slice(0, 300)}`;
@@ -185,6 +197,7 @@ const resendProvider = (apiKey: string, from: string): EmailProvider => ({
       // 429 and 5xx may pass on a retry; other 4xx (bad address, unverified domain) won't.
       return { outcome: res.status === 429 || res.status >= 500 ? "retry" : "failed", detail };
     } catch (err) {
+      // Includes our own timeout (TimeoutError): the idempotency key makes the retry safe.
       return { outcome: "retry", detail: `network_error: ${String(err).slice(0, 200)}` };
     }
   },
@@ -226,7 +239,7 @@ export const claimDue = internalMutation({
       ctx.db.query("emails").withIndex("by_status_next", (q) => q.eq("status", "queued").lte("nextAttemptAt", now)).take(BATCH_SIZE),
       ctx.db.query("emails").withIndex("by_status_next", (q) => q.eq("status", "sending")).take(BATCH_SIZE),
     ]);
-    const claimed: Array<{ _id: Id<"emails">; kind: Email["kind"]; to: string; dedupeKey: string; payload: Email["payload"] }> = [];
+    const claimed: Array<{ _id: Id<"emails">; kind: Email["kind"]; to: string; replyTo?: string; dedupeKey: string; payload: Email["payload"] }> = [];
     for (const row of [...due, ...stuck.filter((r) => (r.claimedAt ?? 0) < now - STUCK_SENDING_MS)].slice(0, BATCH_SIZE)) {
       if (row.inviteId) {
         const invite = await ctx.db.get(row.inviteId);
@@ -236,7 +249,7 @@ export const claimDue = internalMutation({
         }
       }
       await ctx.db.patch(row._id, { status: "sending", claimedAt: now, attempts: row.attempts + 1 });
-      claimed.push({ _id: row._id, kind: row.kind, to: row.to, dedupeKey: row.dedupeKey, payload: row.payload });
+      claimed.push({ _id: row._id, kind: row.kind, to: row.to, replyTo: row.replyTo, dedupeKey: row.dedupeKey, payload: row.payload });
     }
     return claimed;
   },
@@ -278,7 +291,7 @@ export const processEmails = internalAction({
   args: {},
   // Explicit types: this action calls back into its own module through `internal`.
   handler: async (ctx): Promise<{ processed: number }> => {
-    const claimed: Array<{ _id: Id<"emails">; kind: Email["kind"]; to: string; dedupeKey: string; payload: Email["payload"] }> =
+    const claimed: Array<{ _id: Id<"emails">; kind: Email["kind"]; to: string; replyTo?: string; dedupeKey: string; payload: Email["payload"] }> =
       await ctx.runMutation(internal.emails.claimDue, {});
     const provider = providerFromEnv();
     for (const row of claimed) {
@@ -288,7 +301,7 @@ export const processEmails = internalAction({
           ? { outcome: "skipped", detail: provider.skip }
           : !rendered
             ? { outcome: "skipped", detail: "nothing_to_send" }
-            : await provider.send({ to: row.to, idempotencyKey: row.dedupeKey, ...rendered });
+            : await provider.send({ to: row.to, replyTo: row.replyTo, idempotencyKey: row.dedupeKey, ...rendered });
       await ctx.runMutation(internal.emails.recordResult, {
         id: row._id,
         outcome: result.outcome,

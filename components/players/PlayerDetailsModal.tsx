@@ -129,7 +129,7 @@ export function PlayerDetailsModal({
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <span className="text-slate-500">Age</span>
-                    <p className="font-semibold">{player.age} years</p>
+                    <p className="font-semibold">{player.age ? `${player.age} years` : '—'}</p>
                   </div>
                   <div>
                     <span className="text-slate-500">Style</span>

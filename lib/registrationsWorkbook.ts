@@ -18,7 +18,7 @@ export function formatAnswer(value: AnswerValue, type: QuestionType | undefined)
 export interface RegistrationRow {
   name: string;
   phoneNumber: string;
-  age: number;
+  age?: number;
   role: string[];
   battingBowlingHand: string;
   status: string;
@@ -45,7 +45,7 @@ export function buildRegistrationRows(rows: RegistrationRow[], labels: QuestionL
     return [
       r.name,
       r.phoneNumber,
-      r.age,
+      r.age ?? "",
       getRoleDisplay(r.role),
       r.battingBowlingHand,
       r.status,

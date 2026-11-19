@@ -187,7 +187,8 @@ The **frontend (Vercel)** and **backend (Convex)** deploy separately — check w
 - Without the key or sender, invites still work; the email is just recorded as *not sent*. Local development:
   `npx convex env set EMAIL_PROVIDER log` prints emails to the Convex logs instead. Off switch:
   `npx convex env set EMAIL_ENABLED false`.
-- Sends retry on Resend outages (30 s up to 4 min, 5 tries); a 4xx (bad address, unverified domain) fails at
+- Replies to an invite go to the organiser who sent it (Reply-To), not to `EMAIL_FROM`.
+- Sends retry on Resend outages or a send that takes over 15 s (30 s up to 4 min, 5 tries); a 4xx (bad address, unverified domain) fails at
   once. The organiser sees *sent / sending / not delivered* on each open invite; queue health is on /admin/live.
   A failed invite email can't be resent (the link is never stored), so create a new invite.
 - Each organiser can email at most 30 invites an hour. The one-time link is deleted from the outbox as soon as it

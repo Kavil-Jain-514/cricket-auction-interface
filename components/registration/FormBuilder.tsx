@@ -8,7 +8,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { NativeSelect } from '@/components/ui/native-select';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
-import { CHOICE_TYPES, FORM_LIMITS, newQuestionId, type Question, type QuestionType } from '@/convex/registrationForm';
+import {
+  CHOICE_TYPES,
+  FORM_LIMITS,
+  STANDARD_FIELDS,
+  STANDARD_FIELD_LABELS,
+  newQuestionId,
+  type Question,
+  type QuestionType,
+  type RequiredFields,
+} from '@/convex/registrationForm';
 
 export const TYPE_LABELS: Record<QuestionType, string> = {
   short_text: 'Short answer',
@@ -24,19 +33,18 @@ export const TYPE_LABELS: Record<QuestionType, string> = {
   file: 'Image upload',
 };
 
-/** Always on the form (the auction needs them); shown locked in the builder. */
-const SYSTEM_FIELDS = [
-  'Photo',
+/** Always asked and always required (duplicate check, WhatsApp, payment). */
+const LOCKED_FIELDS = [
   'Full name',
   'Mobile',
-  'Age',
-  'Role',
-  'Category (when the tournament has categories)',
   'Batting / bowling hand',
-  'T-shirt size, jersey number and name',
   'WhatsApp consent',
   'Payment screenshot (when there is a fee)',
 ];
+
+const FIELD_NOTES: Partial<Record<keyof RequiredFields, string>> = {
+  category: 'Only shown when the tournament has categories',
+};
 
 const inputCls = 'h-11 bg-slate-950/60 border-slate-700 text-base md:text-sm';
 
@@ -52,10 +60,14 @@ function blank(type: QuestionType): Question {
 export function FormBuilder({
   questions,
   onChange,
+  requiredFields,
+  onRequiredFieldsChange,
   answerCounts,
 }: {
   questions: Question[];
   onChange: (questions: Question[]) => void;
+  requiredFields: RequiredFields;
+  onRequiredFieldsChange: (next: RequiredFields) => void;
   answerCounts: Record<string, number>;
 }) {
   const confirm = useConfirm();
@@ -99,14 +111,41 @@ export function FormBuilder({
     <div className="space-y-6">
       <section aria-labelledby="locked-fields" className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <h2 id="locked-fields" className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-slate-400">
-          <Lock className="h-4 w-4" aria-hidden /> Always asked
+          <Lock className="h-4 w-4" aria-hidden /> Standard details
         </h2>
-        <p className="mt-1 text-sm text-slate-400">The auction needs these, so they stay on every form, first.</p>
-        <ul className="mt-3 flex flex-wrap gap-2">
-          {SYSTEM_FIELDS.map((f) => (
-            <li key={f} className="rounded-full border border-slate-700 bg-slate-800/60 px-3 py-1 text-xs text-slate-300">{f}</li>
+        <p className="mt-1 text-sm text-slate-400">
+          Always on the form, first. Choose which ones players must fill in; the rest they can leave blank.
+        </p>
+        <ul className="mt-3 flex flex-wrap gap-2" aria-label="Always required">
+          {LOCKED_FIELDS.map((f) => (
+            <li key={f} className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/60 px-3 py-1 text-xs text-slate-300">
+              {f}
+            </li>
           ))}
         </ul>
+        <fieldset className="mt-3">
+          <legend className="sr-only">Required standard details</legend>
+          <div className="grid gap-x-4 sm:grid-cols-2">
+            {STANDARD_FIELDS.map((field) => (
+              <label key={field} className="flex min-h-11 cursor-pointer items-center justify-between gap-3 border-b border-slate-800 py-2 text-sm text-slate-200">
+                <span>
+                  {STANDARD_FIELD_LABELS[field]}
+                  {FIELD_NOTES[field] && <span className="block text-xs text-slate-500">{FIELD_NOTES[field]}</span>}
+                </span>
+                <span className="inline-flex items-center gap-2 text-xs text-slate-400">
+                  {requiredFields[field] ? 'Required' : 'Optional'}
+                  <input
+                    type="checkbox"
+                    aria-label={`${STANDARD_FIELD_LABELS[field]} required`}
+                    checked={requiredFields[field]}
+                    onChange={(e) => onRequiredFieldsChange({ ...requiredFields, [field]: e.target.checked })}
+                    className="h-4 w-4 accent-blue-600"
+                  />
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
       </section>
 
       <section aria-labelledby="your-questions" className="space-y-3">

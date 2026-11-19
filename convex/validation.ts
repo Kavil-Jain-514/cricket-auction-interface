@@ -10,9 +10,9 @@ export function confirmsTournamentName(typed: string, name: string): boolean {
   return typed.trim().toLowerCase() === name.trim().toLowerCase();
 }
 
-export const MIN_BASE_PURSE = 100_000; // ₹1 Lakh
+// No minimum purse or increment: any whole-rupee amount above zero (small
+// local tournaments run on a few thousand rupees).
 export const MAX_BASE_PURSE = 1_000_000_000; // ₹100 Crore
-export const MIN_BID_INCREMENT = 5_000;
 export const MAX_PLAYERS_PER_TEAM = 50;
 
 function lengthError(
@@ -53,13 +53,13 @@ export function validateSettings(settings: {
 
   if (
     !Number.isFinite(basePurse) ||
-    basePurse < MIN_BASE_PURSE ||
+    basePurse <= 0 ||
     basePurse > MAX_BASE_PURSE
   ) {
-    return "Base purse must be between ₹1 Lakh and ₹100 Crore";
+    return "Base purse must be greater than 0 and at most ₹100 Crore";
   }
-  if (!Number.isFinite(minBidIncrement) || minBidIncrement < MIN_BID_INCREMENT) {
-    return "Minimum bid increment must be at least ₹5,000";
+  if (!Number.isFinite(minBidIncrement) || minBidIncrement <= 0) {
+    return "Minimum bid increment must be greater than 0";
   }
   if (minBidIncrement > basePurse / 10) {
     return "Bid increment cannot exceed 10% of base purse";
@@ -321,10 +321,10 @@ export function validateIncrementSlabs(
     previous = slab.fromAmount;
     if (
       !Number.isFinite(slab.increment) ||
-      slab.increment < MIN_BID_INCREMENT ||
+      slab.increment <= 0 ||
       slab.increment > basePurse / 10
     ) {
-      return "Each slab increment must be at least ₹5,000 and at most 10% of the base purse";
+      return "Each slab increment must be greater than 0 and at most 10% of the base purse";
     }
   }
   return null;
