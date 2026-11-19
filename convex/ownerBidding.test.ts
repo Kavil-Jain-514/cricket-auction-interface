@@ -772,7 +772,7 @@ describe("bid provenance", () => {
     await t.run(async (ctx) => {
       const archived = await ctx.db
         .query("bids")
-        .withIndex("by_player", (q) => q.eq("playerId", playerId))
+        .filter((q) => q.eq(q.field("playerId"), playerId))
         .collect();
       expect(archived).toHaveLength(1);
       expect(archived[0]).toMatchObject({ source: "admin", userId: adminId, isFinal: true });

@@ -48,7 +48,6 @@ export default defineSchema({
     auctionRoomId: v.optional(v.id("auctionRooms")),
     timestamp: v.number(),
   })
-    .index("by_user", ["userId"])
     .index("by_tournament", ["tournamentId"])
     // Tournament + date range in the audit log viewer.
     .index("by_tournament_timestamp", ["tournamentId", "timestamp"])
@@ -133,7 +132,6 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_creator", ["createdBy"])
     .index("by_status", ["status"]),
 
   // Teams table
@@ -313,7 +311,6 @@ export default defineSchema({
     paidAt: v.optional(v.number()),
   })
     .index("by_order", ["razorpayOrderId"])
-    .index("by_tournament", ["tournamentId"])
     .index("by_refundDue", ["refundDue"]),
 
   // WhatsApp outbox (convex/notifications.ts). One row per event and person
@@ -637,7 +634,6 @@ export default defineSchema({
   })
     .index("by_tournament", ["tournamentId"])
     .index("by_team", ["teamId"])
-    .index("by_status", ["auctionStatus"])
     // Compound index: Find players by tournament + status (for startNextPlayer)
     .index("by_tournament_status", ["tournamentId", "auctionStatus"])
     // Duplicate check on the public registration form, without a full scan.
@@ -749,9 +745,7 @@ export default defineSchema({
     source: v.optional(v.union(v.literal("admin"), v.literal("owner"))),
     userId: v.optional(v.id("users")),
   })
-    .index("by_auction_room", ["auctionRoomId"])
-    .index("by_player", ["playerId"])
-    .index("by_team", ["teamId"]),
+    .index("by_auction_room", ["auctionRoomId"]),
 
   // Auction Events (For live feed/notifications)
   auctionEvents: defineTable({
@@ -769,7 +763,7 @@ export default defineSchema({
     data: v.any(), // Flexible data structure for different event types
     timestamp: v.number(),
   })
-    .index("by_auction_room", ["auctionRoomId"])
-    // Stream events for a room in real-time
+    // Every read is per room (newest first for the viewer popup); a room-only
+    // index would be a redundant prefix of this one.
     .index("by_room_timestamp", ["auctionRoomId", "timestamp"]),
 });

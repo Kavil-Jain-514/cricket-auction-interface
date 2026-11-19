@@ -881,7 +881,7 @@ export const deleteTournament = mutation({
             .collect(),
           ctx.db
             .query("auctionEvents")
-            .withIndex("by_auction_room", (q) =>
+            .withIndex("by_room_timestamp", (q) =>
               q.eq("auctionRoomId", room._id),
             )
             .collect(),

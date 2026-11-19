@@ -52,7 +52,7 @@ export async function takeSnapshot(
       Promise.all([
         ctx.db.query("liveBids").withIndex("by_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
         ctx.db.query("bids").withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
-        ctx.db.query("auctionEvents").withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
+        ctx.db.query("auctionEvents").withIndex("by_room_timestamp", (q) => q.eq("auctionRoomId", room._id)).collect(),
       ]),
     ),
   );
@@ -231,7 +231,7 @@ async function applySnapshot(
     const [liveBids, bids, events, pending] = await Promise.all([
       ctx.db.query("liveBids").withIndex("by_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
       ctx.db.query("bids").withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
-      ctx.db.query("auctionEvents").withIndex("by_auction_room", (q) => q.eq("auctionRoomId", room._id)).collect(),
+      ctx.db.query("auctionEvents").withIndex("by_room_timestamp", (q) => q.eq("auctionRoomId", room._id)).collect(),
       ctx.db
         .query("bidRequests")
         .withIndex("by_room_player_status", (q) => q.eq("auctionRoomId", room._id))
