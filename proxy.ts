@@ -41,6 +41,7 @@ const isMarketingRoute = createRouteMatcher([
   "/for-organisers",
   "/broadcast",
   "/faq",
+  "/privacy",
   "/design",
   "/robots.txt",
   "/sitemap.xml",
