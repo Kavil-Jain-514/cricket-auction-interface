@@ -79,6 +79,9 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
     body.append('timestamp', String(sig.timestamp));
     body.append('signature', sig.signature);
     body.append('folder', sig.folder);
+    // The signature is for this one file name; the server only accepts a
+    // registration's upload if it matches a name it signed.
+    body.append('public_id', sig.public_id);
     body.append('allowed_formats', sig.allowed_formats);
     const res = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloudName}/image/upload`, { method: 'POST', body });
     const data = await res.json();

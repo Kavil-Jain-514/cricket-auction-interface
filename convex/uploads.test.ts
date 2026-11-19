@@ -191,7 +191,15 @@ describe("every image write path only accepts our uploads", () => {
       website: "",
     };
     await expect(t.mutation(api.registrations.submit, { ...entry, photoUrl: OTHER_CLOUD })).rejects.toThrow(/photo/i);
-    const res = await t.mutation(api.registrations.submit, { ...entry, photoUrl: OURS("registrations") });
-    expect(res.success).toBe(true);
+    // A real upload: signed for one file name (SEC-003).
+    Object.assign(process.env, { CLOUDINARY_API_KEY: "k", CLOUDINARY_API_SECRET: "s" });
+    try {
+      const sig = await t.action(api.registrations.getUploadSignature, { tournamentId });
+      const res = await t.mutation(api.registrations.submit, { ...entry, photoUrl: OURS("registrations", `${sig.public_id}.jpg`) });
+      expect(res.success).toBe(true);
+    } finally {
+      delete process.env.CLOUDINARY_API_KEY;
+      delete process.env.CLOUDINARY_API_SECRET;
+    }
   });
 });

@@ -69,19 +69,20 @@ export const recordWebhook = internalMutation({
   },
 });
 
-/** Daily cron: keep 30 days of webhooks and client errors, a day of presence. */
+/** Daily cron: keep 30 days of webhooks and client errors, a day of presence and of expired upload grants. */
 export const purgeOld = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
     const month = now - 30 * 24 * 60 * 60 * 1000;
-    const [webhooks, errors, presence] = await Promise.all([
+    const [webhooks, errors, presence, grants] = await Promise.all([
       ctx.db.query("webhookEvents").withIndex("by_receivedAt", (q) => q.lt("receivedAt", month)).take(500),
       ctx.db.query("clientErrors").withIndex("by_at", (q) => q.lt("at", month)).take(500),
       ctx.db.query("presence").withIndex("by_lastSeen", (q) => q.lt("lastSeen", now - 24 * 60 * 60 * 1000)).take(500),
+      // Registrant upload grants a day past expiry (used or not).
+      ctx.db.query("uploadGrants").withIndex("by_expiresAt", (q) => q.lt("expiresAt", now - 24 * 60 * 60 * 1000)).take(500),
     ]);
-    const stalePresence = presence;
-    await Promise.all([...webhooks, ...errors, ...stalePresence].map((doc) => ctx.db.delete(doc._id)));
+    await Promise.all([...webhooks, ...errors, ...presence, ...grants].map((doc) => ctx.db.delete(doc._id)));
   },
 });
 

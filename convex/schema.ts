@@ -493,6 +493,18 @@ export default defineSchema({
     receivedAt: v.number(),
   }).index("by_receivedAt", ["receivedAt"]),
 
+  // One per signed registrant upload (registrations:getUploadSignature): the
+  // Cloudinary public id the signature allows, so each signature yields one
+  // file that one registration can use once (AUDIT 2026-11 SEC-003).
+  uploadGrants: defineTable({
+    tournamentId: v.id("tournaments"),
+    publicId: v.string(), // "cricket-auction/registrations/<random>"
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+  })
+    .index("by_publicId", ["publicId"])
+    .index("by_expiresAt", ["expiresAt"]),
+
   // Fixed-window counters for public entry points (convex/rateLimit.ts).
   rateLimits: defineTable({
     key: v.string(), // e.g. "register:<tournamentId>"

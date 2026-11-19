@@ -73,6 +73,19 @@ describe("snapshot retention", () => {
 });
 
 describe("daily purges", () => {
+  test("upload grants are dropped a day after they expire", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await seed(t);
+    const [stale, live] = await t.run(async (ctx) => [
+      await ctx.db.insert("uploadGrants", { tournamentId, publicId: "cricket-auction/registrations/a", expiresAt: Date.now() - 2 * DAY }),
+      await ctx.db.insert("uploadGrants", { tournamentId, publicId: "cricket-auction/registrations/b", expiresAt: Date.now() + DAY }),
+    ]);
+    await t.mutation(internal.ops.purgeOld, {});
+    const left = await t.run(async (ctx) => (await ctx.db.query("uploadGrants").collect()).map((g) => g._id));
+    expect(left).toEqual([live]);
+    expect(left).not.toContain(stale);
+  });
+
   test("resolved owner raises older than 30 days go; pending and recent ones stay", async () => {
     const t = convexTest(schema, modules);
     const { userId, tournamentId, roomId } = await seed(t);

@@ -16,7 +16,7 @@ import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { insertValidatedPlayer } from "./players";
 import { normalizePhone, validatePlayerFields } from "./validation";
 import { cloudinarySignature } from "./cloudinarySignature";
-import { isOurUpload, ourCloudName } from "./uploads";
+import { cloudinaryPublicId, isOurUpload, ourCloudName } from "./uploads";
 import { answersValidator, missingRequiredField, resolveRequiredFields, validateAnswers } from "./registrationForm";
 import { customQuestionsEnabled, latestFormVersion } from "./registrationForms";
 import { enqueueRegistrationNotification } from "./notifications";
@@ -26,6 +26,10 @@ const MAX_PER_PHONE_PER_DAY = 3;
 // a real registration rush (a link shared in a group) stays under it.
 const SUBMIT_LIMIT = { limit: 30, windowMs: 60 * 1000 };
 const UPLOAD_SIGNATURE_LIMIT = { limit: 60, windowMs: 60 * 1000 };
+// And per day, so a tournament can't be used as free image hosting.
+const UPLOAD_DAILY_LIMIT = { limit: 2000, windowMs: 24 * 60 * 60 * 1000 };
+/** How long an upload may wait for its registration to be submitted. */
+const UPLOAD_GRANT_TTL_MS = 6 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PHOTO_FOLDER = "cricket-auction/registrations";
 const PHOTO_FORMATS = "jpg,jpeg,png,webp";
@@ -92,19 +96,66 @@ export const getUploadSignature = action({
   handler: async (ctx, args) => {
     const info = await ctx.runQuery(api.registrations.getPublicInfo, { tournamentId: args.tournamentId });
     if (!info?.open) throw new Error("Registration is closed");
-    const allowed = await ctx.runMutation(internal.rateLimit.consume, {
-      key: `upload:${args.tournamentId}`,
-      ...UPLOAD_SIGNATURE_LIMIT,
-    });
-    if (!allowed) throw new Error("Too many uploads right now. Try again in a minute.");
     const cloudName = ourCloudName();
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
     if (!cloudName || !apiKey || !apiSecret) throw new Error("Photo upload isn't set up; you can register without a photo");
-    const params = { allowed_formats: PHOTO_FORMATS, folder: PHOTO_FOLDER, timestamp: Math.floor(Date.now() / 1000) };
+    // The signature names one random file (public_id), recorded as a grant
+    // that submit consumes: a signature can't be reused for more uploads,
+    // and an upload can back one registration only (AUDIT 2026-11 SEC-003).
+    const publicId = crypto.randomUUID().replace(/-/g, "");
+    const issued = await ctx.runMutation(internal.registrations.issueUploadGrant, {
+      tournamentId: args.tournamentId,
+      publicId: `${PHOTO_FOLDER}/${publicId}`,
+    });
+    if (!issued) throw new Error("Too many uploads right now. Try again in a minute.");
+    const params = {
+      allowed_formats: PHOTO_FORMATS,
+      folder: PHOTO_FOLDER,
+      public_id: publicId,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
     return { cloudName, apiKey, ...params, signature: await cloudinarySignature(params, apiSecret) };
   },
 });
+
+/** Count the upload against the tournament's limits and record its grant; false when over. */
+export const issueUploadGrant = internalMutation({
+  args: { tournamentId: v.id("tournaments"), publicId: v.string() },
+  handler: async (ctx, args): Promise<boolean> => {
+    if (!(await consumeRateLimit(ctx, `upload:${args.tournamentId}`, UPLOAD_SIGNATURE_LIMIT))) return false;
+    if (!(await consumeRateLimit(ctx, `upload-day:${args.tournamentId}`, UPLOAD_DAILY_LIMIT))) return false;
+    await ctx.db.insert("uploadGrants", { ...args, expiresAt: Date.now() + UPLOAD_GRANT_TTL_MS });
+    return true;
+  },
+});
+
+/**
+ * Use up the grant behind a registrant's uploaded file: it must have been
+ * signed for this tournament, not yet used and not expired. Throws `message`
+ * otherwise. Without a configured cloud name there are no grants to check
+ * (as before SEC-003).
+ */
+async function consumeUploadGrant(
+  ctx: MutationCtx,
+  url: string,
+  tournamentId: Id<"tournaments">,
+  message: string,
+): Promise<void> {
+  const cloud = ourCloudName();
+  if (!cloud) return;
+  const publicId = cloudinaryPublicId(url, cloud);
+  const grant = publicId
+    ? await ctx.db
+        .query("uploadGrants")
+        .withIndex("by_publicId", (q) => q.eq("publicId", publicId))
+        .first()
+    : null;
+  if (!grant || grant.tournamentId !== tournamentId || grant.usedAt !== undefined || grant.expiresAt < Date.now()) {
+    throw new Error(message);
+  }
+  await ctx.db.patch(grant._id, { usedAt: Date.now() });
+}
 
 /**
  * Validate the registrant's answers against the live form. They must answer
@@ -124,6 +175,13 @@ async function checkAnswers(
   if (!form) return undefined;
   const { errors, cleaned } = validateAnswers(form.questions, answers?.values ?? []);
   if (errors.length > 0) throw new Error(errors[0].message);
+  // File answers are registrant uploads too: each needs its own grant.
+  const fileQuestions = new Set(form.questions.filter((q) => q.type === "file").map((q) => q.id));
+  for (const a of cleaned) {
+    if (fileQuestions.has(a.questionId) && typeof a.value === "string") {
+      await consumeUploadGrant(ctx, a.value, tournamentId, "Upload the file again with the form's upload button");
+    }
+  }
   return cleaned.length > 0 ? { formVersion: form.version, values: cleaned } : undefined;
 }
 
@@ -172,6 +230,9 @@ export const submit = mutation({
     if (missing) throw new Error(missing);
     if (fields.photoUrl && !isUploadedImage(fields.photoUrl)) {
       throw new Error("Upload your photo with the form's photo button");
+    }
+    if (fields.photoUrl) {
+      await consumeUploadGrant(ctx, fields.photoUrl, tournamentId, "Upload your photo again with the form's photo button");
     }
     assertKnownCategory(tournament, categoryId);
     const answers = await checkAnswers(ctx, tournamentId, rawAnswers);
@@ -319,6 +380,12 @@ export const submitPaymentProof = mutation({
     const tournament = await ctx.db.get(registration.tournamentId);
     if (!tournament?.settings.paymentQrUrl) throw new Error("This tournament has no payment QR. Pay the organiser directly.");
     if (!isUploadedImage(args.proofUrl)) throw new Error("Upload the payment screenshot with the form's upload button");
+    await consumeUploadGrant(
+      ctx,
+      args.proofUrl,
+      registration.tournamentId,
+      "Upload the payment screenshot again with the form's upload button",
+    );
     await ctx.db.patch(args.registrationId, { status: "paid", paymentMethod: "qr", paymentProofUrl: args.proofUrl });
     return { success: true };
   },
