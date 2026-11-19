@@ -23,9 +23,12 @@ import { enqueueRegistrationNotification } from "./notifications";
 
 const MAX_PER_PHONE_PER_DAY = 3;
 // Per tournament, whatever the phone: a spammer rotating numbers is capped,
-// a real registration rush (a link shared in a group) stays under it.
-const SUBMIT_LIMIT = { limit: 30, windowMs: 60 * 1000 };
-const UPLOAD_SIGNATURE_LIMIT = { limit: 60, windowMs: 60 * 1000 };
+// a real registration rush (a link shared in a group, 50+ people at once)
+// stays well under it. Each registrant may need two or three uploads (photo,
+// payment screenshot, file answers), hence the higher upload cap. The daily
+// upload cap and MAX_PER_PHONE_PER_DAY are what bound abuse.
+const SUBMIT_LIMIT = { limit: 200, windowMs: 60 * 1000 };
+const UPLOAD_SIGNATURE_LIMIT = { limit: 300, windowMs: 60 * 1000 };
 // And per day, so a tournament can't be used as free image hosting.
 const UPLOAD_DAILY_LIMIT = { limit: 2000, windowMs: 24 * 60 * 60 * 1000 };
 /** How long an upload may wait for its registration to be submitted. */
