@@ -362,6 +362,8 @@ export default defineSchema({
     dedupeKey: v.string(),
     tournamentId: v.id("tournaments"),
     to: v.string(),
+    // The inviting organiser's address, so replies reach them, not no-reply.
+    replyTo: v.optional(v.string()),
     inviteId: v.optional(v.id("teamInvites")),
     payload: v.union(
       v.object({

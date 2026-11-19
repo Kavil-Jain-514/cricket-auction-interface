@@ -92,6 +92,7 @@ export const createInvite = mutation({
         dedupeKey: `invite:${inviteId}`,
         tournamentId: team.tournamentId,
         to: email,
+        replyTo: admin.email,
         inviteId,
         payload: {
           teamName: team.name,
