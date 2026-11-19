@@ -37,7 +37,10 @@ export function MarketingFooter() {
         >
           Kavil Jain
         </a>
-        .
+        . ·{" "}
+        <Link href="/privacy" className="fl-focus rounded text-signal hover:underline">
+          Privacy policy
+        </Link>
       </p>
     </footer>
   );
