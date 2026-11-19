@@ -62,18 +62,20 @@ export async function insertValidatedPlayer(
   ctx: MutationCtx,
   tournament: Doc<"tournaments">,
   fields: NewPlayerFields,
+  /**
+   * The roster's size and next player number when the caller already has
+   * them (bulk approval inserts many in one transaction and keeps these
+   * itself), so the players table isn't re-read per insert (PERF-003).
+   */
+  roster?: { count: number; nextPlayerNumber: number },
 ): Promise<Id<"players">> {
   const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
   if (errors.length > 0) throw new Error(errors[0].message);
   const categoryError = unknownCategoryError(fields.categoryId, tournament);
   if (categoryError) throw new Error(categoryError);
 
-  const existingPlayers = await ctx.db
-    .query("players")
-    .withIndex("by_tournament", (q) => q.eq("tournamentId", tournament._id))
-    .collect();
-  assertPlayerCapacity(tournament, existingPlayers.length, 1);
-  const nextPlayerNumber = existingPlayers.reduce((max, p) => Math.max(max, p.playerNumber || 0), 0) + 1;
+  const { count, nextPlayerNumber } = roster ?? (await rosterNumbers(ctx, tournament._id));
+  assertPlayerCapacity(tournament, count, 1);
 
   return await ctx.db.insert("players", {
     tournamentId: tournament._id,
@@ -94,6 +96,21 @@ export async function insertValidatedPlayer(
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
+}
+
+/** How many players a tournament has and the next player number. */
+export async function rosterNumbers(
+  ctx: MutationCtx,
+  tournamentId: Id<"tournaments">,
+): Promise<{ count: number; nextPlayerNumber: number }> {
+  const players = await ctx.db
+    .query("players")
+    .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId))
+    .collect();
+  return {
+    count: players.length,
+    nextPlayerNumber: players.reduce((max, p) => Math.max(max, p.playerNumber || 0), 0) + 1,
+  };
 }
 
 /** Create a single player for a tournament. Auto-assigns the next sequential playerNumber. */

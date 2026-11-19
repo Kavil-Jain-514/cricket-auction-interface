@@ -433,18 +433,39 @@ export const list = query({
   },
 });
 
-async function approveOne(ctx: MutationCtx, registration: Doc<"registrations">, admin: Doc<"users">): Promise<Id<"players">> {
+/**
+ * What approvals need to know about the roster: who is already a player
+ * (name + phone) and its size and next number. Loaded once per call and
+ * kept up to date in memory as players are added, so approving many
+ * registrations reads the players table once, not twice per registration
+ * (AUDIT 2026-11 PERF-003).
+ */
+type Roster = { keys: Set<string>; count: number; nextPlayerNumber: number };
+
+async function loadRoster(ctx: MutationCtx, tournamentId: Id<"tournaments">): Promise<Roster> {
+  const players = await ctx.db
+    .query("players")
+    .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId))
+    .collect();
+  return {
+    keys: new Set(players.map((p) => duplicateKey(p.name, playerPhone(p)))),
+    count: players.length,
+    nextPlayerNumber: players.reduce((max, p) => Math.max(max, p.playerNumber || 0), 0) + 1,
+  };
+}
+
+async function approveOne(
+  ctx: MutationCtx,
+  registration: Doc<"registrations">,
+  admin: Doc<"users">,
+  tournament: Doc<"tournaments">,
+  roster: Roster,
+): Promise<Id<"players">> {
   if (registration.status !== "paid") {
     throw new Error(registration.status === "pending_payment" ? "Not paid yet" : `Already ${registration.status}`);
   }
-  const tournament = await ctx.db.get(registration.tournamentId);
-  if (!tournament) throw new Error("Tournament not found");
-
-  const players = await ctx.db
-    .query("players")
-    .withIndex("by_tournament", (q) => q.eq("tournamentId", registration.tournamentId))
-    .collect();
-  if (players.some((p) => duplicateKey(p.name, playerPhone(p)) === duplicateKey(registration.name, registration.phoneNumber))) {
+  const key = duplicateKey(registration.name, registration.phoneNumber);
+  if (roster.keys.has(key)) {
     throw new Error(`${registration.name} is already a player`);
   }
 
@@ -453,19 +474,27 @@ async function approveOne(ctx: MutationCtx, registration: Doc<"registrations">, 
     ? registration.categoryId
     : undefined;
   // Same validation, category and plan-limit rules as players:create.
-  const playerId = await insertValidatedPlayer(ctx, tournament, {
-    categoryId,
-    name: registration.name,
-    age: registration.age,
-    role: registration.role,
-    battingBowlingHand: registration.battingBowlingHand,
-    phoneNumber: registration.phoneNumber,
-    photoUrl: registration.photoUrl,
-    jerseyNumber: registration.jerseyNumber,
-    jerseyName: registration.jerseyName,
-    tshirtSize: registration.tshirtSize,
-    consentWhatsApp: registration.consentWhatsApp,
-  });
+  const playerId = await insertValidatedPlayer(
+    ctx,
+    tournament,
+    {
+      categoryId,
+      name: registration.name,
+      age: registration.age,
+      role: registration.role,
+      battingBowlingHand: registration.battingBowlingHand,
+      phoneNumber: registration.phoneNumber,
+      photoUrl: registration.photoUrl,
+      jerseyNumber: registration.jerseyNumber,
+      jerseyName: registration.jerseyName,
+      tshirtSize: registration.tshirtSize,
+      consentWhatsApp: registration.consentWhatsApp,
+    },
+    { count: roster.count, nextPlayerNumber: roster.nextPlayerNumber },
+  );
+  roster.keys.add(key);
+  roster.count++;
+  roster.nextPlayerNumber++;
   await ctx.db.patch(registration._id, { status: "approved", playerId, reviewedAt: Date.now() });
   await enqueueRegistrationNotification(ctx, "registration_approved", { registration, tournament, playerId });
   await logAdminAction(ctx, {
@@ -487,37 +516,58 @@ export const approve = mutation({
     const registration = await ctx.db.get(args.registrationId);
     if (!registration) throw new Error("Registration not found");
     const admin = await requireTournamentRole(ctx, registration.tournamentId, OWNER_ONLY);
-    const playerId = await approveOne(ctx, registration, admin);
+    const tournament = await ctx.db.get(registration.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
+    const playerId = await approveOne(ctx, registration, admin, tournament, await loadRoster(ctx, tournament._id));
     await syncTournamentAuctionCounts(ctx, registration.tournamentId);
     return playerId;
   },
 });
 
-/** Approve every registration that is ready (paid). Failures are reported, not fatal. */
+/** Registrations approved per bulkApprove call: keeps each call well inside one transaction. */
+const BULK_APPROVE_BATCH = 50;
+
+/**
+ * Approve the ready (paid) registrations, oldest first, BULK_APPROVE_BATCH
+ * per call. Failures (duplicates, the plan limit) are reported, not fatal.
+ * Pass the returned `after` back to continue; failed ones stay "paid", so
+ * resuming by position (not by status) is what makes the loop end.
+ */
 export const bulkApprove = mutation({
-  args: { tournamentId: v.id("tournaments") },
+  args: { tournamentId: v.id("tournaments"), after: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) throw new Error("Tournament not found");
     const ready = (
       await ctx.db
         .query("registrations")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
         .collect()
     )
-      .filter((r) => r.status === "paid")
+      .filter((r) => r.status === "paid" && (args.after === undefined || r.createdAt > args.after))
       .sort((a, b) => a.createdAt - b.createdAt);
+    const batch = ready.slice(0, BULK_APPROVE_BATCH);
+
+    const roster = await loadRoster(ctx, args.tournamentId);
     let approved = 0;
     const failed: Array<{ registrationId: Id<"registrations">; name: string; reason: string }> = [];
-    for (const registration of ready) {
+    for (const registration of batch) {
       try {
-        await approveOne(ctx, registration, admin);
+        await approveOne(ctx, registration, admin, tournament, roster);
         approved++;
       } catch (error) {
         failed.push({ registrationId: registration._id, name: registration.name, reason: (error as Error).message });
       }
     }
     if (approved > 0) await syncTournamentAuctionCounts(ctx, args.tournamentId);
-    return { approved, failed };
+    return {
+      approved,
+      failed,
+      remaining: ready.length - batch.length,
+      // Resume point for the next call (createdAt of the last one tried).
+      after: batch.at(-1)?.createdAt ?? args.after,
+    };
   },
 });
 
