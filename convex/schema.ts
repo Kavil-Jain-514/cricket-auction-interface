@@ -9,7 +9,7 @@ import {
   sponsorValidator,
   squadRuleValidator,
 } from "./ruleValidators";
-import { answersValidator, questionValidator } from "./registrationForm";
+import { answersValidator, questionValidator, requiredFieldsValidator } from "./registrationForm";
 
 export default defineSchema({
   // Users table with roles
@@ -220,8 +220,8 @@ export default defineSchema({
   registrations: defineTable({
     tournamentId: v.id("tournaments"),
     name: v.string(),
-    age: v.number(),
-    role: v.array(v.string()),
+    age: v.optional(v.number()), // optional when the organiser makes it so
+    role: v.array(v.string()), // empty when the organiser made role optional
     battingBowlingHand: v.union(v.literal("Right-handed"), v.literal("Left-handed")),
     phoneNumber: v.string(), // normalised 10 digits
     photoUrl: v.optional(v.string()),
@@ -261,6 +261,9 @@ export default defineSchema({
     tournamentId: v.id("tournaments"),
     version: v.number(), // 1, 2, …
     questions: v.array(questionValidator),
+    // Which standard player details are required (registrationForm.ts);
+    // absent keys use DEFAULT_REQUIRED_FIELDS.
+    requiredFields: v.optional(requiredFieldsValidator),
     createdBy: v.id("users"),
     createdAt: v.number(),
   }).index("by_tournament_version", ["tournamentId", "version"]),
@@ -567,7 +570,7 @@ export default defineSchema({
     tournamentId: v.id("tournaments"),
     name: v.string(),
     phoneNumber: v.optional(v.string()),
-    age: v.number(),
+    age: v.optional(v.number()), // absent when a registration left it blank
     photoUrl: v.optional(v.string()),
     // Supports both legacy single string ("Batter") and new array format (["Batter", "Wicket Keeper"])
     role: v.union(v.string(), v.array(v.string())),

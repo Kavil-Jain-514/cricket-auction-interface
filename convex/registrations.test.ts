@@ -313,6 +313,8 @@ describe("public info", () => {
       sponsors: [],
       categories: [],
       form: null,
+      // Defaults: the standard details the original form required.
+      requiredFields: { photo: false, age: true, role: true, category: false, tshirtSize: false, jerseyNumber: false, jerseyName: false },
     });
   });
 

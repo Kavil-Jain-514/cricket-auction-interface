@@ -40,7 +40,7 @@ function unknownCategoryError(
 /** Fields a new player is created with (players:create, registration approval). */
 export type NewPlayerFields = {
   name: string;
-  age: number;
+  age?: number; // required by players:create; optional from a registration
   photoUrl?: string;
   role: string[];
   battingBowlingHand: "Right-handed" | "Left-handed";

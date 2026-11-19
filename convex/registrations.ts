@@ -16,7 +16,7 @@ import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { insertValidatedPlayer } from "./players";
 import { normalizePhone, validatePlayerFields } from "./validation";
 import { cloudinarySignature } from "./cloudinarySignature";
-import { answersValidator, validateAnswers } from "./registrationForm";
+import { answersValidator, missingRequiredField, resolveRequiredFields, validateAnswers } from "./registrationForm";
 import { customQuestionsEnabled, latestFormVersion } from "./registrationForms";
 import { enqueueRegistrationNotification } from "./notifications";
 
@@ -60,9 +60,12 @@ export const getPublicInfo = query({
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament || tournament.isActive === false) return null;
-    const form = customQuestionsEnabled() ? await latestFormVersion(ctx, args.tournamentId) : null;
+    const latest = await latestFormVersion(ctx, args.tournamentId);
+    const form = customQuestionsEnabled() ? latest : null;
     return {
       form: form ? { version: form.version, questions: form.questions.filter((q) => !q.archived) } : null,
+      // Which standard details are required; the custom-question switch doesn't touch these.
+      requiredFields: resolveRequiredFields(latest?.requiredFields),
       name: tournament.name,
       description: tournament.description,
       logoUrl: tournament.logoUrl,
@@ -131,7 +134,7 @@ export const submit = mutation({
   args: {
     tournamentId: v.id("tournaments"),
     name: v.string(),
-    age: v.number(),
+    age: v.optional(v.number()),
     role: v.array(v.string()),
     battingBowlingHand: v.union(v.literal("Right-handed"), v.literal("Left-handed")),
     phoneNumber: v.string(),
@@ -160,7 +163,11 @@ export const submit = mutation({
     const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
     if (errors.length > 0) throw new Error(errors[0].message);
     if (!phoneNumber) throw new Error("Phone number is required");
-    if (fields.role.length === 0) throw new Error("Choose at least one role");
+    const required = resolveRequiredFields((await latestFormVersion(ctx, tournamentId))?.requiredFields);
+    const missing = missingRequiredField(required, { ...fields, categoryId }, {
+      hasCategories: (tournament.settings.categories ?? []).length > 0,
+    });
+    if (missing) throw new Error(missing);
     if (fields.photoUrl && !isUploadedImage(fields.photoUrl)) {
       throw new Error("Upload your photo with the form's photo button");
     }

@@ -3,7 +3,15 @@ import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
-import { FORM_LIMITS, validateAnswers, validateFormQuestions, type Question } from "./registrationForm";
+import {
+  DEFAULT_REQUIRED_FIELDS,
+  FORM_LIMITS,
+  missingRequiredField,
+  resolveRequiredFields,
+  validateAnswers,
+  validateFormQuestions,
+  type Question,
+} from "./registrationForm";
 
 // Phase 6: organiser-built registration questions. Fixtures follow
 // auctions.test.ts (see there for why _generated stays in the glob).
@@ -124,6 +132,54 @@ describe("validateAnswers", () => {
       { questionId: "q_gone", value: "x" },
     ]);
     expect(errors.map((e) => e.questionId).sort()).toEqual(["q_club", "q_gone", "q_nope"]);
+  });
+});
+
+describe("standard field rules", () => {
+  const filled = {
+    photoUrl: PHOTO,
+    age: 24,
+    role: ["Bowler"],
+    categoryId: "c1",
+    tshirtSize: "M",
+    jerseyNumber: 7,
+    jerseyName: "RAVI",
+  };
+
+  test("defaults match the original form: age and role required, the rest optional", () => {
+    expect(DEFAULT_REQUIRED_FIELDS).toEqual({
+      photo: false,
+      age: true,
+      role: true,
+      category: false,
+      tshirtSize: false,
+      jerseyNumber: false,
+      jerseyName: false,
+    });
+    expect(resolveRequiredFields(undefined)).toEqual(DEFAULT_REQUIRED_FIELDS);
+    expect(resolveRequiredFields({ age: false, photo: true })).toMatchObject({ age: false, photo: true, role: true });
+  });
+
+  test.each([
+    ["photo", { photoUrl: undefined }, /photo/i],
+    ["age", { age: undefined }, /age/i],
+    ["role", { role: [] }, /role/i],
+    ["category", { categoryId: undefined }, /category/i],
+    ["tshirtSize", { tshirtSize: undefined }, /t-shirt/i],
+    ["jerseyNumber", { jerseyNumber: undefined }, /jersey number/i],
+    ["jerseyName", { jerseyName: "  " }, /name on jersey/i],
+  ] as const)("a required %s must be filled in", (field, blankOut, error) => {
+    const all = Object.fromEntries(Object.keys(DEFAULT_REQUIRED_FIELDS).map((k) => [k, k === field]));
+    const required = resolveRequiredFields(all);
+    expect(missingRequiredField(required, filled, { hasCategories: true })).toBeNull();
+    expect(missingRequiredField(required, { ...filled, ...blankOut }, { hasCategories: true })).toMatch(error);
+    // Optional, the same blank is fine.
+    expect(missingRequiredField(resolveRequiredFields({ age: false, role: false }), { ...filled, ...blankOut }, { hasCategories: true })).toBeNull();
+  });
+
+  test("a required category is only enforced when the tournament has categories", () => {
+    const required = resolveRequiredFields({ category: true });
+    expect(missingRequiredField(required, { ...filled, categoryId: undefined }, { hasCategories: false })).toBeNull();
   });
 });
 
@@ -294,5 +350,91 @@ describe("registrationForms (server)", () => {
     await expect(
       t.mutation(api.registrations.submit, entry(tournamentId, { name: "Second", phoneNumber: "9876543211", answers: { formVersion: 1, values: [] } })),
     ).rejects.toThrow(/updated.*reload/i);
+  });
+  describe("standard field rules", () => {
+    test("by default age and role are required and the public form says so", async () => {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      expect((await t.query(api.registrations.getPublicInfo, { tournamentId }))?.requiredFields).toEqual(DEFAULT_REQUIRED_FIELDS);
+      await expect(t.mutation(api.registrations.submit, entry(tournamentId, { age: undefined }))).rejects.toThrow(/age is required/i);
+      await expect(t.mutation(api.registrations.submit, entry(tournamentId, { role: [] }))).rejects.toThrow(/role/i);
+    });
+
+    test("the owner can make age and role optional; the approved player has neither", async () => {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      const asOwner = t.withIdentity(OWNER);
+      await asOwner.mutation(api.registrationForms.save, {
+        tournamentId,
+        questions: [],
+        requiredFields: { age: false, role: false },
+        expectedVersion: 0,
+      });
+      expect((await t.query(api.registrations.getPublicInfo, { tournamentId }))?.requiredFields).toMatchObject({ age: false, role: false });
+      expect((await asOwner.query(api.registrationForms.get, { tournamentId })).requiredFields).toMatchObject({ age: false, role: false });
+
+      const res = await t.mutation(api.registrations.submit, entry(tournamentId, { age: undefined, role: [] }));
+      const playerId = await asOwner.mutation(api.registrations.approve, { registrationId: res.registrationId as never });
+      const player = await t.run((ctx) => ctx.db.get(playerId as never));
+      expect(player).toMatchObject({ name: "Ravi Kumar", role: [] });
+      expect((player as { age?: number }).age).toBeUndefined();
+    });
+
+    test("the owner can make photo, kit and category required", async () => {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      await t.run((ctx) =>
+        ctx.db.patch(tournamentId, {
+          settings: { basePurse: 1_000_000, minBidIncrement: 25_000, maxPlayersPerTeam: 5, registrationOpen: true, categories: [{ id: "c1", name: "Gold", order: 0, basePrice: 100_000, colour: "#f59e0b" }] },
+        }),
+      );
+      await t.withIdentity(OWNER).mutation(api.registrationForms.save, {
+        tournamentId,
+        questions: [],
+        requiredFields: { photo: true, category: true, tshirtSize: true, jerseyNumber: true, jerseyName: true },
+        expectedVersion: 0,
+      });
+      const full = { photoUrl: PHOTO, categoryId: "c1", tshirtSize: "M", jerseyNumber: 7, jerseyName: "RAVI" };
+      for (const [key, error] of [
+        ["photoUrl", /photo/i],
+        ["categoryId", /category/i],
+        ["tshirtSize", /t-shirt/i],
+        ["jerseyNumber", /jersey number/i],
+        ["jerseyName", /name on jersey/i],
+      ] as const) {
+        await expect(t.mutation(api.registrations.submit, entry(tournamentId, { ...full, [key]: undefined }))).rejects.toThrow(error);
+      }
+      await t.mutation(api.registrations.submit, entry(tournamentId, full));
+    });
+
+    test("changing only the field rules is a new version; a save without them keeps the previous rules", async () => {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      const asOwner = t.withIdentity(OWNER);
+      expect(
+        await asOwner.mutation(api.registrationForms.save, { tournamentId, questions: [], requiredFields: { photo: true }, expectedVersion: 0 }),
+      ).toEqual({ version: 1 });
+      expect(
+        await asOwner.mutation(api.registrationForms.save, { tournamentId, questions: [], requiredFields: { photo: true }, expectedVersion: 1 }),
+      ).toEqual({ version: 1 });
+      expect(await asOwner.mutation(api.registrationForms.save, { tournamentId, questions: [CLUB], expectedVersion: 1 })).toEqual({ version: 2 });
+      expect((await t.query(api.registrations.getPublicInfo, { tournamentId }))?.requiredFields.photo).toBe(true);
+    });
+
+    test("only the owner changes the rules", async () => {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      await expect(
+        t.withIdentity(AUCTIONEER).mutation(api.registrationForms.save, { tournamentId, questions: [], requiredFields: { age: false }, expectedVersion: 0 }),
+      ).rejects.toThrow(/access to this tournament/);
+    });
+
+    test("the custom-question kill switch leaves the field rules in force", async () => {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      await t.withIdentity(OWNER).mutation(api.registrationForms.save, { tournamentId, questions: [], requiredFields: { photo: true }, expectedVersion: 0 });
+      process.env[ENV] = "off";
+      await expect(t.mutation(api.registrations.submit, entry(tournamentId))).rejects.toThrow(/photo/i);
+    });
   });
 });

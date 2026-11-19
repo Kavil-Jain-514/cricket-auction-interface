@@ -29,7 +29,7 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
   const [formData, setFormData] = useState<PlayerFormValues>({
     name: player.name,
     phoneNumber: player.phoneNumber || '',
-    age: player.age,
+    age: player.age ?? 0,
     role: getRoles(player.role),
     battingBowlingHand: player.battingBowlingHand,
     tshirtSize: (player.tshirtSize || 'L') as TshirtSize,
@@ -58,7 +58,8 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
         id: player._id,
         name: formData.name,
         phoneNumber: formData.phoneNumber || undefined,
-        age: formData.age,
+        // Left blank on a player who registered without an age: keep it absent.
+        age: formData.age === 0 && player.age === undefined ? undefined : formData.age,
         role: formData.role,
         battingBowlingHand: normalizedHand as 'Right-handed' | 'Left-handed',
         tshirtSize: formData.tshirtSize,
