@@ -126,6 +126,9 @@ The **frontend (Vercel)** and **backend (Convex)** deploy separately — check w
 
 ## Organisers, plans and payments (one-time setup)
 
+- **First super-admin on a new deployment:** nobody becomes admin by signing in first. Sign in once, then
+  `npx convex run auth:bootstrapAdmin '{"email": "you@example.com"}'`. It refuses once any admin exists;
+  after that, promote people from /admin/users.
 - **After deploying organiser isolation, run once:** `npx convex run staff:backfillTournamentOwners`
   (makes every existing tournament's creator its owner; safe to re-run).
 - **Plans:** new tournaments start on Free (4 teams, 60 players). Club ₹999 (8/150), League ₹2,999 (12/250),

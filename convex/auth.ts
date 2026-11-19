@@ -1,7 +1,7 @@
 // convex/auth.ts - Role-Based Access Control utilities
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
+import { internalMutation, mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { canCreateTournament, intentOf } from "./policy";
 
@@ -278,9 +278,11 @@ export const setUserRole = mutation({
     // Never leave the app with no admin: the last one can't be demoted
     // (in practice, the only admin demoting themselves).
     if (targetUser.role === "admin" && args.role !== "admin") {
-      const admins = (await ctx.db.query("users").collect()).filter(
-        (u) => u.role === "admin",
-      );
+      // Two rows are enough to know whether another admin exists.
+      const admins = await ctx.db
+        .query("users")
+        .withIndex("by_role", (q) => q.eq("role", "admin"))
+        .take(2);
       if (admins.length <= 1) {
         throw new Error(
           "You are the last admin. Promote someone else before stepping down.",
@@ -304,28 +306,6 @@ export const setUserRole = mutation({
     });
 
     return { success: true };
-  },
-});
-
-/**
- * Get all users (admin only)
- */
-export const getAllUsers = query({
-  args: {},
-  handler: async (ctx) => {
-    const user = await getCurrentUser(ctx);
-    if (!user || user.role !== "admin") {
-      return [];
-    }
-
-    const users = await ctx.db.query("users").collect();
-    return users.map((u) => ({
-      _id: u._id,
-      email: u.email,
-      name: u.name,
-      role: getUserRole(u),
-      createdAt: u.createdAt,
-    }));
   },
 });
 
@@ -568,29 +548,51 @@ export const ensureUser = mutation({
       return existingUser._id;
     }
 
-    // Create new user with default 'user' role
-    // First user gets admin role
-    const userCount = await ctx.db.query("users").collect();
-    const isFirstUser = userCount.length === 0;
-
-    // Race condition guard: if two requests arrive simultaneously,
-    // the second insert may conflict on the by_email unique index.
-    // Re-check after collecting user count.
-    const raceCheck = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
-      .first();
-    if (raceCheck) {
-      return raceCheck._id;
-    }
-
-    const userId = await ctx.db.insert("users", {
+    // Everyone starts as a "user". There is no "first sign-in becomes admin"
+    // rule: on an empty deployment that handed the platform to whoever signed
+    // in first, and counting users read the whole table on every sign-up
+    // (AUDIT 2026-11 SEC-007, PERF-002). The first admin is made from the CLI
+    // with auth:bootstrapAdmin. Two simultaneous first sign-ins can't both
+    // insert: the by_email read above is in this transaction, so the second
+    // conflicts, retries, and finds the row.
+    return await ctx.db.insert("users", {
       email: identity.email,
       name: identity.name,
-      role: isFirstUser ? "admin" : "user",
+      role: "user",
       createdAt: Date.now(),
     });
+  },
+});
 
-    return userId;
+/**
+ * Make the platform's first super-admin. CLI only, and only while there is
+ * no admin at all; after that, admins promote each other in /admin/users.
+ * The person must have signed in once so their user row exists:
+ *   npx convex run auth:bootstrapAdmin '{"email": "you@example.com"}'
+ */
+export const bootstrapAdmin = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const existingAdmin = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) => q.eq("role", "admin"))
+      .first();
+    if (existingAdmin) throw new Error("This deployment already has an admin; promote people from /admin/users");
+    const email = args.email.trim();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .first();
+    if (!user) throw new Error(`No account for ${email}. Sign in once first.`);
+    await ctx.db.patch(user._id, { role: "admin" });
+    await logAdminAction(ctx, {
+      userId: user._id,
+      userEmail: user.email,
+      action: "bootstrap_admin",
+      targetType: "user",
+      targetId: user._id,
+      newData: { role: "admin" },
+    });
+    return { success: true };
   },
 });

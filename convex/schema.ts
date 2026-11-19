@@ -31,7 +31,9 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_email", ["email"])
-    .index("by_accountType", ["accountType"]),
+    .index("by_accountType", ["accountType"])
+    // Counting admins (last-admin guard, bootstrapAdmin) without a table scan.
+    .index("by_role", ["role"]),
 
   // Audit Log for tracking admin actions
   auditLogs: defineTable({
