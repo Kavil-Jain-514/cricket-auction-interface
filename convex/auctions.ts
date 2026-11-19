@@ -57,6 +57,8 @@ import {
   isSquadFull,
   maxAllowedBid,
   reserveBasePrice,
+  formatPrice,
+  formatRupees,
 } from "./bidRules";
 
 /**
@@ -598,7 +600,7 @@ async function finalizePlayerSaleImpl(
     if (team.purseRemaining < winningBid.amount) {
       return {
         success: false,
-        reason: `${team.name} can no longer afford this bid (₹${team.purseRemaining} left, bid ₹${winningBid.amount}). Revert the bid or restart the player.`,
+        reason: `${team.name} can no longer afford this bid (${formatPrice(team.purseRemaining)} left, bid ${formatPrice(winningBid.amount)}). Revert the bid or restart the player.`,
       };
     }
 
@@ -1939,7 +1941,7 @@ export const getReconciliation = query({
         issues.push({
           kind: "purse_spent",
           teamId: team._id,
-          message: `${team.name}: spent ₹${team.purseSpent} but sold players total ₹${sold}`,
+          message: `${team.name}: spent ${formatRupees(team.purseSpent)} but sold players total ${formatRupees(sold)}`,
         });
       }
       const purseTotal = teamPurseTotal(basePurse, team);
@@ -1948,8 +1950,8 @@ export const getReconciliation = query({
           kind: "purse_total",
           teamId: team._id,
           message: team.purseAdjustment
-            ? `${team.name}: remaining ₹${team.purseRemaining} + spent ₹${team.purseSpent} ≠ base purse ₹${basePurse} + adjustments ₹${team.purseAdjustment}`
-            : `${team.name}: remaining ₹${team.purseRemaining} + spent ₹${team.purseSpent} ≠ base purse ₹${basePurse}`,
+            ? `${team.name}: remaining ${formatRupees(team.purseRemaining)} + spent ${formatRupees(team.purseSpent)} ≠ base purse ${formatRupees(basePurse)} + adjustments ${formatRupees(team.purseAdjustment)}`
+            : `${team.name}: remaining ${formatRupees(team.purseRemaining)} + spent ${formatRupees(team.purseSpent)} ≠ base purse ${formatRupees(basePurse)}`,
         });
       }
     }

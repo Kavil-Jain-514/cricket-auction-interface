@@ -17,6 +17,7 @@ import {
   maxAllowedBid,
   nextMinimumBid,
   reserveBasePrice,
+  formatPrice,
 } from "./bidRules";
 import { maxRuleViolation, minRuleShortfall, minRuleSlots } from "./squadRules";
 import { inChunks } from "./batch";
@@ -318,7 +319,7 @@ export async function applyBid(
   if (amount > allowedMax) {
     return {
       success: false,
-      reason: `Cannot bid this amount. Insufficient purse to complete squad. Max allowed: ₹${(allowedMax / 100000).toFixed(2)}L`,
+      reason: `Cannot bid this amount. Insufficient purse to complete squad. Max allowed: ${formatPrice(allowedMax)}`,
       maxAllowedBid: allowedMax,
     };
   }
