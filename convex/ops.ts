@@ -61,6 +61,26 @@ export const reportClientError = mutation({
   },
 });
 
+/** Per-user hourly limits for the Next.js routes that cost us bandwidth or storage. */
+const ROUTE_QUOTAS = {
+  upload: { limit: 60, windowMs: 60 * 60 * 1000 },
+  imageProxy: { limit: 300, windowMs: 60 * 60 * 1000 },
+} as const;
+
+/**
+ * Called by /api/upload and /api/image-proxy with the caller's token, before
+ * any work: counts one request against the caller's hourly quota for that
+ * route. False when over, or when not signed in (AUDIT 2026-11 SEC-009).
+ */
+export const consumeRouteQuota = mutation({
+  args: { route: v.union(v.literal("upload"), v.literal("imageProxy")) },
+  handler: async (ctx, args): Promise<boolean> => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return false;
+    return await consumeRateLimit(ctx, `route:${args.route}:${user._id}`, ROUTE_QUOTAS[args.route]);
+  },
+});
+
 /** Called by the Razorpay webhook route (convex/http.ts) for every request. */
 export const recordWebhook = internalMutation({
   args: { event: v.string(), orderId: v.optional(v.string()), outcome: v.string() },

@@ -220,6 +220,7 @@ const NOT_STAFF_SCOPED: Record<string, string> = {
   "members:claimInvite": "claimed with a one-time invite token",
   "ops:heartbeat": "the caller's own presence; ignored unless staff or a team owner (tested in ops.test.ts)",
   "ops:reportClientError": "the caller's own error report; ignored unless staff or a team owner (tested in ops.test.ts)",
+  "ops:consumeRouteQuota": "the caller's own per-user rate limit for /api/upload and /api/image-proxy (tested in ops.test.ts)",
   "plans:grantPlan": "super-admin only (tested in plans.test.ts)",
   "registrations:submit": "public registration form (anonymous; tested in registrations.test.ts)",
   "registrations:recordOrder": "anonymous registrant's fee order; only the signed webhook marks it paid",
