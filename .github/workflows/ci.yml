@@ -29,6 +29,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Report-only for now (AUDIT 2026-11 SEC-002): xlsx has no npm fix yet
+      # (SEC-014). Drop `|| true` once that is replaced, to make it blocking.
+      - name: Dependency audit (production)
+        run: npm audit --omit=dev --audit-level=high || true
+
       - name: Lint
         run: npm run lint
 
