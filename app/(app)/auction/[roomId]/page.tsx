@@ -108,11 +108,19 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     isConsole ? 'skip' : { auctionRoomId },
   );
 
-  // Owner paddle — per-identity, so only signed-in non-admins subscribe.
-  // Anonymous viewers never touch it; it returns null for non-owners.
+  // Owner paddle — per-identity and re-run on every bid, so only team owners
+  // subscribe (AUDIT 2026-11 PERF-001). members:myOwnedTeamId doesn't read the
+  // room, so it costs signed-in viewers nothing per bid; anonymous viewers skip both.
+  const tournamentIdForPaddle = liveData?.auctionRoom.tournamentId;
+  const myTeamId = useQuery(
+    api.members.myOwnedTeamId,
+    isSignedIn && !isConsole && !isRoleLoading && tournamentIdForPaddle
+      ? { tournamentId: tournamentIdForPaddle }
+      : 'skip',
+  );
   const paddle = useQuery(
     api.auctions.getMyPaddle,
-    isSignedIn && !isConsole && !isRoleLoading ? { auctionRoomId } : 'skip',
+    myTeamId && tournamentIdForPaddle ? { auctionRoomId, tournamentId: tournamentIdForPaddle } : 'skip',
   );
 
   // Viewer sold list: only for the teams sheet, the complete screen and owner

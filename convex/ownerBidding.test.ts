@@ -790,6 +790,38 @@ describe("getMyPaddle", () => {
     ).toBeNull();
   });
 
+  test("with tournamentId: owners get their paddle, others and mismatched rooms get null (PERF-001)", async () => {
+    const t = convexTest(schema, modules);
+    const { roomId, tournamentId } = await setupBidding(t, { bidMode: "confirm" });
+    const otherTournament = await t.run(async (ctx) =>
+      ctx.db.insert("tournaments", {
+        name: "Other",
+        createdBy: (await ctx.db.query("users").first())!._id,
+        status: "active",
+        settings: { basePurse: 1_000_000, minBidIncrement: 25_000, maxPlayersPerTeam: 3 },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    expect(await t.withIdentity(OWNER_A).query(api.auctions.getMyPaddle, { auctionRoomId: roomId, tournamentId })).toMatchObject({
+      bidMode: "confirm",
+    });
+    expect(await t.withIdentity(ADMIN_IDENTITY).query(api.auctions.getMyPaddle, { auctionRoomId: roomId, tournamentId })).toBeNull();
+    // The owner of a team in this room's tournament, asking with another tournament: null.
+    expect(
+      await t.withIdentity(OWNER_A).query(api.auctions.getMyPaddle, { auctionRoomId: roomId, tournamentId: otherTournament }),
+    ).toBeNull();
+  });
+
+  test("members:myOwnedTeamId is the owner's team, null for everyone else", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId, teamA } = await setupBidding(t, { bidMode: "confirm" });
+    expect(await t.withIdentity(OWNER_A).query(api.members.myOwnedTeamId, { tournamentId })).toBe(teamA);
+    expect(await t.withIdentity(ADMIN_IDENTITY).query(api.members.myOwnedTeamId, { tournamentId })).toBeNull();
+    expect(await t.query(api.members.myOwnedTeamId, { tournamentId })).toBeNull();
+  });
+
   test("shows my limits, my pending raise, and whether I lead", async () => {
     const t = convexTest(schema, modules);
     const { roomId, teamA, playerId } = await setupBidding(t, { bidMode: "confirm" });

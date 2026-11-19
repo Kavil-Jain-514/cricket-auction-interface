@@ -4,6 +4,7 @@ import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import {
   DEACTIVATED_MESSAGE,
+  getCurrentUser,
   getUserRow,
   getTournamentRole,
   logAdminAction,
@@ -320,6 +321,21 @@ export const revokeInvite = mutation({
     ]);
 
     return { success: true };
+  },
+});
+
+/**
+ * The caller's own team id in a tournament (they are its owner member), or
+ * null. Reads only users and teamMembers, never the auction room, so a
+ * subscription to it doesn't re-run on every bid; the auction page uses it to
+ * decide whether to subscribe to auctions:getMyPaddle (AUDIT 2026-11 PERF-001).
+ */
+export const myOwnedTeamId = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args): Promise<Id<"teams"> | null> => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return null;
+    return (await findOwnerMembership(ctx, user._id, args.tournamentId))?.teamId ?? null;
   },
 });
 

@@ -1807,13 +1807,25 @@ export const getSoldPlayers = query({
  * Kept separate so getLiveAuction / getAuctionRoster stay identity-free.
  */
 export const getMyPaddle = query({
-  args: { auctionRoomId: v.id("auctionRooms") },
+  args: {
+    auctionRoomId: v.id("auctionRooms"),
+    // Lets a non-owner get null WITHOUT reading the room doc, which is patched
+    // on every bid: otherwise every signed-in viewer's (uncached, per-user)
+    // subscription re-ran per bid (AUDIT 2026-11 PERF-001). Optional only for
+    // older bundles still in browsers.
+    tournamentId: v.optional(v.id("tournaments")),
+  },
   handler: async (ctx, args) => {
     const user = await getCurrentUser(ctx);
     if (!user) return null;
 
+    if (args.tournamentId !== undefined) {
+      if (!(await findOwnerMembership(ctx, user._id, args.tournamentId))) return null;
+    }
+
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) return null;
+    if (args.tournamentId !== undefined && auctionRoom.tournamentId !== args.tournamentId) return null;
 
     const membership = await findOwnerMembership(
       ctx,
