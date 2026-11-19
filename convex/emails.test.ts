@@ -175,10 +175,10 @@ describe("staff added email", () => {
     const t = convexTest(schema, modules);
     const { tournamentId } = await setup(t);
     const asOwner = t.withIdentity(OWNER);
-    // Add and remove in a loop: each add used to send an email, uncapped.
+    // Invite and revoke in a loop: each invite sends an email.
     for (let i = 0; i < 30; i++) {
-      const staffId = await asOwner.mutation(api.staff.add, { tournamentId, email: "auctioneer@test.com", role: "auctioneer" });
-      await asOwner.mutation(api.staff.remove, { staffId });
+      const { inviteId } = await asOwner.mutation(api.staff.add, { tournamentId, email: "auctioneer@test.com", role: "auctioneer" });
+      await asOwner.mutation(api.staff.revokeInvite, { inviteId });
     }
     await expect(
       asOwner.mutation(api.staff.add, { tournamentId, email: "auctioneer@test.com", role: "auctioneer" }),
@@ -187,16 +187,28 @@ describe("staff added email", () => {
     expect(emails.filter((e) => e.kind === "staff_added")).toHaveLength(30);
   });
 
-  test("an unknown address gets the same neutral message, without naming it (SEC-005)", async () => {
+  test("an address with or without an account gets the same answer and email (SEC-005)", async () => {
     const t = convexTest(schema, modules);
     const { tournamentId } = await setup(t);
-    const err = await t
-      .withIdentity(OWNER)
-      .mutation(api.staff.add, { tournamentId, email: "stranger@example.com", role: "auctioneer" })
-      .catch((e: Error) => e);
-    expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toMatch(/couldn't add that address/);
-    expect((err as Error).message).not.toContain("stranger@example.com");
+    const asOwner = t.withIdentity(OWNER);
+    const known = await asOwner.mutation(api.staff.add, { tournamentId, email: "auctioneer@test.com", role: "auctioneer" });
+    const unknown = await asOwner.mutation(api.staff.add, { tournamentId, email: "stranger@example.com", role: "auctioneer" });
+    expect(known.status).toBe("invited");
+    expect(unknown.status).toBe("invited");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const bodies = sent().map((s) => s.body);
+    expect(bodies.map((b) => b.subject)).toEqual(["You're an auctioneer for Coastal <Cup>", "You're an auctioneer for Coastal <Cup>"]);
+    for (const b of bodies) expect(b.text).toContain("create a free account");
+  });
+
+  test("a registration admin's email links to the review list", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await t.withIdentity(OWNER).mutation(api.staff.add, { tournamentId, email: "helper@example.com", role: "registrar" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const { body } = sent()[0];
+    expect(body.subject).toBe("You're a registration admin for Coastal <Cup>");
+    expect(body.text).toContain(`${APP}/tournament/${tournamentId}/registrations`);
   });
 
   test("adding an owner says so", async () => {
@@ -294,7 +306,7 @@ describe("delivery", () => {
     });
     await t.withIdentity(OWNER).mutation(api.staff.add, { tournamentId, email: "auctioneer@test.com", role: "auctioneer" });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
-    expect(await t.run((ctx) => ctx.db.query("tournamentStaff").collect())).toHaveLength(2);
+    expect(await t.run((ctx) => ctx.db.query("staffInvites").collect())).toHaveLength(1);
   });
 
   test.each([

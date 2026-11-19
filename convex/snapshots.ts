@@ -3,7 +3,7 @@
 // destructive action (restart, delete) and before the auction starts, so a
 // mis-tap is recoverable. Rows are stored in chunks (snapshotChunks) to stay
 // well under Convex's 1 MiB document limit for large rosters.
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -45,7 +45,7 @@ export async function takeSnapshot(
   userId: Id<"users"> | undefined,
 ): Promise<Id<"tournamentSnapshots">> {
   const tournament = await ctx.db.get(tournamentId);
-  if (!tournament) throw new Error("Tournament not found");
+  if (!tournament) throw new ConvexError("Tournament not found");
 
   const [teams, players, rooms, groupDraws] = await Promise.all([
     ctx.db.query("teams").withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId)).collect(),
@@ -158,7 +158,7 @@ export const getSnapshotData = query({
   args: { snapshotId: v.id("tournamentSnapshots") },
   handler: async (ctx, args) => {
     const snapshot = await ctx.db.get(args.snapshotId);
-    if (!snapshot) throw new Error("Snapshot not found");
+    if (!snapshot) throw new ConvexError("Snapshot not found");
     await requireTournamentRole(ctx, snapshot.tournamentId, RUN_AUCTION);
     return await readSnapshotRows(ctx, args.snapshotId);
   },
@@ -321,17 +321,17 @@ export const restoreSnapshot = mutation({
   args: { snapshotId: v.id("tournamentSnapshots"), confirmName: v.string() },
   handler: async (ctx, args) => {
     const snapshot = await ctx.db.get(args.snapshotId);
-    if (!snapshot) throw new Error("Snapshot not found");
+    if (!snapshot) throw new ConvexError("Snapshot not found");
     const owner = await requireTournamentRole(ctx, snapshot.tournamentId, OWNER_ONLY);
     const tournament = await ctx.db.get(snapshot.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const rooms = await ctx.db
       .query("auctionRooms")
       .withIndex("by_tournament", (q) => q.eq("tournamentId", snapshot.tournamentId))
       .collect();
-    if (rooms.some((r) => r.status === "live")) throw new Error("Pause the auction before restoring a snapshot");
+    if (rooms.some((r) => r.status === "live")) throw new ConvexError("Pause the auction before restoring a snapshot");
     if (!confirmsTournamentName(args.confirmName, tournament.name)) {
-      throw new Error(`Type the tournament name (${tournament.name}) to confirm the restore`);
+      throw new ConvexError(`Type the tournament name (${tournament.name}) to confirm the restore`);
     }
 
     assertFitsOneTransaction(restoreSize(snapshot), "restore");
@@ -361,10 +361,10 @@ export const startRehearsal = mutation({
   args: { auctionRoomId: v.id("auctionRooms") },
   handler: async (ctx, args) => {
     const room = await ctx.db.get(args.auctionRoomId);
-    if (!room) throw new Error("Auction room not found");
+    if (!room) throw new ConvexError("Auction room not found");
     const owner = await requireTournamentRole(ctx, room.tournamentId, OWNER_ONLY);
     if (room.status !== "waiting") {
-      throw new Error("A rehearsal can only start in a room that hasn't started. Restart the auction first.");
+      throw new ConvexError("A rehearsal can only start in a room that hasn't started. Restart the auction first.");
     }
     const snapshotId = await takeSnapshot(ctx, room.tournamentId, "before rehearsal", owner._id);
     await goLive(ctx, room);
@@ -388,11 +388,11 @@ export const endRehearsal = mutation({
   args: { auctionRoomId: v.id("auctionRooms") },
   handler: async (ctx, args) => {
     const room = await ctx.db.get(args.auctionRoomId);
-    if (!room) throw new Error("Auction room not found");
+    if (!room) throw new ConvexError("Auction room not found");
     const owner = await requireTournamentRole(ctx, room.tournamentId, OWNER_ONLY);
-    if (!room.rehearsal || !room.rehearsalSnapshotId) throw new Error("This room is not in a rehearsal");
+    if (!room.rehearsal || !room.rehearsalSnapshotId) throw new ConvexError("This room is not in a rehearsal");
     const snapshot = await ctx.db.get(room.rehearsalSnapshotId);
-    if (!snapshot) throw new Error("The rehearsal's snapshot is missing; use Restart instead");
+    if (!snapshot) throw new ConvexError("The rehearsal's snapshot is missing; use Restart instead");
     assertFitsOneTransaction(restoreSize(snapshot), "end the rehearsal");
 
     const { missing, repricedTeams } = await applySnapshot(ctx, snapshot, () => "waiting");

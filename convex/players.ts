@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, MutationCtx, query } from "./_generated/server";
 import {
   isTournamentStaff,
@@ -70,9 +70,9 @@ export async function insertValidatedPlayer(
   roster?: { count: number; nextPlayerNumber: number },
 ): Promise<Id<"players">> {
   const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
-  if (errors.length > 0) throw new Error(errors[0].message);
+  if (errors.length > 0) throw new ConvexError(errors[0].message);
   const categoryError = unknownCategoryError(fields.categoryId, tournament);
-  if (categoryError) throw new Error(categoryError);
+  if (categoryError) throw new ConvexError(categoryError);
 
   const { count, nextPlayerNumber } = roster ?? (await rosterNumbers(ctx, tournament._id));
   assertPlayerCapacity(tournament, count, 1);
@@ -136,7 +136,7 @@ export const create = mutation({
     // Verify tournament exists
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) {
-      throw new Error("Tournament not found");
+      throw new ConvexError("Tournament not found");
     }
     const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
@@ -190,7 +190,7 @@ export const bulkImport = mutation({
   },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const admin = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const now = Date.now();
@@ -372,21 +372,21 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     const player = await ctx.db.get(args.id);
-    if (!player) throw new Error("Player not found");
+    if (!player) throw new ConvexError("Player not found");
     const admin = await requireTournamentRole(ctx, player.tournamentId, OWNER_ONLY);
 
     // Check if player is already sold
     if (player.auctionStatus === "sold") {
-      throw new Error("Cannot edit sold player");
+      throw new ConvexError("Cannot edit sold player");
     }
 
     // Check if auction is active for this player
     if (player.auctionStatus === "in_auction") {
-      throw new Error("Cannot edit player currently in auction");
+      throw new ConvexError("Cannot edit player currently in auction");
     }
 
     const tournament = await ctx.db.get(player.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
 
     // Validation (shared with create — convex/validation.ts)
     const { errors, phoneNumber } = validatePlayerFields(
@@ -398,12 +398,12 @@ export const update = mutation({
       },
       tournament.settings.basePurse,
     );
-    if (errors.length > 0) throw new Error(errors[0].message);
+    if (errors.length > 0) throw new ConvexError(errors[0].message);
     const categoryError = unknownCategoryError(
       args.categoryId ?? undefined,
       tournament,
     );
-    if (categoryError) throw new Error(categoryError);
+    if (categoryError) throw new ConvexError(categoryError);
 
     const { id, basePrice, categoryId, ...rest } = args;
     // null → clear the field (patching undefined removes it).
@@ -452,19 +452,19 @@ export const deletePlayer = mutation({
   args: { id: v.id("players") },
   handler: async (ctx, args) => {
     const player = await ctx.db.get(args.id);
-    if (!player) throw new Error("Player not found");
+    if (!player) throw new ConvexError("Player not found");
     const admin = await requireTournamentRole(ctx, player.tournamentId, OWNER_ONLY);
 
     // Cannot delete sold players
     if (player.auctionStatus === "sold") {
-      throw new Error(
+      throw new ConvexError(
         "Cannot delete sold player. They are assigned to a team.",
       );
     }
 
     // Cannot delete player in auction
     if (player.auctionStatus === "in_auction") {
-      throw new Error("Cannot delete player currently in auction");
+      throw new ConvexError("Cannot delete player currently in auction");
     }
 
     // Unlink from any team that had this player as captain (the denormalized

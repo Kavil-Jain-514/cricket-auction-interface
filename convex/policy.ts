@@ -8,7 +8,16 @@ import type { Doc } from "./_generated/dataModel";
 export type Intent = NonNullable<Doc<"users">["accountType"]>;
 
 /** getTournamentRole's result: the caller's access to one tournament. */
-export type TournamentAccess = "super_admin" | "owner" | "auctioneer" | null;
+export type TournamentAccess = "super_admin" | "owner" | "auctioneer" | "registrar" | null;
+
+/**
+ * Whether this access runs the auction (the live console, the bid-request
+ * tray, presence as "console"). Registration admins only review
+ * registrations, so they don't.
+ */
+export function runsAuction(access: TournamentAccess): boolean {
+  return access === "super_admin" || access === "owner" || access === "auctioneer";
+}
 
 export function isSuperAdmin(user: Doc<"users"> | null): boolean {
   return user?.role === "admin";
@@ -52,18 +61,19 @@ export type Uploader = {
   isAdmin: boolean;
   accountType?: Intent;
   canCreateTournament: boolean;
-  staffRoles: Array<"owner" | "auctioneer">;
+  staffRoles: Array<"owner" | "auctioneer" | "registrar">;
 };
 
 /**
  * Which upload folders (lib/cloudinary UPLOAD_FOLDERS keys) someone may write
  * to through /api/upload. Tournament images (logo, sponsors, payment QR) are
  * the owner's; an organiser may upload one while creating a tournament.
- * Team logos also come from team owners requesting a team.
+ * Team logos also come from team owners requesting a team. Registration
+ * admins upload nothing: registrants upload their own files.
  */
 export function canUploadToFolder(who: Uploader, folder: string): boolean {
   if (who.isAdmin) return true;
-  const isStaff = who.staffRoles.length > 0;
+  const isStaff = who.staffRoles.some((r) => r !== "registrar");
   if (folder === "tournaments") return who.canCreateTournament || who.staffRoles.includes("owner");
   if (folder === "teams") return isStaff || who.accountType === "team_owner";
   return isStaff;

@@ -2,7 +2,7 @@
 
 import { use, useState } from 'react';
 import { useAction, useMutation, useQuery } from 'convex/react';
-import { Activity, Check, CheckCircle2, ClipboardList, ImageUp, QrCode, Tag, Trophy, Upload, UserRound, Wallet } from 'lucide-react';
+import { Activity, Check, CheckCircle2, ClipboardList, ImageUp, QrCode, Tag, Upload, UserRound, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -18,6 +18,7 @@ import { formatRupees } from '@/convex/bidRules';
 import { DEFAULT_REQUIRED_FIELDS, missingRequiredField, validateAnswers, type StandardField } from '@/convex/registrationForm';
 import { CustomQuestions, answersToSubmit, type AnswerMap } from '@/components/registration/CustomQuestions';
 import { SponsorBand } from '@/components/registration/SponsorBand';
+import { RegistrationHeader } from '@/components/registration/RegistrationHeader';
 
 // Same limits as /api/upload.
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -226,19 +227,12 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
     <main className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
       <div className="mx-auto max-w-2xl px-4 py-6 sm:py-10 space-y-5">
         <header className="overflow-hidden rounded-2xl border border-slate-800 bg-linear-to-br from-blue-600/25 via-slate-900 to-purple-600/15">
-          <div className="flex flex-col items-center gap-3 px-5 pt-6 pb-5 text-center sm:flex-row sm:text-left">
-            <ImgWithFallback
-              src={info?.logoUrl}
-              alt={`${info?.name ?? 'Tournament'} logo`}
-              className="h-24 w-24 shrink-0 rounded-2xl border border-slate-700 bg-slate-900 object-contain shadow-lg"
-              fallback={<div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl bg-yellow-500/15"><Trophy className="h-12 w-12 text-yellow-500" /></div>}
-            />
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-widest text-blue-300">Player registration</p>
-              <h1 className="text-2xl font-extrabold sm:text-3xl">{info?.name ?? 'Tournament'}</h1>
-              {info?.description && <p className="mt-1 text-sm text-slate-300 line-clamp-3">{info.description}</p>}
-            </div>
-          </div>
+          <RegistrationHeader
+            name={info?.name ?? 'Tournament'}
+            description={info?.description}
+            logoUrl={info?.logoUrl}
+            organizationLogoUrl={info?.organizationLogoUrl}
+          />
           <SponsorBand sponsors={sponsors} />
         </header>
         {children}

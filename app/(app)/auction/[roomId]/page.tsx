@@ -1048,8 +1048,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                         const res = await pauseAuction({ auctionRoomId });
                         if (res.success) toast.info('Auction paused');
                         else toast.error(res.reason);
-                      } catch {
-                        toast.error('Failed to pause auction');
+                      } catch (error) {
+                        toast.error(getErrorMessage(error, 'Failed to pause the auction'));
                       }
                     }}
                     variant="outline"
@@ -1071,8 +1071,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                           return;
                         }
                         toast.success('Auction resumed!');
-                      } catch {
-                        toast.error('Failed to resume auction');
+                      } catch (error) {
+                        toast.error(getErrorMessage(error, 'Failed to resume the auction'));
                       }
                     }}
                     variant="default"

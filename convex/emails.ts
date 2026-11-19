@@ -18,7 +18,7 @@
 // in the row just until the email is sent or abandoned, then wiped, and an
 // invite revoked, used or expired before sending is not emailed at all.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, query, type MutationCtx } from "./_generated/server";
@@ -47,7 +47,7 @@ const INVITE_EMAIL_LIMIT = { limit: 30, windowMs: 60 * 60 * 1000 };
 /** Count one invite email against the sender's hourly cap; throws when it's used up. */
 export async function consumeInviteEmailQuota(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
   if (!(await consumeRateLimit(ctx, `invite-email:${userId}`, INVITE_EMAIL_LIMIT))) {
-    throw new Error("Too many invite emails in the last hour. Copy the link instead, or try again later.");
+    throw new ConvexError("Too many invite emails in the last hour. Copy the link instead, or try again later.");
   }
 }
 
@@ -144,26 +144,34 @@ export function renderEmail(kind: Email["kind"], payload: Email["payload"]): Ren
     };
   }
   const p = payload as StaffPayload;
-  const link = `${appUrl()}/tournament/${p.tournamentId}`;
+  // Registration admins land on the review list; everyone else on the tournament.
+  const link = `${appUrl()}/tournament/${p.tournamentId}${p.role === "registrar" ? "/registrations" : ""}`;
   const greeting = p.inviteeName ? `Hi ${p.inviteeName},` : "Hi,";
-  const what =
-    p.role === "auctioneer"
-      ? "As an auctioneer you can run the live auction: start players, take bids, sell and correct sales."
-      : "As an owner you can manage the tournament: settings, teams, players, staff and the auction.";
-  const subject = p.role === "auctioneer" ? `You're an auctioneer for ${p.tournamentName}` : `You're now an owner of ${p.tournamentName}`;
-  const added = `${p.inviterName} added you as ${p.role === "auctioneer" ? "an auctioneer" : "an owner"} for ${p.tournamentName} on Bid11Pro.`;
+  const what = {
+    owner: "As an owner you can manage the tournament: settings, teams, players, staff and the auction.",
+    auctioneer: "As an auctioneer you can run the live auction: start players, take bids, sell and correct sales.",
+    registrar: "As a registration admin you review the players who register: check their details and payment, then approve or reject them.",
+  }[p.role];
+  const subject = {
+    owner: `You're now an owner of ${p.tournamentName}`,
+    auctioneer: `You're an auctioneer for ${p.tournamentName}`,
+    registrar: `You're a registration admin for ${p.tournamentName}`,
+  }[p.role];
+  const phrase = { owner: "an owner", auctioneer: "an auctioneer", registrar: "a registration admin" }[p.role];
+  const added = `${p.inviterName} added you as ${phrase} for ${p.tournamentName} on Bid11Pro.`;
+  const signIn = "Sign in, or create a free account, with this email address to get access. If you weren't expecting this, you can ignore this email.";
   return {
     subject,
-    text: [greeting, added, what, `Open the tournament: ${link}`].join("\n\n"),
+    text: [greeting, added, what, `Open the tournament: ${link}`, signIn].join("\n\n"),
     html: layout(
       escapeHtml(subject),
       [
         escapeHtml(greeting),
-        `${escapeHtml(p.inviterName)} added you as ${p.role === "auctioneer" ? "an auctioneer" : "an owner"} for <strong>${escapeHtml(p.tournamentName)}</strong>.`,
+        `${escapeHtml(p.inviterName)} added you as ${phrase} for <strong>${escapeHtml(p.tournamentName)}</strong>.`,
         escapeHtml(what),
       ],
-      { label: "Open the tournament", url: link },
-      "Sign in with this email address to see it. If you weren't expecting this, you can ignore this email.",
+      { label: p.role === "registrar" ? "Review registrations" : "Open the tournament", url: link },
+      signIn,
     ),
   };
 }

@@ -3,9 +3,10 @@ import { ClerkProvider, useAuth } from "@clerk/nextjs";
 import { ConvexReactClient, useMutation } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { ReactNode, useEffect, useRef } from "react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import { getErrorMessage } from "@/lib/utils";
 
 
 const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL! as string);
@@ -20,7 +21,12 @@ function UserInitializer({ children }: { children: ReactNode }) {
     // Only run once per mount when user is signed in
     if (isSignedIn && !hasInitialized.current) {
       hasInitialized.current = true;
-      ensureUser().catch(console.error);
+      // A deactivated account or an email linked to another sign-in can't
+      // continue: say so instead of failing silently.
+      ensureUser().catch((error) => {
+        console.error(error);
+        toast.error(getErrorMessage(error, "We couldn't finish signing you in"), { duration: 10_000 });
+      });
     }
   }, [isSignedIn, ensureUser]);
   

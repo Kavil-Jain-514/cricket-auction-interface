@@ -1,9 +1,10 @@
 // convex/auth.ts - Role-Based Access Control utilities
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { internalMutation, mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { canCreateTournament, intentOf } from "./policy";
+import { claimStaffInvites } from "./staff";
 
 export type UserRole = "admin" | "user";
 
@@ -54,7 +55,7 @@ export const EMAIL_LINKED_MESSAGE =
  */
 export async function linkOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity?.email) throw new Error("Not authenticated");
+  if (!identity?.email) throw new ConvexError("Not authenticated");
   const row = await getUserRow(ctx);
   if (row) {
     const patch: Partial<Doc<"users">> = {};
@@ -75,7 +76,7 @@ export async function linkOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> 
     .query("users")
     .withIndex("by_email", (q) => q.eq("email", identity.email!))
     .first();
-  if (sameEmail) throw new Error(EMAIL_LINKED_MESSAGE);
+  if (sameEmail) throw new ConvexError(EMAIL_LINKED_MESSAGE);
   // Everyone starts as a "user"; the first admin comes from auth:bootstrapAdmin.
   const userId = await ctx.db.insert("users", {
     email: identity.email,
@@ -108,8 +109,8 @@ export async function requireUser(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"users">> {
   const user = await getUserRow(ctx);
-  if (!user) throw new Error("Not authenticated");
-  if (user.deactivatedAt !== undefined) throw new Error(DEACTIVATED_MESSAGE);
+  if (!user) throw new ConvexError("Not authenticated");
+  if (user.deactivatedAt !== undefined) throw new ConvexError(DEACTIVATED_MESSAGE);
   return user;
 }
 
@@ -129,7 +130,7 @@ export async function requireAdmin(
 ): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
   if (user.role !== "admin") {
-    throw new Error("Admin access required");
+    throw new ConvexError("Admin access required");
   }
   return user;
 }
@@ -162,12 +163,14 @@ interface AuditLogParams {
 // TOURNAMENT-SCOPED ACCESS (organisers)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export type TournamentRole = "owner" | "auctioneer";
+export type TournamentRole = "owner" | "auctioneer" | "registrar";
 
 /** Runs the auction on the day, including sale corrections and purse tools. */
 export const RUN_AUCTION: TournamentRole[] = ["owner", "auctioneer"];
 /** Settings, teams, players, staff, invites, draws, exports, restart, delete. */
 export const OWNER_ONLY: TournamentRole[] = ["owner"];
+/** Review player registrations: list, approve, reject, mark paid, category. */
+export const REVIEW_REGISTRATIONS: TournamentRole[] = ["owner", "registrar"];
 
 /**
  * The caller's access to a tournament: "super_admin" (users.role "admin",
@@ -224,7 +227,7 @@ export async function requireTournamentRole(
   if (role === "super_admin" || (role !== null && roles.includes(role))) {
     return user;
   }
-  throw new Error("You don't have access to this tournament");
+  throw new ConvexError("You don't have access to this tournament");
 }
 
 /**
@@ -346,7 +349,7 @@ export const setUserRole = mutation({
     const admin = await requireAdmin(ctx);
 
     const targetUser = await ctx.db.get(args.userId);
-    if (!targetUser) throw new Error("User not found");
+    if (!targetUser) throw new ConvexError("User not found");
 
     // Never leave the app with no admin: the last one can't be demoted
     // (in practice, the only admin demoting themselves).
@@ -357,7 +360,7 @@ export const setUserRole = mutation({
         .withIndex("by_role", (q) => q.eq("role", "admin"))
         .take(2);
       if (admins.length <= 1) {
-        throw new Error(
+        throw new ConvexError(
           "You are the last admin. Promote someone else before stepping down.",
         );
       }
@@ -454,9 +457,10 @@ export type TournamentPeople = {
 };
 
 const emailKey = (email: string) => email.trim().toLowerCase();
+const STAFF_ORDER: Record<Doc<"tournamentStaff">["role"], number> = { owner: 0, auctioneer: 1, registrar: 2 };
 
 /**
- * Organisers (owners first, then auctioneers), then team owners: joined,
+ * Organisers (owners, then auctioneers, then registration admins), then team owners: joined,
  * awaiting the organiser's approval, and invited but not yet joined (open
  * team links and "add your team" emails, once per address).
  */
@@ -484,7 +488,7 @@ export const tournamentPeople = query({
     const teamNames = new Map(teams.map((t) => [t._id, t.name]));
 
     const organisers = [...staff]
-      .sort((a, b) => Number(a.role === "auctioneer") - Number(b.role === "auctioneer"))
+      .sort((a, b) => STAFF_ORDER[a.role] - STAFF_ORDER[b.role])
       .map((row) => ({
         userId: row.userId,
         name: users.get(row.userId)?.name,
@@ -536,7 +540,7 @@ export const setUserIntent = mutation({
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
     const target = await ctx.db.get(args.userId);
-    if (!target) throw new Error("User not found");
+    if (!target) throw new ConvexError("User not found");
     const previous = intentOf(target);
     await ctx.db.patch(args.userId, { accountType: args.accountType, accountTypeChosenAt: Date.now() });
     await logAdminAction(ctx, {
@@ -562,10 +566,10 @@ export const setUserActive = mutation({
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
     const target = await ctx.db.get(args.userId);
-    if (!target) throw new Error("User not found");
+    if (!target) throw new ConvexError("User not found");
     if (!args.active) {
-      if (target._id === admin._id) throw new Error("You can't deactivate yourself");
-      if (target.role === "admin") throw new Error("Remove their admin role first");
+      if (target._id === admin._id) throw new ConvexError("You can't deactivate yourself");
+      if (target.role === "admin") throw new ConvexError("Remove their admin role first");
     }
     if ((target.deactivatedAt === undefined) === args.active) return { success: true };
     await ctx.db.patch(args.userId, { deactivatedAt: args.active ? undefined : Date.now() });
@@ -605,14 +609,17 @@ export const ensureUser = mutation({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity?.email) {
-      throw new Error("No email in identity");
+      throw new ConvexError("No email in identity");
     }
     // Links a legacy row to this sign-in, or creates the row. Everyone starts
     // as a "user": there is no "first sign-in becomes admin" rule (AUDIT
     // 2026-11 SEC-007, PERF-002). Two simultaneous first sign-ins can't both
     // insert: the reads are in this transaction, so the second conflicts,
     // retries, and finds the row.
-    return (await linkOrCreateUser(ctx))._id;
+    const user = await linkOrCreateUser(ctx);
+    // Staff roles offered to this address before (or since) they signed up.
+    if (user.deactivatedAt === undefined) await claimStaffInvites(ctx, user);
+    return user._id;
   },
 });
 
@@ -630,7 +637,7 @@ export const unlinkSignIn = internalMutation({
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", email))
       .first();
-    if (!user) throw new Error(`No account for ${email}`);
+    if (!user) throw new ConvexError(`No account for ${email}`);
     await ctx.db.patch(user._id, { tokenIdentifier: undefined });
     await logAdminAction(ctx, {
       userId: user._id,
@@ -657,13 +664,13 @@ export const bootstrapAdmin = internalMutation({
       .query("users")
       .withIndex("by_role", (q) => q.eq("role", "admin"))
       .first();
-    if (existingAdmin) throw new Error("This deployment already has an admin; promote people from /admin/users");
+    if (existingAdmin) throw new ConvexError("This deployment already has an admin; promote people from /admin/users");
     const email = args.email.trim();
     const user = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", email))
       .first();
-    if (!user) throw new Error(`No account for ${email}. Sign in once first.`);
+    if (!user) throw new ConvexError(`No account for ${email}. Sign in once first.`);
     await ctx.db.patch(user._id, { role: "admin" });
     await logAdminAction(ctx, {
       userId: user._id,

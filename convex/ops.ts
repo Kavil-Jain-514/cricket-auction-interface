@@ -7,6 +7,7 @@ import { internalMutation, mutation, query, type MutationCtx } from "./_generate
 import type { Doc } from "./_generated/dataModel";
 import { getCurrentUser, getTournamentRole, requireAdmin } from "./auth";
 import { findOwnerMembership } from "./members";
+import { runsAuction } from "./policy";
 import { notificationStats } from "./notifications";
 import { consumeRateLimit } from "./rateLimit";
 
@@ -17,7 +18,7 @@ const MAX_MESSAGE = 300;
 
 /** The caller's role in the room's tournament: console, owner, or neither. */
 async function roomRole(ctx: MutationCtx, room: Doc<"auctionRooms">, user: Doc<"users">) {
-  if (await getTournamentRole(ctx, room.tournamentId, user)) return "console" as const;
+  if (runsAuction(await getTournamentRole(ctx, room.tournamentId, user))) return "console" as const;
   if (await findOwnerMembership(ctx, user._id, room.tournamentId)) return "owner" as const;
   return null;
 }

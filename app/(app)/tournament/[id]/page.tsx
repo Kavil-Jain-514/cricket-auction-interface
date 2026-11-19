@@ -28,7 +28,8 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
   const tournamentId = id as Id<"tournaments">;
   const [showSettings, setShowSettings] = useState(false);
   // Owners manage the tournament; auctioneers only run the auction console.
-  const { canManage, canRunAuction, isSuperAdmin } = useTournamentRole(tournamentId);
+  const { canManage, canRunAuction, canReviewRegistrations, isRegistrar, isSuperAdmin } = useTournamentRole(tournamentId);
+  const registrationSummary = useQuery(api.registrations.summary, canReviewRegistrations ? { tournamentId } : 'skip');
   const confirm = useConfirm();
 
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
@@ -292,8 +293,16 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
             </div>
 
             <div className="flex flex-wrap gap-2 sm:gap-3">
+              {/* Registration admins only review registrations */}
+              {isRegistrar && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 rounded-lg border border-emerald-600/40 h-11">
+                  <ClipboardList className="w-4 h-4 text-emerald-400" />
+                  <span className="text-sm text-emerald-200">Registration admin</span>
+                </div>
+              )}
+
               {/* Viewer Mode Indicator for non-admins */}
-              {!canRunAuction && (
+              {!canRunAuction && !isRegistrar && (
                 <div className="flex items-center gap-2 px-4 py-2 bg-slate-800/60 rounded-lg border border-slate-700 h-11">
                   <Eye className="w-4 h-4 text-blue-400" />
                   <span className="text-sm text-slate-300">Viewer Mode</span>
@@ -435,11 +444,19 @@ export default function TournamentDetailPage({ params }: { params: Promise<{ id:
                 </Button>
               )}
 
-              {canManage && (
+              {canReviewRegistrations && (
                 <Link href={`/tournament/${tournamentId}/registrations`}>
                   <Button variant="outline" className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white h-11 px-4 sm:px-5 text-sm">
                     <ClipboardList className="w-4 h-4 mr-2" />
                     Registrations
+                    {registrationSummary && registrationSummary.ready > 0 && (
+                      <span
+                        className="ml-2 rounded-full bg-orange-500 px-2 py-0.5 text-xs font-bold text-white"
+                        aria-label={`${registrationSummary.ready} waiting for approval`}
+                      >
+                        {registrationSummary.ready}
+                      </span>
+                    )}
                   </Button>
                 </Link>
               )}

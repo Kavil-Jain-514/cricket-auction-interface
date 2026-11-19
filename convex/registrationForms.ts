@@ -2,10 +2,10 @@
 // registration questions. Every save is a new version; answered questions
 // can be archived but never deleted or retyped, so old answers keep their
 // meaning (definition and rules in registrationForm.ts).
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { getTournamentRole, logAdminAction, OWNER_ONLY, requireTournamentRole } from "./auth";
+import { getTournamentRole, logAdminAction, OWNER_ONLY, REVIEW_REGISTRATIONS, requireTournamentRole } from "./auth";
 import {
   normalizeQuestions,
   questionValidator,
@@ -101,7 +101,7 @@ export const answersForPlayer = query({
 export const get = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
-    await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    await requireTournamentRole(ctx, args.tournamentId, REVIEW_REGISTRATIONS);
     const { labels, latest } = await questionLabels(ctx, args.tournamentId);
     return {
       version: latest?.version ?? 0,
@@ -127,17 +127,17 @@ export const save = mutation({
   },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const owner = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const questions = normalizeQuestions(args.questions);
     const error = validateFormQuestions(questions);
-    if (error) throw new Error(error);
+    if (error) throw new ConvexError(error);
 
     const latest = await latestFormVersion(ctx, args.tournamentId);
     const current = latest?.version ?? 0;
     if (args.expectedVersion !== current) {
-      throw new Error("Someone else changed the form since you opened it. Reload to see their changes.");
+      throw new ConvexError("Someone else changed the form since you opened it. Reload to see their changes.");
     }
     const previousRules = resolveRequiredFields(latest?.requiredFields);
     const requiredFields = args.requiredFields ? resolveRequiredFields(args.requiredFields) : previousRules;
@@ -154,8 +154,8 @@ export const save = mutation({
     for (const previous of latest?.questions ?? []) {
       if (!counts[previous.id]) continue;
       const next = questions.find((q) => q.id === previous.id);
-      if (!next) throw new Error(`"${previous.label}" has answers; archive it instead of deleting it`);
-      if (next.type !== previous.type) throw new Error(`"${previous.label}" has answers; its type can't change`);
+      if (!next) throw new ConvexError(`"${previous.label}" has answers; archive it instead of deleting it`);
+      if (next.type !== previous.type) throw new ConvexError(`"${previous.label}" has answers; its type can't change`);
     }
 
     const version = current + 1;

@@ -1,5 +1,5 @@
 // convex/members.ts - Team owners: invite links, claiming, and membership
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import {
@@ -44,7 +44,7 @@ function generateInviteToken(): string {
 export async function getOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> {
   // A deactivated account is refused, never replaced by a fresh row.
   const existing = await getUserRow(ctx);
-  if (existing?.deactivatedAt !== undefined) throw new Error(DEACTIVATED_MESSAGE);
+  if (existing?.deactivatedAt !== undefined) throw new ConvexError(DEACTIVATED_MESSAGE);
   return await linkOrCreateUser(ctx);
 }
 
@@ -57,13 +57,13 @@ export const createInvite = mutation({
   args: { teamId: v.id("teams"), email: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const team = await ctx.db.get(args.teamId);
-    if (!team) throw new Error("Team not found");
+    if (!team) throw new ConvexError("Team not found");
     const admin = await requireTournamentRole(ctx, team.tournamentId, OWNER_ONLY);
 
     let email: string | undefined;
     if (args.email?.trim()) {
       email = normalizeEmail(args.email) ?? undefined;
-      if (!email) throw new Error("Enter a valid email address, or leave it empty to just copy the link");
+      if (!email) throw new ConvexError("Enter a valid email address, or leave it empty to just copy the link");
       await consumeInviteEmailQuota(ctx, admin._id);
     }
 
@@ -257,7 +257,7 @@ export const removeMember = mutation({
   args: { memberId: v.id("teamMembers") },
   handler: async (ctx, args) => {
     const member = await ctx.db.get(args.memberId);
-    if (!member) throw new Error("Member not found");
+    if (!member) throw new ConvexError("Member not found");
     const admin = await requireTournamentRole(ctx, member.tournamentId, OWNER_ONLY);
 
     const pending = (
@@ -292,7 +292,7 @@ export const revokeInvite = mutation({
   args: { inviteId: v.id("teamInvites") },
   handler: async (ctx, args) => {
     const invite = await ctx.db.get(args.inviteId);
-    if (!invite) throw new Error("Invite not found");
+    if (!invite) throw new ConvexError("Invite not found");
     const admin = await requireTournamentRole(ctx, invite.tournamentId, OWNER_ONLY);
     if (invite.usedBy !== undefined) {
       return { success: false, reason: "Invite was already used — remove the member instead" };

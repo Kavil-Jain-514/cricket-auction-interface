@@ -16,7 +16,7 @@
 // ever sent twice. The signed webhook in http.ts marks rows delivered and
 // records STOP/START replies (whatsappOptOuts). Phone numbers are masked in logs.
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -28,7 +28,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { logAdminAction, OWNER_ONLY, requireAdmin, requireTournamentRole } from "./auth";
+import { logAdminAction, OWNER_ONLY, requireAdmin, REVIEW_REGISTRATIONS, requireTournamentRole } from "./auth";
 import { formatRupees } from "./bidRules";
 
 /**
@@ -380,7 +380,7 @@ export const setOptOut = internalMutation({
 export const listForTournament = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
-    await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    await requireTournamentRole(ctx, args.tournamentId, REVIEW_REGISTRATIONS);
     const rows = await ctx.db
       .query("notifications")
       .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
@@ -405,9 +405,9 @@ export const resend = mutation({
   args: { notificationId: v.id("notifications") },
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.notificationId);
-    if (!row) throw new Error("Message not found");
+    if (!row) throw new ConvexError("Message not found");
     const owner = await requireTournamentRole(ctx, row.tournamentId, OWNER_ONLY);
-    if (row.status !== "failed") throw new Error("Only failed messages can be resent");
+    if (row.status !== "failed") throw new ConvexError("Only failed messages can be resent");
     await ctx.db.patch(row._id, { status: "queued", attempts: 0, nextAttemptAt: Date.now(), lastError: undefined, claimedAt: undefined });
     await ctx.scheduler.runAfter(0, internal.notifications.processQueue, {});
     await logAdminAction(ctx, {

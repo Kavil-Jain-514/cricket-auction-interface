@@ -1,5 +1,5 @@
 // convex/auctions.ts - Live auction mutations and queries
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, MutationCtx, query } from "./_generated/server";
 import { Id, Doc } from "./_generated/dataModel";
 import {
@@ -12,6 +12,7 @@ import {
   RUN_AUCTION,
 } from "./auth";
 import { findOwnerMembership } from "./members";
+import { runsAuction } from "./policy";
 import {
   applyBid,
   BID_SPACING_MS,
@@ -82,7 +83,7 @@ export const createAuctionRoom = mutation({
       )
       .first();
     if (existing) {
-      throw new Error("An auction room already exists for this tournament");
+      throw new ConvexError("An auction room already exists for this tournament");
     }
 
     const tournament = await ctx.db.get(args.tournamentId);
@@ -202,7 +203,7 @@ export const resumeAuction = mutation({
     }
 
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
 
     const now = Date.now();
     const timerDuration = auctionRoom.pausedTimeRemaining
@@ -268,7 +269,7 @@ async function placeBidImpl(
   const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, RUN_AUCTION);
 
   const team = await ctx.db.get(args.teamId);
-  if (!team) throw new Error("Team not found");
+  if (!team) throw new ConvexError("Team not found");
 
   // Validation + write live in bidCore.ts, shared with owner raises.
   return await applyBid(ctx, {
@@ -301,7 +302,7 @@ export const raiseBid = mutation({
   },
   handler: async (ctx, args) => {
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
+    if (!auctionRoom) throw new ConvexError("Auction room not found");
 
     const user = await getCurrentUser(ctx);
     if (!user) return { success: false as const, reason: "Sign in to bid" };
@@ -319,14 +320,14 @@ export const raiseBid = mutation({
     }
 
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const bidMode = tournament.settings.bidMode ?? "admin_only";
     if (bidMode === "admin_only") {
       return { success: false as const, reason: "Owner bidding is off" };
     }
 
     const team = await ctx.db.get(membership.teamId);
-    if (!team) throw new Error("Team not found");
+    if (!team) throw new ConvexError("Team not found");
 
     const bid = {
       room: auctionRoom,
@@ -400,7 +401,7 @@ export const acceptBidRequest = mutation({
   },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
-    if (!request) throw new Error("Bid request not found");
+    if (!request) throw new ConvexError("Bid request not found");
     return await withIdempotency(ctx, "acceptBidRequest", request.auctionRoomId, args.idempotencyKey, () =>
       acceptBidRequestImpl(ctx, { requestId: args.requestId }),
     );
@@ -409,9 +410,9 @@ export const acceptBidRequest = mutation({
 
 async function acceptBidRequestImpl(ctx: MutationCtx, args: { requestId: Id<"bidRequests"> }) {
   const request = await ctx.db.get(args.requestId);
-  if (!request) throw new Error("Bid request not found");
+  if (!request) throw new ConvexError("Bid request not found");
   const auctionRoom = await ctx.db.get(request.auctionRoomId);
-  if (!auctionRoom) throw new Error("Auction room not found");
+  if (!auctionRoom) throw new ConvexError("Auction room not found");
   const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
   if (request.status !== "pending") {
     return { success: false as const, reason: "Request is no longer pending" };
@@ -439,7 +440,7 @@ async function acceptBidRequestImpl(ctx: MutationCtx, args: { requestId: Id<"bid
   }
 
   const team = await ctx.db.get(request.teamId);
-  if (!team) throw new Error("Team not found");
+  if (!team) throw new ConvexError("Team not found");
 
   // Only at the price the owner raised from (absent on legacy requests).
   const result = await applyBid(ctx, {
@@ -491,9 +492,9 @@ export const rejectBidRequest = mutation({
   },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
-    if (!request) throw new Error("Bid request not found");
+    if (!request) throw new ConvexError("Bid request not found");
     const auctionRoom = await ctx.db.get(request.auctionRoomId);
-    if (!auctionRoom) throw new Error("Auction room not found");
+    if (!auctionRoom) throw new ConvexError("Auction room not found");
     const admin = await requireTournamentRole(ctx, auctionRoom.tournamentId, RUN_AUCTION);
     if (request.status !== "pending") {
       return { success: false as const, reason: "Request is no longer pending" };
@@ -572,10 +573,10 @@ async function finalizePlayerSaleImpl(
   await expirePendingRaises(ctx, auctionRoom._id, currentPlayerId, "Player left the block");
 
   const player = await ctx.db.get(currentPlayerId);
-  if (!player) throw new Error("Player not found");
+  if (!player) throw new ConvexError("Player not found");
 
   const tournament = await ctx.db.get(auctionRoom.tournamentId);
-  if (!tournament) throw new Error("Tournament not found");
+  if (!tournament) throw new ConvexError("Tournament not found");
 
   const playerBasePrice = playerBasePriceFor(player, tournament);
 
@@ -590,7 +591,7 @@ async function finalizePlayerSaleImpl(
   if (winningBid) {
     // PLAYER SOLD
     const team = await ctx.db.get(winningBid.teamId);
-    if (!team) throw new Error("Winning team not found");
+    if (!team) throw new ConvexError("Winning team not found");
 
     // Defensive: placeBid already checked the purse, but a correction since
     // then could have lowered it. Never debit a team below zero.
@@ -743,7 +744,7 @@ export const markPlayerFinalUnsold = mutation({
     await expirePendingRaises(ctx, auctionRoom._id, currentPlayerId, "Player left the block");
 
     const player = await ctx.db.get(currentPlayerId);
-    if (!player) throw new Error("Player not found");
+    if (!player) throw new ConvexError("Player not found");
 
     // Resolve the effective base price now so it can be stored on the event
     // (lets getLatestSaleEvent avoid a per-bid room read — P1-2).
@@ -831,7 +832,7 @@ export const startNextPlayer = mutation({
     }
 
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
 
     const teams = await ctx.db
       .query("teams")
@@ -1136,7 +1137,7 @@ export const restartCurrentPlayer = mutation({
     if (stale) return { success: false as const, reason: stale };
 
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
 
     const bidCount = await deleteLiveBidsFor(ctx, auctionRoom.currentPlayerId);
     const now = Date.now();
@@ -1673,7 +1674,7 @@ export const getPendingBidRequests = query({
     const auctionRoom = await ctx.db.get(args.auctionRoomId);
     if (!auctionRoom) return empty;
     // The tournament's console staff only (any other caller sees an empty tray).
-    if (!(await getTournamentRole(ctx, auctionRoom.tournamentId))) return empty;
+    if (!runsAuction(await getTournamentRole(ctx, auctionRoom.tournamentId))) return empty;
     const playerId = auctionRoom.currentPlayerId;
     if (!playerId) return empty;
 
@@ -1891,7 +1892,7 @@ export const getReconciliation = query({
     await requireTournamentRole(ctx, args.tournamentId, RUN_AUCTION);
 
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
 
     const [teams, players] = await Promise.all([
       ctx.db
@@ -2001,13 +2002,13 @@ export const restartAuction = mutation({
     const { room: auctionRoom, user: admin } = await loadRoomForStaff(ctx, args.auctionRoomId, OWNER_ONLY);
 
     const tournament = await ctx.db.get(auctionRoom.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
 
     if (auctionRoom.status === "live") {
-      throw new Error("Pause the auction before restarting it");
+      throw new ConvexError("Pause the auction before restarting it");
     }
     if (!confirmsTournamentName(args.confirmName, tournament.name)) {
-      throw new Error(`Type the tournament name (${tournament.name}) to confirm the restart`);
+      throw new ConvexError(`Type the tournament name (${tournament.name}) to confirm the restart`);
     }
     const now = Date.now();
     const basePurse = tournament.settings.basePurse;

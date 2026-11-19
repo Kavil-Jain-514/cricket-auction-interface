@@ -15,7 +15,7 @@ import { PlayerImport } from '@/components/players/PlayerImport';
 import { PlayerForm } from '@/components/players/PlayerForm';
 import { PlayerDetailsModal } from '@/components/players/PlayerDetailsModal';
 import { toast } from 'sonner';
-import { getRoles, getRoleDisplay } from '@/lib/utils';
+import { getErrorMessage, getRoles, getRoleDisplay } from '@/lib/utils';
 import jsPDF from 'jspdf';
 
 import { useTournamentRole } from '@/hooks/useTournamentRole';
@@ -857,9 +857,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
                       });
                       setShowDeleteConfirm(false);
                     } catch (error) {
-                      toast.error('Failed to delete players', {
-                        description: error instanceof Error ? error.message : 'Unknown error',
-                      });
+                      toast.error(getErrorMessage(error, 'Failed to delete players'));
                     } finally {
                       setIsDeleting(false);
                     }

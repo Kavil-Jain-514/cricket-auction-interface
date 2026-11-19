@@ -119,7 +119,7 @@ export function TournamentPeople({ tournamentId, tournamentName }: { tournamentI
         key: p.userId,
         name: p.name,
         email: p.email,
-        detail: p.role === 'owner' ? 'Organiser' : 'Auctioneer',
+        detail: ({ owner: 'Organiser', auctioneer: 'Auctioneer', registrar: 'Registration admin' } as const)[p.role],
       })),
       owners: people.teamOwners.map((p): Row => ({ key: p.key, name: p.name, email: p.email, detail: p.teamName, badge: STATUS[p.status] })),
     };
