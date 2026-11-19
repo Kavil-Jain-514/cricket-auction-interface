@@ -4,7 +4,6 @@ import { mutation, query, type QueryCtx } from "./_generated/server";
 import {
   getCurrentUser,
   getTournamentRole,
-  isTournamentStaff,
   logAdminAction,
   OWNER_ONLY,
   requireTournamentRole,
@@ -122,43 +121,35 @@ export const create = mutation({
   },
 });
 
-// List all tournaments - for viewers to see active tournaments
+/**
+ * The super-admin's tournament picker (/admin/audit): every tournament's id and
+ * name, newest first. Anyone else gets []. It used to return whole documents
+ * to any signed-in user, including other organisers' plans and payment
+ * references (AUDIT 2026-11 SEC-001).
+ */
 export const listAll = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return [];
     if (args.limit !== undefined && args.limit <= 0) {
       throw new Error("limit must be a positive number");
     }
-    // Deactivated tournaments (isActive === false) are visible only to their
-    // staff and the super-admin. Legacy isActive === undefined stays visible.
-    const user = await getCurrentUser(ctx);
-    const isAdmin = user?.role === "admin";
-    const staffOf = new Set(
-      user && !isAdmin
-        ? (
-            await ctx.db
-              .query("tournamentStaff")
-              .withIndex("by_user", (q) => q.eq("userId", user._id))
-              .collect()
-          ).map((s) => s.tournamentId)
-        : [],
-    );
-    const visible = (t: { _id: Id<"tournaments">; isActive?: boolean }) =>
-      isAdmin || t.isActive !== false || staffOf.has(t._id);
-
+    if (!isSuperAdmin(await getCurrentUser(ctx))) return [];
     const tournamentsQuery = ctx.db.query("tournaments").order("desc");
-    if (args.limit === undefined) {
-      return (await tournamentsQuery.collect()).filter(visible);
-    }
-    const cap = Math.max(1, Math.min(args.limit, 100));
-    // Over-fetch so the post-filter still has a chance to fill the cap.
-    const fetched = await tournamentsQuery.take(isAdmin ? cap : cap * 2);
-    return fetched.filter(visible).slice(0, cap);
+    const rows =
+      args.limit === undefined
+        ? await tournamentsQuery.collect()
+        : await tournamentsQuery.take(Math.max(1, Math.min(args.limit, 100)));
+    return rows.map((t) => ({ _id: t._id, name: t.name }));
   },
 });
 
+/**
+ * A tournament for its pages. Its staff (and the super-admin) get the whole
+ * document; any other signed-in user gets it without the commercial and
+ * internal fields: the plan (tier, payment reference, grant reason), who
+ * created it, and the derived auction counts (AUDIT 2026-11 SEC-001).
+ * Deactivated tournaments are only reachable by their staff.
+ */
 export const getById = query({
   args: { id: v.id("tournaments") },
   handler: async (ctx, args) => {
@@ -168,12 +159,12 @@ export const getById = query({
     const tournament = await ctx.db.get(args.id);
     if (!tournament) return null;
 
-    // Deactivated tournaments are only reachable by their staff.
-    if (tournament.isActive === false && !(await isTournamentStaff(ctx, args.id))) {
-      return null;
-    }
+    const role = await getTournamentRole(ctx, args.id);
+    if (role) return tournament;
+    if (tournament.isActive === false) return null;
 
-    return tournament;
+    const { plan: _plan, createdBy: _createdBy, auctionCounts: _auctionCounts, ...publicFields } = tournament;
+    return publicFields;
   },
 });
 
@@ -687,20 +678,28 @@ export const update = mutation({
 
       // Base purse is denormalized onto each team's purse. When it changes,
       // propagate it so the new value is reflected everywhere in the tournament.
-      // (Settings are only editable pre-auction, so purseSpent is 0 here.)
+      // Settings are only editable while the auction isn't running, but sales
+      // can still exist (corrections are allowed in a waiting room), so a new
+      // purse below a team's spend is refused rather than clamped: clamping
+      // would break purseRemaining + purseSpent == basePurse + purseAdjustment.
       if (args.settings.basePurse !== tournament.settings.basePurse) {
+        const newBasePurse = args.settings.basePurse;
         const teams = await ctx.db
           .query("teams")
           .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
           .collect();
+        const overspent = teams.find(
+          (team) => team.purseSpent > teamPurseTotal(newBasePurse, team),
+        );
+        if (overspent) {
+          throw new Error(
+            `${overspent.name} has already spent ₹${overspent.purseSpent}, more than the new purse of ₹${teamPurseTotal(newBasePurse, overspent)}. Correct their sales first.`,
+          );
+        }
         await Promise.all(
           teams.map((team) =>
             ctx.db.patch(team._id, {
-              purseRemaining: Math.max(
-                0,
-                teamPurseTotal(args.settings!.basePurse, team) -
-                  team.purseSpent,
-              ),
+              purseRemaining: teamPurseTotal(newBasePurse, team) - team.purseSpent,
               updatedAt: Date.now(),
             }),
           ),

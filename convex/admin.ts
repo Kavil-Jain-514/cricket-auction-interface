@@ -12,9 +12,9 @@ import {
   isWholeRupees,
   maxAllowedBid,
   reserveBasePrice,
-  teamPurseTotal,
 } from "./bidRules";
 import type { Doc, Id } from "./_generated/dataModel";
+import { purseFromSales } from "./money";
 
 // Helper: format purse amount for error messages
 function formatPurse(amount: number): string {
@@ -607,11 +607,11 @@ export const recalculateTeamPurse = mutation({
       .query("players")
       .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
       .collect();
-    const purseSpent = players
-      .filter((p) => p.auctionStatus === "sold")
-      .reduce((sum, p) => sum + (p.soldPrice ?? 0), 0);
-    const purseRemaining =
-      teamPurseTotal(tournament.settings.basePurse, team) - purseSpent;
+    const { purseSpent, purseRemaining } = purseFromSales(
+      tournament.settings.basePurse,
+      team,
+      players.filter((p) => p.auctionStatus === "sold").map((p) => p.soldPrice ?? 0),
+    );
     if (purseRemaining < 0) {
       throw new Error(
         `${team.name}'s sold players cost ${formatPurse(purseSpent)}, more than its purse. Correct the sold prices first.`,

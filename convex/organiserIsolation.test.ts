@@ -387,6 +387,39 @@ describe("private data follows tournament access", () => {
     expect(await t.withIdentity(ORG_B).query(api.tournaments.getById, { id: fx.tA })).toBeNull();
   });
 
+  test("tournament plan, payment reference and creator are for its staff only (AUDIT 2026-11 SEC-001)", async () => {
+    const t = convexTest(schema, modules);
+    const fx = await seed(t);
+    await t.run((ctx) =>
+      ctx.db.patch(fx.tA, {
+        plan: { tier: "club", maxTeams: 8, maxPlayers: 150, paidAt: Date.now(), paymentRef: "pay_SECRET" },
+      }),
+    );
+
+    const asB = await t.withIdentity(ORG_B).query(api.tournaments.getById, { id: fx.tA });
+    expect(asB).not.toBeNull();
+    expect(asB).toMatchObject({ _id: fx.tA, name: "A Cup", settings: SETTINGS });
+    expect(asB).not.toHaveProperty("plan");
+    expect(asB).not.toHaveProperty("createdBy");
+    expect(asB).not.toHaveProperty("auctionCounts");
+
+    for (const staff of [ORG_A, AUCTIONEER_A, SUPER]) {
+      const doc = await t.withIdentity(staff).query(api.tournaments.getById, { id: fx.tA });
+      // Staff get the whole document (the public projection's type has no plan).
+      expect((doc as Doc<"tournaments"> | null)?.plan?.paymentRef).toBe("pay_SECRET");
+    }
+  });
+
+  test("listAll is the super-admin's tournament picker: names only, nobody else", async () => {
+    const t = convexTest(schema, modules);
+    const fx = await seed(t);
+    expect(await t.withIdentity(ORG_B).query(api.tournaments.listAll, {})).toEqual([]);
+    expect(await t.withIdentity(ORG_A).query(api.tournaments.listAll, {})).toEqual([]);
+    const all = await t.withIdentity(SUPER).query(api.tournaments.listAll, {});
+    expect(all.map((x) => x._id).sort()).toEqual([fx.tA, fx.tB].sort());
+    for (const row of all) expect(Object.keys(row).sort()).toEqual(["_id", "name"]);
+  });
+
   test("console-only queries refuse other organisers", async () => {
     const t = convexTest(schema, modules);
     const fx = await seed(t);

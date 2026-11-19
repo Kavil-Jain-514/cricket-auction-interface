@@ -8,6 +8,7 @@ import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { logAdminAction, OWNER_ONLY, RUN_AUCTION, requireTournamentRole } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
+import { recomputeTeamPurses } from "./money";
 import { goLive } from "./auctionLifecycle";
 import { confirmsTournamentName } from "./validation";
 
@@ -150,8 +151,14 @@ function withoutSystemFields(row: SnapshotRow) {
  * Put a tournament's auction state back to a snapshot. Teams and players are
  * patched in place (their ids never change); bids, events and live bids are
  * replaced by the snapshot's. A player sold after the snapshot goes back to
- * pending so the restored purses still add up. Rooms come back in
- * `roomStatus(snapshotStatus)`. Callers check access and audit.
+ * pending. Rooms come back in `roomStatus(snapshotStatus)`. Callers check
+ * access and audit.
+ *
+ * Purses are then rebuilt from the restored players (money.ts), not trusted
+ * from the snapshot copy: a team created after the snapshot, or a sold player
+ * deleted since, would otherwise keep money its players no longer account for
+ * (AUDIT 2026-11 DATA-001). `repricedTeams` lists the teams whose purse
+ * differed from the snapshot's copy, for the audit row.
  */
 async function applySnapshot(
   ctx: MutationCtx,
@@ -243,8 +250,9 @@ async function applySnapshot(
     }
   }
 
+  const repricedTeams = await recomputeTeamPurses(ctx, tournamentId);
   await syncTournamentAuctionCounts(ctx, tournamentId);
-  return missing;
+  return { missing, repricedTeams };
 }
 
 /**
@@ -271,14 +279,14 @@ export const restoreSnapshot = mutation({
     }
 
     const undoSnapshotId = await takeSnapshot(ctx, snapshot.tournamentId, "before restore_snapshot", owner._id);
-    const missing = await applySnapshot(ctx, snapshot, (status) => (status === "live" ? "paused" : status));
+    const { missing, repricedTeams } = await applySnapshot(ctx, snapshot, (status) => (status === "live" ? "paused" : status));
     await logAdminAction(ctx, {
       userId: owner._id,
       userEmail: owner.email,
       action: "restore_snapshot",
       targetType: "tournament",
       targetId: snapshot.tournamentId,
-      newData: { snapshotId: snapshot._id, reason: snapshot.reason, undoSnapshotId, missing },
+      newData: { snapshotId: snapshot._id, reason: snapshot.reason, undoSnapshotId, missing, repricedTeams },
       tournamentId: snapshot.tournamentId,
     });
     return { success: true as const, undoSnapshotId, missing };
@@ -329,7 +337,7 @@ export const endRehearsal = mutation({
     const snapshot = await ctx.db.get(room.rehearsalSnapshotId);
     if (!snapshot) throw new Error("The rehearsal's snapshot is missing; use Restart instead");
 
-    const missing = await applySnapshot(ctx, snapshot, () => "waiting");
+    const { missing, repricedTeams } = await applySnapshot(ctx, snapshot, () => "waiting");
     await ctx.db.patch(room._id, { rehearsal: undefined, rehearsalSnapshotId: undefined });
     await logAdminAction(ctx, {
       userId: owner._id,
@@ -337,7 +345,7 @@ export const endRehearsal = mutation({
       action: "end_rehearsal",
       targetType: "auction",
       targetId: room._id,
-      newData: { snapshotId: snapshot._id, missing },
+      newData: { snapshotId: snapshot._id, missing, repricedTeams },
       tournamentId: room.tournamentId,
       auctionRoomId: room._id,
     });
