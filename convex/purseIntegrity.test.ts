@@ -189,3 +189,85 @@ describe("changing the base purse never breaks a purse (DATA-002)", () => {
     expect(await reconcile(t, tournamentId)).toEqual({ ok: true, issues: [] });
   });
 });
+
+describe("sale corrections follow the squad rules bids follow (DATA-004)", () => {
+  const MARQUEE = { id: "marquee", name: "Marquee", basePrice: 100_000, order: 1, colour: "#f59e0b" };
+
+  async function withRules(
+    t: ReturnType<typeof convexTest>,
+    squadRules: Array<{ id: string; categoryId?: string; role?: string; min?: number; max?: number }>,
+  ) {
+    const ids = await setup(t);
+    await t.run(async (ctx) => {
+      const tournament = (await ctx.db.get(ids.tournamentId))!;
+      await ctx.db.patch(ids.tournamentId, { settings: { ...tournament.settings, categories: [MARQUEE], squadRules } });
+    });
+    return ids;
+  }
+
+  async function addTo(
+    t: ReturnType<typeof convexTest>,
+    tournamentId: Id<"tournaments">,
+    name: string,
+    fields: { categoryId?: string; role?: string[] } = {},
+  ) {
+    return await t.run((ctx) =>
+      ctx.db.insert("players", {
+        tournamentId,
+        name,
+        age: 30,
+        role: fields.role ?? ["Batter"],
+        categoryId: fields.categoryId,
+        battingBowlingHand: "Right-handed",
+        auctionStatus: "pending",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+  }
+
+  test("a max rule: a second Marquee can't be sold to a team allowed one", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, teamA } = await withRules(t, [{ id: "max-marquee", categoryId: "marquee", max: 1 }]);
+    const first = await addTo(t, tournamentId, "First", { categoryId: "marquee" });
+    const second = await addTo(t, tournamentId, "Second", { categoryId: "marquee" });
+    await asAdmin.mutation(api.admin.updatePlayerStatus, { playerId: first, newStatus: "sold", teamId: teamA, soldPrice: 100_000 });
+
+    await expect(
+      asAdmin.mutation(api.admin.updatePlayerStatus, { playerId: second, newStatus: "sold", teamId: teamA, soldPrice: 100_000 }),
+    ).rejects.toThrow(/max 1/);
+    await expect(
+      asAdmin.mutation(api.admin.reassignPlayer, { playerId: second, newTeamId: teamA, newSoldPrice: 100_000 }),
+    ).rejects.toThrow(/max 1/);
+    expect(await reconcile(t, tournamentId)).toEqual({ ok: true, issues: [] });
+  });
+
+  test("a min rule: the last slots stay free for the required role", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    // Squad of 3, at least 2 wicket keepers: after one batter, the next two must be keepers.
+    const { tournamentId, teamA } = await withRules(t, [{ id: "min-wk", role: "Wicket Keeper", min: 2 }]);
+    const batter1 = await addTo(t, tournamentId, "Batter One");
+    const batter2 = await addTo(t, tournamentId, "Batter Two");
+    const keeper = await addTo(t, tournamentId, "Keeper", { role: ["Wicket Keeper"] });
+    await asAdmin.mutation(api.admin.updatePlayerStatus, { playerId: batter1, newStatus: "sold", teamId: teamA, soldPrice: 100_000 });
+
+    await expect(
+      asAdmin.mutation(api.admin.updatePlayerStatus, { playerId: batter2, newStatus: "sold", teamId: teamA, soldPrice: 100_000 }),
+    ).rejects.toThrow(/last 2 slots/);
+    await asAdmin.mutation(api.admin.updatePlayerStatus, { playerId: keeper, newStatus: "sold", teamId: teamA, soldPrice: 100_000 });
+    expect(await reconcile(t, tournamentId)).toEqual({ ok: true, issues: [] });
+  });
+
+  test("re-pricing a player already on the team isn't blocked by their own rule", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId, teamA } = await withRules(t, [{ id: "max-marquee", categoryId: "marquee", max: 1 }]);
+    const first = await addTo(t, tournamentId, "First", { categoryId: "marquee" });
+    await asAdmin.mutation(api.admin.updatePlayerStatus, { playerId: first, newStatus: "sold", teamId: teamA, soldPrice: 100_000 });
+    await asAdmin.mutation(api.admin.updateSoldPrice, { playerId: first, newSoldPrice: 150_000 });
+    await asAdmin.mutation(api.admin.reassignPlayer, { playerId: first, newTeamId: teamA, newSoldPrice: 175_000 });
+    expect((await t.run((ctx) => ctx.db.get(first)))?.soldPrice).toBe(175_000);
+  });
+});

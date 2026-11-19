@@ -17,6 +17,7 @@ import {
 } from "./bidRules";
 import type { Doc, Id } from "./_generated/dataModel";
 import { purseFromSales } from "./money";
+import { maxRuleViolation, minRuleShortfall, minRuleSlots } from "./squadRules";
 import { MAX_BASE_PURSE } from "./validation";
 
 // Helper: format purse amount for error messages
@@ -36,21 +37,35 @@ function assertSoldPrice(price: number) {
 }
 
 /**
- * Squad-completion check shared by the admin corrections — the same rule
- * placeBid enforces (bidRules.ts). `playersOnTeam` and `purseRemaining` are the
- * team's state WITHOUT the player being priced. Throws a readable error if
- * `price` would leave the team unable to fill its squad.
+ * The checks placeBid applies (bidCore.applyBid), for a player put on a team
+ * by hand: squad size, the squad rules (max per category/role, and room left
+ * for unmet minimums: AUDIT 2026-11 DATA-004), and the purse reserve.
+ * `teamSquad` and `purseRemaining` are the team's state WITHOUT `player`.
+ * Throws a readable error.
  */
 function assertCanAffordPlayer(
   tournament: Doc<"tournaments"> | null,
-  args: { purseRemaining: number; playersOnTeam: number; price: number },
+  args: { purseRemaining: number; teamSquad: Doc<"players">[]; player: Doc<"players">; price: number },
 ) {
   const maxPlayersPerTeam = tournament?.settings?.maxPlayersPerTeam ?? DEFAULT_MAX_PLAYERS_PER_TEAM;
-  if (isSquadFull(args.playersOnTeam, maxPlayersPerTeam)) {
+  const playersOnTeam = args.teamSquad.length;
+  if (isSquadFull(playersOnTeam, maxPlayersPerTeam)) {
     throw new Error(
       `This team's squad is full (${maxPlayersPerTeam} players).`,
     );
   }
+  const squadRules = tournament?.settings.squadRules;
+  const categories = tournament?.settings.categories;
+  const ruleSlots = minRuleSlots(
+    squadRules,
+    args.teamSquad,
+    args.player,
+    tournament?.auctionCounts?.minPendingBasePriceByRule,
+  );
+  const ruleBlock =
+    maxRuleViolation(squadRules, categories, args.teamSquad, args.player) ??
+    minRuleShortfall(ruleSlots, squadRules, categories, Math.max(0, maxPlayersPerTeam - playersOnTeam - 1));
+  if (ruleBlock) throw new Error(ruleBlock);
   const reservePrice = reserveBasePrice({
     minPendingBasePrice: tournament?.auctionCounts?.minPendingBasePrice,
     currentPlayerBasePrice: undefined,
@@ -58,12 +73,13 @@ function assertCanAffordPlayer(
   });
   const allowedMax = maxAllowedBid({
     purseRemaining: args.purseRemaining,
-    playersOnTeam: args.playersOnTeam,
+    playersOnTeam,
     maxPlayersPerTeam,
     reservePrice,
+    minRuleSlots: ruleSlots,
   });
   if (args.price > allowedMax) {
-    const slotsAfter = maxPlayersPerTeam - args.playersOnTeam - 1;
+    const slotsAfter = maxPlayersPerTeam - playersOnTeam - 1;
     throw new Error(
       `This would leave the team unable to fill their squad. They'd have ${formatPurse(args.purseRemaining - args.price)} remaining but need ${formatPurse(slotsAfter * reservePrice)} to fill ${slotsAfter} more slot(s) at base price. Max allowed: ${formatPurse(allowedMax)}.`,
     );
@@ -125,8 +141,8 @@ async function applySoldPriceChange(
   // Price the player as if re-bought: refund their old price, exclude them from the count.
   assertCanAffordPlayer(tournament, {
     purseRemaining: team.purseRemaining + oldSoldPrice,
-    playersOnTeam: teamCurrentPlayers.filter((p) => p._id !== player._id)
-      .length,
+    teamSquad: teamCurrentPlayers.filter((p) => p._id !== player._id),
+    player,
     price: newPrice,
   });
 
@@ -162,7 +178,7 @@ async function debitTeamForPlayer(
   ctx: MutationCtx,
   args: {
     teamId: Id<"teams">;
-    playerId: Id<"players">;
+    player: Doc<"players">;
     price: number;
     tournament: Doc<"tournaments"> | null;
   },
@@ -183,8 +199,8 @@ async function debitTeamForPlayer(
     .collect();
   assertCanAffordPlayer(args.tournament, {
     purseRemaining: team.purseRemaining,
-    playersOnTeam: teamCurrentPlayers.filter((p) => p._id !== args.playerId)
-      .length,
+    teamSquad: teamCurrentPlayers.filter((p) => p._id !== args.player._id),
+    player: args.player,
     price: args.price,
   });
 
@@ -254,7 +270,7 @@ export const reassignPlayer = mutation({
       await refundSoldPlayer(ctx, player);
       await debitTeamForPlayer(ctx, {
         teamId: args.newTeamId,
-        playerId: args.playerId,
+        player,
         price: newSoldPrice,
         tournament,
       });
@@ -405,7 +421,7 @@ export const updatePlayerStatus = mutation({
       const tournament = await ctx.db.get(player.tournamentId);
       await debitTeamForPlayer(ctx, {
         teamId: args.teamId!,
-        playerId: args.playerId,
+        player,
         price: args.soldPrice!,
         tournament,
       });
