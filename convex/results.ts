@@ -8,7 +8,7 @@
 // happened on the floor, so rewriting them would lose that history. The export
 // therefore takes only timing (sale order, time, bid count) from the
 // `player_sold` events and flags rows that changed after the sale.
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { OWNER_ONLY, requireTournamentRole } from "./auth";
@@ -113,7 +113,7 @@ export const getResultsExport = query({
   args: { tournamentId: v.id("tournaments"), includeContacts: v.boolean() },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
 
     const [teams, players, rooms] = await Promise.all([

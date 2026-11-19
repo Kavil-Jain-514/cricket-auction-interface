@@ -4,6 +4,7 @@
 // per (room, kind, requestId); a retry with the same id (after a dropped
 // socket, a double tap) returns that result without applying anything again.
 // See OFFLINE_CONSOLE_DESIGN.md.
+import { ConvexError } from "convex/values";
 import { internalMutation, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireTournamentRole, RUN_AUCTION } from "./auth";
@@ -28,11 +29,11 @@ export async function withIdempotency<T>(
 ): Promise<T> {
   if (requestId === undefined) return await apply();
   if (requestId.length === 0 || requestId.length > MAX_KEY_LENGTH) {
-    throw new Error("Invalid requestId");
+    throw new ConvexError("Invalid requestId");
   }
 
   const room = await ctx.db.get(auctionRoomId);
-  if (!room) throw new Error("Auction room not found");
+  if (!room) throw new ConvexError("Auction room not found");
   await requireTournamentRole(ctx, room.tournamentId, RUN_AUCTION);
 
   const key = `${kind}:${requestId}`;

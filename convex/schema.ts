@@ -10,6 +10,7 @@ import {
   squadRuleValidator,
 } from "./ruleValidators";
 import { answersValidator, questionValidator, requiredFieldsValidator } from "./registrationForm";
+import { staffRoleValidator } from "./staffRoles";
 
 export default defineSchema({
   // Users table with roles
@@ -104,6 +105,9 @@ export default defineSchema({
       paymentQrUrl: v.optional(v.string()),
     }),
     logoUrl: v.optional(v.string()),
+    // The organising body's logo, shown opposite logoUrl in the registration
+    // form's header. Not a locked setting.
+    organizationLogoUrl: v.optional(v.string()),
     // Shown on the public registration form. Not a locked setting.
     sponsors: v.optional(v.array(sponsorValidator)),
     // Paid tier and its limits (convex/plans.ts). Set to Free on create;
@@ -173,17 +177,35 @@ export default defineSchema({
   }).index("by_tournament", ["tournamentId"]),
 
   // Organiser access per tournament. The creator is its "owner"; owners can
-  // add "auctioneer"s, who run the auction on the day. users.role "admin" is
-  // the platform super-admin and passes every check (requireTournamentRole).
+  // add "auctioneer"s, who run the auction on the day, and "registrar"s
+  // (registration admins), who only review player registrations.
+  // users.role "admin" is the platform super-admin and passes every check
+  // (requireTournamentRole).
   tournamentStaff: defineTable({
     tournamentId: v.id("tournaments"),
     userId: v.id("users"),
-    role: v.union(v.literal("owner"), v.literal("auctioneer")),
+    role: staffRoleValidator,
     createdAt: v.number(),
   })
     .index("by_tournament", ["tournamentId"])
     .index("by_user", ["userId"])
     .index("by_tournament_user", ["tournamentId", "userId"]),
+
+  // A staff role offered to an email address (staff:add). Claimed by the
+  // first sign-in with that address (auth:ensureUser), so the person needn't
+  // have an account yet. Deleted with the tournament.
+  staffInvites: defineTable({
+    tournamentId: v.id("tournaments"),
+    email: v.string(), // normalised, lower case
+    role: staffRoleValidator,
+    invitedBy: v.id("users"),
+    createdAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    claimedBy: v.optional(v.id("users")),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_tournament", ["tournamentId"])
+    .index("by_email", ["email"]),
 
   // Console action results by client requestId (convex/idempotency.ts), so a
   // retried placeBid / acceptBidRequest / finalizePlayerSale applies once.
@@ -389,7 +411,7 @@ export default defineSchema({
         tournamentName: v.string(),
         inviterName: v.string(),
         inviteeName: v.optional(v.string()),
-        role: v.union(v.literal("owner"), v.literal("auctioneer")),
+        role: staffRoleValidator,
       }),
       // team_signup_invite: "add your team" (link to /tournament/<id>/join-team)
       v.object({

@@ -9,6 +9,8 @@
 // Values are checked only when they change (`previous`), so records saved
 // before this rule with an older URL keep working when edited.
 
+import { ConvexError } from "convex/values";
+
 export const ROOT_FOLDER = "cricket-auction/";
 const MAX_URL_LENGTH = 500;
 
@@ -75,5 +77,5 @@ export function assertImageUrl(
   options: { previous?: string; allowed?: (url: string) => boolean } = {},
 ): void {
   if (url === undefined || url === "" || url === options.previous) return;
-  if (!(options.allowed ?? ((u: string) => isOurUpload(u)))(url)) throw new Error(message);
+  if (!(options.allowed ?? ((u: string) => isOurUpload(u)))(url)) throw new ConvexError(message);
 }

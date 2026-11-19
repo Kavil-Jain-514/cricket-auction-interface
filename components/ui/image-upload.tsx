@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { Upload, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { cn, getErrorMessage } from '@/lib/utils';
 import { UPLOAD_FOLDERS, type UploadFolder } from '@/lib/cloudinary';
 
 interface ImageUploadProps {
@@ -70,7 +70,7 @@ export function ImageUpload({
       toast.success('Image uploaded successfully!');
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to upload image');
+      toast.error(getErrorMessage(error, 'Failed to upload image'));
     } finally {
       setIsUploading(false);
     }

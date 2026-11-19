@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator, type PaginationResult } from "convex/server";
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import {
@@ -25,7 +25,7 @@ import {
 } from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { initialPlan } from "./plans";
-import { canCreateTournament, canUploadTournamentLogo, isSuperAdmin } from "./policy";
+import { canCreateTournament, canUploadTournamentLogo, isSuperAdmin, runsAuction } from "./policy";
 import { takeSnapshot } from "./snapshots";
 import { scheduleTournamentPurge } from "./fileCleanup";
 import { assertImageUrl } from "./uploads";
@@ -80,25 +80,25 @@ export const create = mutation({
     // Organisers (and the super-admin) create tournaments and become the owner.
     const user = await requireUser(ctx);
     if (!canCreateTournament(user)) {
-      throw new Error("Only organisers can create tournaments");
+      throw new ConvexError("Only organisers can create tournaments");
     }
 
     // Validation (shared with update — convex/validation.ts)
     const error =
       validateTournamentName(args.name) ?? validateSettings(args.settings);
-    if (error) throw new Error(error);
+    if (error) throw new ConvexError(error);
 
     // Bid timer: 0 = off, else 10–120s. Omitted means the 30s default.
     if (args.settings.bidTimerSeconds !== undefined) {
       const timerError = validateBidTimerSeconds(args.settings.bidTimerSeconds);
-      if (timerError) throw new Error(timerError);
+      if (timerError) throw new ConvexError(timerError);
     }
     const rulesError = validateRuleSettings(args.settings);
-    if (rulesError) throw new Error(rulesError);
+    if (rulesError) throw new ConvexError(rulesError);
     assertUploadedLogo(args.logoUrl);
 
     const footer = normalizeFooterText(args.settings.footerText);
-    if (!footer.ok) throw new Error(footer.error);
+    if (!footer.ok) throw new ConvexError(footer.error);
 
     const tournamentId = await ctx.db.insert("tournaments", {
       name: args.name,
@@ -132,7 +132,7 @@ export const listAll = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     if (args.limit !== undefined && args.limit <= 0) {
-      throw new Error("limit must be a positive number");
+      throw new ConvexError("limit must be a positive number");
     }
     if (!isSuperAdmin(await getCurrentUser(ctx))) return [];
     const tournamentsQuery = ctx.db.query("tournaments").order("desc");
@@ -160,9 +160,11 @@ export const getById = query({
     const tournament = await ctx.db.get(args.id);
     if (!tournament) return null;
 
+    // Owners and auctioneers get the whole document; registration admins the
+    // public fields, even while the tournament is deactivated.
     const role = await getTournamentRole(ctx, args.id);
-    if (role) return tournament;
-    if (tournament.isActive === false) return null;
+    if (runsAuction(role)) return tournament;
+    if (tournament.isActive === false && !role) return null;
 
     const { plan: _plan, createdBy: _createdBy, auctionCounts: _auctionCounts, ...publicFields } = tournament;
     return publicFields;
@@ -185,7 +187,7 @@ export const getJoinTeamInfo = query({
 
 /**
  * The caller's access to a tournament, for showing or hiding controls:
- * "super_admin", "owner", "auctioneer" or null. The server re-checks every
+ * "super_admin", "owner", "auctioneer", "registrar" or null. The server re-checks every
  * action, so this is for UI only.
  */
 export const myRole = query({
@@ -447,6 +449,8 @@ export const update = mutation({
     name: v.optional(v.string()),
     description: v.optional(v.string()),
     logoUrl: v.optional(v.string()),
+    // The organising body's logo on the registration form. "" removes it.
+    organizationLogoUrl: v.optional(v.string()),
     status: v.optional(
       v.union(
         v.literal("draft"),
@@ -484,23 +488,29 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.id);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
     if (args.logoUrl !== undefined && args.logoUrl !== tournament.logoUrl) {
       if (!canUploadTournamentLogo(await getTournamentRole(ctx, args.id, admin))) {
-        throw new Error("Only the tournament's owner can change its logo");
+        throw new ConvexError("Only the tournament's owner can change its logo");
       }
       assertUploadedLogo(args.logoUrl);
+    }
+    if (args.organizationLogoUrl !== undefined && args.organizationLogoUrl !== (tournament.organizationLogoUrl ?? "")) {
+      if (!canUploadTournamentLogo(await getTournamentRole(ctx, args.id, admin))) {
+        throw new ConvexError("Only the tournament's owner can change the organisation logo");
+      }
+      assertUploadedLogo(args.organizationLogoUrl);
     }
 
     // Cannot edit completed tournaments
     if (tournament.status === "completed") {
-      throw new Error("Cannot edit tournament after it is completed");
+      throw new ConvexError("Cannot edit tournament after it is completed");
     }
 
     if (args.name !== undefined) {
       const nameError = validateTournamentName(args.name);
-      if (nameError) throw new Error(nameError);
+      if (nameError) throw new ConvexError(nameError);
     }
 
     // Merged settings we'll actually write (preserving the stored bid timer).
@@ -513,7 +523,7 @@ export const update = mutation({
     let footerText = tournament.settings.footerText;
     if (args.settings?.footerText !== undefined) {
       const footer = normalizeFooterText(args.settings.footerText);
-      if (!footer.ok) throw new Error(footer.error);
+      if (!footer.ok) throw new ConvexError(footer.error);
       footerText = footer.text;
       if (footerText !== tournament.settings.footerText) {
         nextSettings = { ...tournament.settings, footerText };
@@ -530,11 +540,11 @@ export const update = mutation({
     const registrationOpen = args.settings?.registrationOpen ?? tournament.settings.registrationOpen;
     const registrationFee = args.settings?.registrationFee ?? tournament.settings.registrationFee;
     const feeError = validateRegistrationFee(registrationFee);
-    if (feeError) throw new Error(feeError);
+    if (feeError) throw new ConvexError(feeError);
     let paymentQrUrl = tournament.settings.paymentQrUrl;
     if (args.settings?.paymentQrUrl !== undefined) {
       const qr = normalizePaymentQrUrl(args.settings.paymentQrUrl, tournament.settings.paymentQrUrl);
-      if (!qr.ok) throw new Error(qr.error);
+      if (!qr.ok) throw new ConvexError(qr.error);
       paymentQrUrl = qr.url;
     }
     if (
@@ -551,13 +561,13 @@ export const update = mutation({
         args.sponsors,
         new Set((tournament.sponsors ?? []).flatMap((s) => (s.logoUrl ? [s.logoUrl] : []))),
       );
-      if (!normalized.ok) throw new Error(normalized.error);
+      if (!normalized.ok) throw new ConvexError(normalized.error);
       sponsors = normalized.sponsors;
     }
 
     if (args.settings && settingsChanged(tournament.settings, args.settings)) {
       const settingsError = validateSettings(args.settings);
-      if (settingsError) throw new Error(settingsError);
+      if (settingsError) throw new ConvexError(settingsError);
 
       // Settings are locked once the auction is actually running (live/paused).
       // To change them, the admin must restart the auction (which returns the
@@ -571,7 +581,7 @@ export const update = mutation({
         (r) => r.status === "live" || r.status === "paused",
       );
       if (auctionRunning) {
-        throw new Error(
+        throw new ConvexError(
           "Settings are locked while the auction is running. Restart the auction to change settings.",
         );
       }
@@ -591,7 +601,7 @@ export const update = mutation({
       }, new Map<string, number>());
       const highestSquadSize = Math.max(0, ...maxSoldForOneTeam.values());
       if (args.settings.maxPlayersPerTeam < highestSquadSize) {
-        throw new Error(
+        throw new ConvexError(
           `Max players per team can't be less than ${highestSquadSize} — a team already has that many sold players`,
         );
       }
@@ -601,7 +611,7 @@ export const update = mutation({
         const timerError = validateBidTimerSeconds(
           args.settings.bidTimerSeconds,
         );
-        if (timerError) throw new Error(timerError);
+        if (timerError) throw new ConvexError(timerError);
       }
 
       // Categories and slabs: omitted keeps the stored ones.
@@ -622,7 +632,7 @@ export const update = mutation({
         (c) => c.id === orphaned?.categoryId,
       )?.name;
       if (orphaned && orphanedName && !args.settings.squadRules) {
-        throw new Error(
+        throw new ConvexError(
           `${orphanedName} is used by a squad rule. Remove the rule first.`,
         );
       }
@@ -634,7 +644,7 @@ export const update = mutation({
         incrementSlabs,
         squadRules,
       });
-      if (rulesError) throw new Error(rulesError);
+      if (rulesError) throw new ConvexError(rulesError);
 
       // A category still assigned to players can't be removed: their base
       // price would silently fall back to the tournament default.
@@ -650,7 +660,7 @@ export const update = mutation({
         for (const category of removed) {
           const inUse = players.filter((p) => p.categoryId === category.id);
           if (inUse.length > 0) {
-            throw new Error(
+            throw new ConvexError(
               `${inUse.length} player${inUse.length === 1 ? " is" : "s are"} still in ${category.name}. Move them to another category first.`,
             );
           }
@@ -693,7 +703,7 @@ export const update = mutation({
           (team) => team.purseSpent > teamPurseTotal(newBasePurse, team),
         );
         if (overspent) {
-          throw new Error(
+          throw new ConvexError(
             `${overspent.name} has already spent ₹${overspent.purseSpent}, more than the new purse of ₹${teamPurseTotal(newBasePurse, overspent)}. Correct their sales first.`,
           );
         }
@@ -708,10 +718,12 @@ export const update = mutation({
       }
     }
 
-    const { id, settings: _settings, sponsors: _sponsors, ...rest } = args;
+    const { id, settings: _settings, sponsors: _sponsors, organizationLogoUrl, ...rest } = args;
 
     await ctx.db.patch(id, {
       ...rest,
+      // "" clears it (patching undefined removes the field).
+      ...(organizationLogoUrl !== undefined ? { organizationLogoUrl: organizationLogoUrl || undefined } : {}),
       ...(args.sponsors !== undefined ? { sponsors } : {}),
       ...(nextSettings ? { settings: nextSettings } : {}),
       updatedAt: Date.now(),
@@ -729,6 +741,8 @@ export const update = mutation({
       before[key] = tournament[key];
       after[key] = rest[key] ?? tournament[key];
     }
+    before.organizationLogoUrl = tournament.organizationLogoUrl;
+    after.organizationLogoUrl = organizationLogoUrl === undefined ? tournament.organizationLogoUrl : organizationLogoUrl || undefined;
     before.sponsors = tournament.sponsors;
     after.sponsors = sponsors;
     const changed = Object.keys({ ...before, ...after }).filter(
@@ -753,6 +767,40 @@ export const update = mutation({
 
 // Toggle a tournament's visibility. Deactivated tournaments are hidden from
 // non-admin listings and cannot be opened by non-admins (see getById / listAll).
+/**
+ * Make registration free (0) or set its fee in whole rupees. Owners only.
+ * Registrations already submitted keep the fee they were given. Not a
+ * locked setting: it can change while the auction is live.
+ */
+export const setRegistrationFee = mutation({
+  args: { tournamentId: v.id("tournaments"), fee: v.number() },
+  handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) throw new ConvexError("Tournament not found");
+    const owner = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    if (tournament.status === "completed") throw new ConvexError("This tournament is completed, so its registration can't change.");
+    const feeError = validateRegistrationFee(args.fee);
+    if (feeError) throw new ConvexError(feeError);
+    const previous = tournament.settings.registrationFee ?? 0;
+    if (previous === args.fee) return { success: true };
+    await ctx.db.patch(args.tournamentId, {
+      settings: { ...tournament.settings, registrationFee: args.fee },
+      updatedAt: Date.now(),
+    });
+    await logAdminAction(ctx, {
+      userId: owner._id,
+      userEmail: owner.email,
+      action: "set_registration_fee",
+      targetType: "tournament",
+      targetId: args.tournamentId,
+      previousData: { registrationFee: previous },
+      newData: { registrationFee: args.fee },
+      tournamentId: args.tournamentId,
+    });
+    return { success: true };
+  },
+});
+
 export const setActive = mutation({
   args: {
     id: v.id("tournaments"),
@@ -760,7 +808,7 @@ export const setActive = mutation({
   },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.id);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     const previous = tournament.isActive !== false; // legacy undefined = active
@@ -809,7 +857,7 @@ export const deleteTournament = mutation({
   args: { id: v.id("tournaments"), confirmName: v.string() },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.id);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
     const admin = await requireTournamentRole(ctx, args.id, OWNER_ONLY);
 
     // Fetch all related data in parallel
@@ -833,7 +881,15 @@ export const deleteTournament = mutation({
       ctx.db
         .query("tournamentStaff")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
-        .collect(),
+        .collect()
+        .then(async (rows) => [
+          ...rows,
+          // Pending staff invites go with the staff rows.
+          ...(await ctx.db
+            .query("staffInvites")
+            .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
+            .collect()),
+        ]),
       ctx.db
         .query("registrations")
         .withIndex("by_tournament", (q) => q.eq("tournamentId", args.id))
@@ -861,10 +917,10 @@ export const deleteTournament = mutation({
     ]);
 
     if (auctionRooms.some((r) => r.status === "live" || r.status === "paused")) {
-      throw new Error("Can't delete a tournament while the auction is running. Restart or finish it first.");
+      throw new ConvexError("Can't delete a tournament while the auction is running. Restart or finish it first.");
     }
     if (!confirmsTournamentName(args.confirmName, tournament.name)) {
-      throw new Error(`Type the tournament name (${tournament.name}) to confirm the delete`);
+      throw new ConvexError(`Type the tournament name (${tournament.name}) to confirm the delete`);
     }
     // Fetch bids and events for all auction rooms in a single parallel batch
     // (avoids a sequential loop of round-trips per room).

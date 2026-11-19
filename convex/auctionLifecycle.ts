@@ -2,6 +2,7 @@
 // auctions:startAuction and snapshots:startRehearsal, so a rehearsal starts
 // exactly like the real auction. Also the one definition of "the auction has
 // started", which locks team owners out of editing their team.
+import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { logAdminAction, requireTournamentRole, type TournamentRole } from "./auth";
@@ -18,7 +19,7 @@ export async function loadRoomForStaff(
   roles: TournamentRole[],
 ): Promise<{ room: Doc<"auctionRooms">; user: Doc<"users"> }> {
   const room = await ctx.db.get(auctionRoomId);
-  if (!room) throw new Error("Auction room not found");
+  if (!room) throw new ConvexError("Auction room not found");
   const user = await requireTournamentRole(ctx, room.tournamentId, roles);
   return { room, user };
 }

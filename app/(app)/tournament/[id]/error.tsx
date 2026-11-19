@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { getErrorMessage } from '@/lib/utils';
 
 export default function TournamentError({
     error,
@@ -22,7 +23,7 @@ export default function TournamentError({
                 <div className="space-y-2">
                     <h2 className="text-xl font-semibold text-white">Something went wrong</h2>
                     <p className="text-sm text-slate-400">
-                        {error.message || 'An unexpected error occurred loading the tournament.'}
+                        {getErrorMessage(error, 'An unexpected error occurred loading the tournament')}
                     </p>
                 </div>
                 <button

@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { ArrowLeft, Play, Trophy } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { getCaptainPlayerIds } from '@/lib/utils';
+import { getCaptainPlayerIds, getErrorMessage } from '@/lib/utils';
 
 function CreateAuctionContent() {
   const router = useRouter();
@@ -78,9 +78,7 @@ function CreateAuctionContent() {
       toast.success('Auction room created!');
       router.push(`/auction/${auctionRoomId}`);
     } catch (error) {
-      toast.error('Failed to create auction', { 
-        description: (error as Error).message 
-      });
+      toast.error(getErrorMessage(error, 'Failed to create the auction'));
     } finally {
       setLoading(false);
     }

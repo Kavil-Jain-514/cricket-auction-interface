@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { FormBuilder } from '@/components/registration/FormBuilder';
 import { CustomQuestions, type AnswerMap } from '@/components/registration/CustomQuestions';
 import { ShareRegistration } from '@/components/registration/ShareRegistration';
+import { RegistrationFeeCard, RegistrationLogosCard } from '@/components/registration/RegistrationSetup';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { DEFAULT_REQUIRED_FIELDS, normalizeQuestions, validateFormQuestions, type Question, type RequiredFields } from '@/convex/registrationForm';
 import { getErrorMessage } from '@/lib/utils';
@@ -96,11 +97,18 @@ export default function RegistrationFormPage({ params }: { params: Promise<{ id:
       <div>
         <h1 className="text-2xl font-bold sm:text-3xl">Registration form</h1>
         <p className="text-sm text-slate-400">
-          Choose which standard player details are required, and add your own questions after them. Changes apply to new registrations; earlier answers are kept as they were.
+          Set the fee and the header logos, choose which standard player details are required, and add your own questions after them. Changes apply to new registrations; earlier answers are kept as they were.
         </p>
       </div>
 
       <ShareRegistration url={formUrl} tournamentName={tournament?.name ?? 'Tournament'} />
+
+      {tournament && (
+        <>
+          <RegistrationFeeCard key={`fee-${tournament.settings.registrationFee ?? 0}`} tournament={tournament} />
+          <RegistrationLogosCard tournament={tournament} />
+        </>
+      )}
 
       <FormBuilder
         questions={questions}

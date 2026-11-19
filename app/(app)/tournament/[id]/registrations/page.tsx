@@ -10,6 +10,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { Navbar } from '@/components/layout/Navbar';
 import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
+import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { getErrorMessage, getRoleDisplay } from '@/lib/utils';
@@ -20,6 +21,13 @@ type Status = 'pending_payment' | 'paid' | 'approved' | 'rejected';
 const FILTERS: Array<{ key: Status | 'all'; label: string }> = [
   { key: 'paid', label: 'Ready for review' },
   { key: 'pending_payment', label: 'Awaiting payment' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'rejected', label: 'Rejected' },
+  { key: 'all', label: 'All' },
+];
+// Free registration: nothing to pay, so no payment states or tools.
+const FREE_FILTERS: Array<{ key: Status | 'all'; label: string }> = [
+  { key: 'paid', label: 'Waiting for approval' },
   { key: 'approved', label: 'Approved' },
   { key: 'rejected', label: 'Rejected' },
   { key: 'all', label: 'All' },
@@ -40,15 +48,19 @@ const STATUS_LABEL: Record<Status, string> = {
   rejected: 'Rejected',
 };
 
-/** Owner review of self-registrations: approve (creates the player) or reject. */
+/**
+ * Review of self-registrations by the tournament's owners and registration
+ * admins: approve (creates the player) or reject. When registration is free
+ * the payment states and tools are left out.
+ */
 export default function RegistrationsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const tournamentId = id as Id<"tournaments">;
-  const { canManage, isLoading } = useTournamentRole(tournamentId);
+  const { canManage, canReviewRegistrations: canReview, isLoading } = useTournamentRole(tournamentId);
   const tournament = useQuery(api.tournaments.getById, { id: tournamentId });
-  const rows = useQuery(api.registrations.list, canManage ? { tournamentId } : 'skip');
-  const form = useQuery(api.registrationForms.get, canManage ? { tournamentId } : 'skip');
-  const messages = useQuery(api.notifications.listForTournament, canManage ? { tournamentId } : 'skip');
+  const rows = useQuery(api.registrations.list, canReview ? { tournamentId } : 'skip');
+  const form = useQuery(api.registrationForms.get, canReview ? { tournamentId } : 'skip');
+  const messages = useQuery(api.notifications.listForTournament, canReview ? { tournamentId } : 'skip');
   const resendMessage = useMutation(api.notifications.resend);
   // WhatsApp messages per registration ("received", then "approved").
   const messagesByRegistration = useMemo(() => {
@@ -73,6 +85,10 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   const [rejecting, setRejecting] = useState<{ id: Id<"registrations">; name: string } | null>(null);
   const [reason, setReason] = useState('');
 
+  const fee = tournament?.settings.registrationFee ?? 0;
+  // Simple mode: a free tournament with no unpaid entries left from when it charged.
+  const free = fee === 0 && !(rows ?? []).some((r) => r.status === 'pending_payment');
+  const filters = free ? FREE_FILTERS : FILTERS;
   const shown = useMemo(() => (rows ?? []).filter((r) => filter === 'all' || r.status === filter), [rows, filter]);
   const readyCount = (rows ?? []).filter((r) => r.status === 'paid').length;
   const link = typeof window !== 'undefined' ? `${window.location.origin}/register/${tournamentId}` : '';
@@ -131,11 +147,13 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
     }
   };
 
-  if (!isLoading && !canManage) {
+  if (!isLoading && !canReview) {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <Navbar />
-        <p className="px-4 py-24 text-center text-slate-400">Only the tournament&apos;s owners can review registrations.</p>
+        <p className="px-4 py-24 text-center text-slate-400">
+          Only the tournament&apos;s owners and registration admins can review registrations. Ask an owner to add you as a registration admin.
+        </p>
       </div>
     );
   }
@@ -152,7 +170,15 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
             <h1 className="text-2xl sm:text-3xl font-bold">Registrations</h1>
             <p className="text-sm text-slate-400">
               Registration is {tournament?.settings.registrationOpen ? 'open' : 'closed'}
-              {tournament?.settings.registrationFee ? ` · fee ${formatRupees(tournament.settings.registrationFee)}` : ' · free'}. Change it in Settings.
+              {fee ? ` · fee ${formatRupees(fee)}` : ' · free'}.
+              {canManage && (
+                <>
+                  {' '}
+                  <Link href={`/tournament/${tournamentId}/registration-form`} className="text-blue-300 underline-offset-2 hover:underline">
+                    Change the fee or form
+                  </Link>
+                </>
+              )}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -163,11 +189,13 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
             >
               <Copy className="w-4 h-4" /> Copy form link
             </Button>
-            <Button asChild variant="outline" className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
-              <Link href={`/tournament/${tournamentId}/registration-form`}>
-                <ListChecks className="w-4 h-4" /> Edit form &amp; share
-              </Link>
-            </Button>
+            {canManage && (
+              <Button asChild variant="outline" className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
+                <Link href={`/tournament/${tournamentId}/registration-form`}>
+                  <ListChecks className="w-4 h-4" /> Edit form &amp; share
+                </Link>
+              </Button>
+            )}
             <Button variant="outline" onClick={exportRows} disabled={!rows || rows.length === 0} className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
               <FileSpreadsheet className="w-4 h-4" /> Export (.xlsx)
             </Button>
@@ -176,7 +204,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
         </div>
 
         <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter">
-          {FILTERS.map((f) => (
+          {filters.map((f) => (
             <button key={f.key} role="tab" aria-selected={filter === f.key} onClick={() => setFilter(f.key)} className={`rounded-full px-3 py-1.5 text-sm ${filter === f.key ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}>
               {f.label}
             </button>
@@ -186,10 +214,11 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
         <ul className="divide-y divide-slate-800 rounded-xl border border-slate-800 bg-slate-900">
           {shown.map((r) => (
             <li key={r._id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-4">
+              <PlayerAvatar name={r.name} photoUrl={r.photoUrl} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold">{r.name}</span>
-                  <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-300">{STATUS_LABEL[r.status]}</span>
+                  <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-300">{free && r.status === 'paid' ? 'Waiting' : STATUS_LABEL[r.status]}</span>
                   {r.duplicate && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300">
                       <AlertTriangle className="w-3 h-3" /> Possible duplicate
@@ -199,8 +228,8 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                 <div className="text-xs text-slate-400">
                   {[getRoleDisplay(r.role), r.age ? `${r.age} yrs` : '', r.phoneNumber].filter(Boolean).join(' · ')}
                   {r.consentWhatsApp ? ' · WhatsApp OK' : ''}
-                  {r.paymentMethod ? ` · ${PAYMENT_LABEL[r.paymentMethod]}` : ''}
-                  {r.paymentRef ? ` (${r.paymentRef})` : ''}
+                  {!free && r.paymentMethod ? ` · ${PAYMENT_LABEL[r.paymentMethod]}` : ''}
+                  {!free && r.paymentRef ? ` (${r.paymentRef})` : ''}
                   {r.rejectReason ? ` · ${r.rejectReason}` : ''}
                 </div>
                 {(messagesByRegistration.get(r._id) ?? []).length > 0 && (
@@ -209,7 +238,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                       <li key={m._id} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${MESSAGE_STATUS[m.status].cls}`} title={m.lastError}>
                         <MessageCircle className="h-3 w-3" aria-hidden />
                         {m.kind === 'registration_approved' ? 'Approval' : m.kind === 'registration_received' ? 'Confirmation' : 'Sold'}: {MESSAGE_STATUS[m.status].label}
-                        {m.status === 'failed' && (
+                        {m.status === 'failed' && canManage && (
                           <button
                             type="button"
                             disabled={busy !== null}
@@ -246,7 +275,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                   </details>
                 )}
               </div>
-              {r.paymentProofUrl && (
+              {!free && r.paymentProofUrl && (
                 <Button size="sm" variant="outline" onClick={() => setProofUrl(r.paymentProofUrl!)} className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
                   <ImageIcon className="w-4 h-4" /> Screenshot
                 </Button>
@@ -273,14 +302,18 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                   <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => { setReason(''); setRejecting({ id: r._id, name: r.name }); }} className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white">
                     Reject
                   </Button>
-                  <Button size="sm" disabled={busy !== null || r.status !== 'paid'} title={r.status !== 'paid' ? 'Waiting for the fee' : undefined} onClick={() => run(r._id, () => approve({ registrationId: r._id }), `${r.name} added as a player`)}>
+                  <Button size="sm" disabled={busy !== null || r.status !== 'paid'} title={r.status !== 'paid' ? 'Waiting for the fee. Mark it paid first.' : undefined} onClick={() => run(r._id, () => approve({ registrationId: r._id }), `${r.name} added as a player`)}>
                     Approve
                   </Button>
                 </div>
               )}
             </li>
           ))}
-          {rows && shown.length === 0 && <li className="p-6 text-center text-sm text-slate-500">Nothing here.</li>}
+          {rows && shown.length === 0 && (
+            <li className="p-6 text-center text-sm text-slate-500">
+              {rows.length === 0 ? 'No one has registered yet. Share the form link to get started.' : filter === 'paid' ? 'All caught up: nothing is waiting for approval.' : 'Nothing here.'}
+            </li>
+          )}
           {rows === undefined && <li className="p-6 text-center text-sm text-slate-500">Loading…</li>}
         </ul>
       </main>

@@ -1,5 +1,7 @@
 // convex/batch.ts - Running many writes inside one mutation.
 
+import { ConvexError } from "convex/values";
+
 /**
  * Run `thunks` a chunk at a time, so only one chunk of writes is in flight
  * at once. This does NOT make a transaction smaller: everything still commits
@@ -27,7 +29,7 @@ export const MAX_ROWS_PER_OPERATION = 7_500;
 /** Throws a readable error when `rows` is more than one transaction can safely rewrite. */
 export function assertFitsOneTransaction(rows: number, action: string): void {
   if (rows > MAX_ROWS_PER_OPERATION) {
-    throw new Error(
+    throw new ConvexError(
       `This tournament is too large to ${action} in one step (${rows.toLocaleString("en-IN")} records). Contact Bid11Pro support.`,
     );
   }

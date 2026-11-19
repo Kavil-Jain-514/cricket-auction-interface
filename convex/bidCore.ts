@@ -4,7 +4,7 @@
 // go through applyBid, so an owner raise is held to exactly the admin rules.
 // getMyPaddle and getPendingBidRequests read the same limits through
 // loadBidContext / minNextBidFor, so what the UI shows is what is enforced.
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import {
@@ -177,7 +177,7 @@ export async function loadBidContext(
       .collect(),
     room.currentPlayerId ? latestLiveBid(ctx, room.currentPlayerId) : null,
   ]);
-  if (!tournament) throw new Error("Tournament not found");
+  if (!tournament) throw new ConvexError("Tournament not found");
 
   const maxPlayersPerTeam = tournament.settings.maxPlayersPerTeam;
   const tournamentBasePrice =
@@ -298,7 +298,7 @@ export async function applyBid(
   }
 
   const bidCtx = await loadBidContext(ctx, room, team);
-  if (!bidCtx.player) throw new Error("Player not found");
+  if (!bidCtx.player) throw new ConvexError("Player not found");
   const { tournament, teamPlayers, latestBid, allowedMax } = bidCtx;
   const playerBasePrice = bidCtx.playerBasePrice!;
   const amount = args.amount ?? bidCtx.minNextBid!;

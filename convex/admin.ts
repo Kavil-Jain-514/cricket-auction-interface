@@ -1,5 +1,5 @@
 // convex/admin.ts - Admin-only mutations for managing auction data
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { logAdminAction, requireTournamentRole, RUN_AUCTION } from "./auth";
@@ -32,7 +32,7 @@ function formatPurse(amount: number): string {
  */
 function assertSoldPrice(price: number) {
   if (!isWholeRupees(price) || price <= 0) {
-    throw new Error("Sold price must be a whole number of rupees above zero");
+    throw new ConvexError("Sold price must be a whole number of rupees above zero");
   }
 }
 
@@ -50,7 +50,7 @@ function assertCanAffordPlayer(
   const maxPlayersPerTeam = tournament?.settings?.maxPlayersPerTeam ?? DEFAULT_MAX_PLAYERS_PER_TEAM;
   const playersOnTeam = args.teamSquad.length;
   if (isSquadFull(playersOnTeam, maxPlayersPerTeam)) {
-    throw new Error(
+    throw new ConvexError(
       `This team's squad is full (${maxPlayersPerTeam} players).`,
     );
   }
@@ -65,7 +65,7 @@ function assertCanAffordPlayer(
   const ruleBlock =
     maxRuleViolation(squadRules, categories, args.teamSquad, args.player) ??
     minRuleShortfall(ruleSlots, squadRules, categories, Math.max(0, maxPlayersPerTeam - playersOnTeam - 1));
-  if (ruleBlock) throw new Error(ruleBlock);
+  if (ruleBlock) throw new ConvexError(ruleBlock);
   const reservePrice = reserveBasePrice({
     minPendingBasePrice: tournament?.auctionCounts?.minPendingBasePrice,
     currentPlayerBasePrice: undefined,
@@ -80,7 +80,7 @@ function assertCanAffordPlayer(
   });
   if (args.price > allowedMax) {
     const slotsAfter = maxPlayersPerTeam - playersOnTeam - 1;
-    throw new Error(
+    throw new ConvexError(
       `This would leave the team unable to fill their squad. They'd have ${formatPurse(args.purseRemaining - args.price)} remaining but need ${formatPurse(slotsAfter * reservePrice)} to fill ${slotsAfter} more slot(s) at base price. Max allowed: ${formatPurse(allowedMax)}.`,
     );
   }
@@ -93,7 +93,7 @@ function assertCanAffordPlayer(
  */
 async function assertCorrectable(ctx: MutationCtx, player: Doc<"players">) {
   if (player.auctionStatus === "in_auction") {
-    throw new Error("Player is on the block; finalise first");
+    throw new ConvexError("Player is on the block; finalise first");
   }
   const teams = await ctx.db
     .query("teams")
@@ -103,7 +103,7 @@ async function assertCorrectable(ctx: MutationCtx, player: Doc<"players">) {
     .collect();
   const captainOf = teams.find((t) => t.captainPlayerId === player._id);
   if (captainOf) {
-    throw new Error(
+    throw new ConvexError(
       `${player.name} is the captain of ${captainOf.name} and is not part of the auction`,
     );
   }
@@ -128,7 +128,7 @@ async function applySoldPriceChange(
 
   // Check if team has enough purse for price increase
   if (priceDifference > 0 && priceDifference > team.purseRemaining) {
-    throw new Error(
+    throw new ConvexError(
       `Team has insufficient purse for price increase. Available: ₹${team.purseRemaining}`,
     );
   }
@@ -184,10 +184,10 @@ async function debitTeamForPlayer(
   },
 ) {
   const team = await ctx.db.get(args.teamId);
-  if (!team) throw new Error("Team not found");
+  if (!team) throw new ConvexError("Team not found");
 
   if (args.price > team.purseRemaining) {
-    throw new Error(
+    throw new ConvexError(
       `Team has insufficient purse. Available: ₹${team.purseRemaining}, Required: ₹${args.price}`,
     );
   }
@@ -232,14 +232,14 @@ export const reassignPlayer = mutation({
   },
   handler: async (ctx, args) => {
     const player = await ctx.db.get(args.playerId);
-    if (!player) throw new Error("Player not found");
+    if (!player) throw new ConvexError("Player not found");
     const admin = await requireTournamentRole(ctx, player.tournamentId, RUN_AUCTION);
 
     const newTeam = await ctx.db.get(args.newTeamId);
-    if (!newTeam) throw new Error("New team not found");
+    if (!newTeam) throw new ConvexError("New team not found");
 
     if (newTeam.tournamentId !== player.tournamentId) {
-      throw new Error("New team is not part of this player's tournament");
+      throw new ConvexError("New team is not part of this player's tournament");
     }
 
     await assertCorrectable(ctx, player);
@@ -324,18 +324,18 @@ export const updateSoldPrice = mutation({
   },
   handler: async (ctx, args) => {
     const player = await ctx.db.get(args.playerId);
-    if (!player) throw new Error("Player not found");
+    if (!player) throw new ConvexError("Player not found");
     const admin = await requireTournamentRole(ctx, player.tournamentId, RUN_AUCTION);
 
     await assertCorrectable(ctx, player);
     assertSoldPrice(args.newSoldPrice);
 
     if (player.auctionStatus !== "sold" || !player.teamId) {
-      throw new Error("Player is not sold to any team");
+      throw new ConvexError("Player is not sold to any team");
     }
 
     const team = await ctx.db.get(player.teamId);
-    if (!team) throw new Error("Team not found");
+    if (!team) throw new ConvexError("Team not found");
 
     const oldSoldPrice = player.soldPrice || 0;
     const tournament = await ctx.db.get(player.tournamentId);
@@ -389,7 +389,7 @@ export const updatePlayerStatus = mutation({
   },
   handler: async (ctx, args) => {
     const player = await ctx.db.get(args.playerId);
-    if (!player) throw new Error("Player not found");
+    if (!player) throw new ConvexError("Player not found");
     const admin = await requireTournamentRole(ctx, player.tournamentId, RUN_AUCTION);
 
     await assertCorrectable(ctx, player);
@@ -401,15 +401,15 @@ export const updatePlayerStatus = mutation({
     // If changing TO sold, require team and price
     if (args.newStatus === "sold") {
       if (!args.teamId)
-        throw new Error("Team ID required when marking as sold");
+        throw new ConvexError("Team ID required when marking as sold");
       if (args.soldPrice === undefined)
-        throw new Error("Sold price required when marking as sold");
+        throw new ConvexError("Sold price required when marking as sold");
       assertSoldPrice(args.soldPrice);
 
       const newTeam = await ctx.db.get(args.teamId);
-      if (!newTeam) throw new Error("Team not found");
+      if (!newTeam) throw new ConvexError("Team not found");
       if (newTeam.tournamentId !== player.tournamentId) {
-        throw new Error("Team is not part of this player's tournament");
+        throw new ConvexError("Team is not part of this player's tournament");
       }
     }
 
@@ -530,9 +530,9 @@ const MAX_REASON_LENGTH = 200;
 /** Trimmed reason; throws when blank (every money change must say why). */
 function requireReason(raw: string): string {
   const reason = raw.trim();
-  if (reason === "") throw new Error("A reason is required");
+  if (reason === "") throw new ConvexError("A reason is required");
   if (reason.length > MAX_REASON_LENGTH) {
-    throw new Error(`Keep the reason to ${MAX_REASON_LENGTH} characters or fewer`);
+    throw new ConvexError(`Keep the reason to ${MAX_REASON_LENGTH} characters or fewer`);
   }
   return reason;
 }
@@ -550,20 +550,20 @@ export const adjustTeamPurse = mutation({
   },
   handler: async (ctx, args) => {
     const team = await ctx.db.get(args.teamId);
-    if (!team) throw new Error("Team not found");
+    if (!team) throw new ConvexError("Team not found");
     const admin = await requireTournamentRole(ctx, team.tournamentId, RUN_AUCTION);
     const reason = requireReason(args.reason);
     if (!Number.isInteger(args.amount) || args.amount === 0) {
-      throw new Error("Adjustment must be a non-zero whole number of rupees");
+      throw new ConvexError("Adjustment must be a non-zero whole number of rupees");
     }
     // A slipped zero (₹10,00,00,00,000) must not reach the purse (DATA-005).
     if (Math.abs(args.amount) > MAX_BASE_PURSE) {
-      throw new Error(`An adjustment can be at most ${formatPurse(MAX_BASE_PURSE)} either way`);
+      throw new ConvexError(`An adjustment can be at most ${formatPurse(MAX_BASE_PURSE)} either way`);
     }
 
     const purseRemaining = team.purseRemaining + args.amount;
     if (purseRemaining < 0) {
-      throw new Error(
+      throw new ConvexError(
         `That would take ${team.name}'s purse below zero (${formatPurse(team.purseRemaining)} left)`,
       );
     }
@@ -605,11 +605,11 @@ export const recalculateTeamPurse = mutation({
   },
   handler: async (ctx, args) => {
     const team = await ctx.db.get(args.teamId);
-    if (!team) throw new Error("Team not found");
+    if (!team) throw new ConvexError("Team not found");
     const admin = await requireTournamentRole(ctx, team.tournamentId, RUN_AUCTION);
     const reason = requireReason(args.reason);
     const tournament = await ctx.db.get(team.tournamentId);
-    if (!tournament) throw new Error("Tournament not found");
+    if (!tournament) throw new ConvexError("Tournament not found");
 
     const players = await ctx.db
       .query("players")
@@ -621,7 +621,7 @@ export const recalculateTeamPurse = mutation({
       players.filter((p) => p.auctionStatus === "sold").map((p) => p.soldPrice ?? 0),
     );
     if (purseRemaining < 0) {
-      throw new Error(
+      throw new ConvexError(
         `${team.name}'s sold players cost ${formatPurse(purseSpent)}, more than its purse. Correct the sold prices first.`,
       );
     }
