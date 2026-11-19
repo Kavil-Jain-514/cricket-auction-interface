@@ -69,6 +69,7 @@ export const add = mutation({
       dedupeKey: `staff:${staffId}`,
       tournamentId: args.tournamentId,
       to: user.email,
+      replyTo: owner.email,
       payload: {
         tournamentId: args.tournamentId,
         tournamentName: tournament?.name ?? "a tournament",

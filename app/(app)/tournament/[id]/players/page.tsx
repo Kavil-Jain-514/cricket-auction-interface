@@ -345,9 +345,9 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         pdf.setFontSize(6);
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(148, 163, 184); // slate-400
-        const ageText = `${player.age} yrs`;
+        const ageText = player.age ? `${player.age} yrs` : '';
         const phoneText = player.phoneNumber || '';
-        const separator = phoneText ? '  |  ' : '';
+        const separator = ageText && phoneText ? '  |  ' : '';
         pdf.text(`${ageText}${separator}${phoneText}`, textX, y + 9 + linesOffset);
 
         // Player type - smallest font, below age (only when a role is available)

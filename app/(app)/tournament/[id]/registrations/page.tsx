@@ -185,7 +185,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                   )}
                 </div>
                 <div className="text-xs text-slate-400">
-                  {getRoleDisplay(r.role)} · {r.age} yrs · {r.phoneNumber}
+                  {[getRoleDisplay(r.role), r.age ? `${r.age} yrs` : '', r.phoneNumber].filter(Boolean).join(' · ')}
                   {r.consentWhatsApp ? ' · WhatsApp OK' : ''}
                   {r.paymentMethod ? ` · ${PAYMENT_LABEL[r.paymentMethod]}` : ''}
                   {r.paymentRef ? ` (${r.paymentRef})` : ''}

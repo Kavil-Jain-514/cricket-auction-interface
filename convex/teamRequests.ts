@@ -232,6 +232,7 @@ export const inviteOwner = mutation({
         dedupeKey,
         tournamentId: args.tournamentId,
         to: email,
+        replyTo: owner.email,
         payload: { tournamentId: args.tournamentId, tournamentName: tournament.name, inviterName: owner.name || owner.email },
       });
     }

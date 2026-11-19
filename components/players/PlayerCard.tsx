@@ -94,7 +94,7 @@ export function PlayerCard({ player, onClick, isCaptain, categories }: PlayerCar
 
           <div className="flex-1 min-w-0">
             <h3 className="font-bold text-base sm:text-lg truncate">{player.name}</h3>
-            <p className="text-xs sm:text-sm text-slate-400">{player.age} years</p>
+            {player.age ? <p className="text-xs sm:text-sm text-slate-400">{player.age} years</p> : null}
             <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-1.5">
               {getRoles(player.role).map((r) => (
                 <span key={r} className={`px-2 py-0.5 sm:py-1 ${getRoleBadgeBg(r)} rounded text-xs font-semibold`}>

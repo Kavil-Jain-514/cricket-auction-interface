@@ -146,6 +146,19 @@ describe("tournaments.create — validation", () => {
       }),
     ).rejects.toThrow(/players/i);
   });
+
+  test("accepts a small purse and increment (no minimum)", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    await setup(t);
+
+    const id = await asAdmin.mutation(api.tournaments.create, {
+      name: "Street Cup",
+      settings: { ...SETTINGS, basePurse: 10_000, minBidIncrement: 100, basePrice: 500 },
+    });
+    const created = await t.run((ctx) => ctx.db.get(id));
+    expect(created?.settings).toMatchObject({ basePurse: 10_000, minBidIncrement: 100, basePrice: 500 });
+  });
 });
 
 describe("tournaments.update — footer text", () => {

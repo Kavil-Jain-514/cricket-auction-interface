@@ -59,15 +59,15 @@ export default function CreateTournamentPage() {
     }
 
     // Base purse validation
-    if (!formData.basePurse || formData.basePurse < 100000) {
-      newErrors.basePurse = 'Base purse must be at least ₹1 Lakh';
+    if (!formData.basePurse || formData.basePurse <= 0) {
+      newErrors.basePurse = 'Base purse must be greater than 0';
     } else if (formData.basePurse > 1000000000) {
       newErrors.basePurse = 'Base purse cannot exceed ₹100 Crore';
     }
 
     // Min bid increment validation
-    if (!formData.minBidIncrement || formData.minBidIncrement < 5000) {
-      newErrors.minBidIncrement = 'Minimum bid increment must be at least ₹5,000';
+    if (!formData.minBidIncrement || formData.minBidIncrement <= 0) {
+      newErrors.minBidIncrement = 'Minimum bid increment must be greater than 0';
     } else if (formData.minBidIncrement > formData.basePurse / 10) {
       newErrors.minBidIncrement = 'Bid increment cannot exceed 10% of base purse';
     }
