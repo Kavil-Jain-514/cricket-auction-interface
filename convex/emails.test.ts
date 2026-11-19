@@ -171,6 +171,34 @@ describe("staff added email", () => {
     expect(body.text).toContain("run the live auction");
   });
 
+  test("staff emails count against the organiser's hourly invite cap (SEC-005)", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const asOwner = t.withIdentity(OWNER);
+    // Add and remove in a loop: each add used to send an email, uncapped.
+    for (let i = 0; i < 30; i++) {
+      const staffId = await asOwner.mutation(api.staff.add, { tournamentId, email: "auctioneer@test.com", role: "auctioneer" });
+      await asOwner.mutation(api.staff.remove, { staffId });
+    }
+    await expect(
+      asOwner.mutation(api.staff.add, { tournamentId, email: "auctioneer@test.com", role: "auctioneer" }),
+    ).rejects.toThrow(/Too many invite emails/);
+    const emails = await t.run((ctx) => ctx.db.query("emails").collect());
+    expect(emails.filter((e) => e.kind === "staff_added")).toHaveLength(30);
+  });
+
+  test("an unknown address gets the same neutral message, without naming it (SEC-005)", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const err = await t
+      .withIdentity(OWNER)
+      .mutation(api.staff.add, { tournamentId, email: "stranger@example.com", role: "auctioneer" })
+      .catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/couldn't add that address/);
+    expect((err as Error).message).not.toContain("stranger@example.com");
+  });
+
   test("adding an owner says so", async () => {
     const t = convexTest(schema, modules);
     const { tournamentId } = await setup(t);
