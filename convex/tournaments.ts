@@ -29,7 +29,7 @@ import { canCreateTournament, canUploadTournamentLogo, isSuperAdmin } from "./po
 import { takeSnapshot } from "./snapshots";
 import { scheduleTournamentPurge } from "./fileCleanup";
 import { assertImageUrl } from "./uploads";
-import { inChunks } from "./batch";
+import { assertFitsOneTransaction, inChunks } from "./batch";
 import {
   confirmsTournamentName,
   normalizeFooterText,
@@ -866,8 +866,6 @@ export const deleteTournament = mutation({
     if (!confirmsTournamentName(args.confirmName, tournament.name)) {
       throw new Error(`Type the tournament name (${tournament.name}) to confirm the delete`);
     }
-    const snapshotId = await takeSnapshot(ctx, args.id, "before delete_tournament", admin._id);
-
     // Fetch bids and events for all auction rooms in a single parallel batch
     // (avoids a sequential loop of round-trips per room).
     const roomRelated = await Promise.all(
@@ -912,6 +910,16 @@ export const deleteTournament = mutation({
         ]),
       ),
     );
+
+    // Refuse before the snapshot rather than fail part-way (PERF-004).
+    assertFitsOneTransaction(
+      [teams, players, auctionRooms, groupDraws, staff, registrations, registrationOrders, formVersions, teamRequests, notifications, emails]
+        .reduce((n, rows) => n + rows.length, 0) +
+        roomRelated.flat(2).length +
+        teamRelated.flat(2).length,
+      "delete",
+    );
+    const snapshotId = await takeSnapshot(ctx, args.id, "before delete_tournament", admin._id);
 
     // Helper: delete a chunk at a time so only one chunk of writes is in
     // flight at once. The delete is still one transaction: it commits whole or

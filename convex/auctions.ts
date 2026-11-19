@@ -36,7 +36,7 @@ import { allSquadsFull, chooseNext, shuffleInPlace } from "./rounds";
 import { withIdempotency } from "./idempotency";
 import { takeSnapshot } from "./snapshots";
 import { completeAuction, goLive, loadRoomForStaff } from "./auctionLifecycle";
-import { inChunks } from "./batch";
+import { assertFitsOneTransaction, inChunks } from "./batch";
 import { enqueueSoldNotification } from "./notifications";
 import { confirmsTournamentName } from "./validation";
 import {
@@ -2009,13 +2009,6 @@ export const restartAuction = mutation({
     if (!confirmsTournamentName(args.confirmName, tournament.name)) {
       throw new Error(`Type the tournament name (${tournament.name}) to confirm the restart`);
     }
-    const snapshotId = await takeSnapshot(
-      ctx,
-      auctionRoom.tournamentId,
-      "before restart_auction",
-      admin._id,
-    );
-
     const now = Date.now();
     const basePurse = tournament.settings.basePurse;
 
@@ -2050,6 +2043,18 @@ export const restartAuction = mutation({
         )
         .collect(),
     ]);
+
+    // Refuse before the snapshot rather than fail part-way (PERF-004).
+    assertFitsOneTransaction(
+      players.length + teams.length + liveBids.length + bids.length + events.length,
+      "restart",
+    );
+    const snapshotId = await takeSnapshot(
+      ctx,
+      auctionRoom.tournamentId,
+      "before restart_auction",
+      admin._id,
+    );
 
     // Reset the room and tournament first (fast, always-two ops).
     await Promise.all([

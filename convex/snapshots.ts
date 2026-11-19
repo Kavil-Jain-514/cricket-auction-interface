@@ -10,6 +10,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { logAdminAction, OWNER_ONLY, RUN_AUCTION, requireTournamentRole } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { recomputeTeamPurses } from "./money";
+import { assertFitsOneTransaction } from "./batch";
 import { goLive } from "./auctionLifecycle";
 import { confirmsTournamentName } from "./validation";
 
@@ -186,6 +187,16 @@ export async function readSnapshotRows(
 
 // ── Restore ──────────────────────────────────────────────────────────────────
 
+/**
+ * Rows a restore touches, from the snapshot's stored counts: it deletes the
+ * current bids and events and re-inserts the snapshot's, and patches every
+ * player and team, so twice the snapshot's size is the budget (PERF-004).
+ */
+function restoreSize(snapshot: Doc<"tournamentSnapshots">): number {
+  const { players, teams, bids, events } = snapshot.counts;
+  return 2 * (players + teams + bids + events);
+}
+
 /** A stored row without its system fields, ready to insert again. */
 function withoutSystemFields(row: SnapshotRow) {
   const { _id: _ignoredId, _creationTime: _ignoredTime, ...rest } = row;
@@ -323,6 +334,7 @@ export const restoreSnapshot = mutation({
       throw new Error(`Type the tournament name (${tournament.name}) to confirm the restore`);
     }
 
+    assertFitsOneTransaction(restoreSize(snapshot), "restore");
     const undoSnapshotId = await takeSnapshot(ctx, snapshot.tournamentId, "before restore_snapshot", owner._id);
     const { missing, repricedTeams } = await applySnapshot(ctx, snapshot, (status) => (status === "live" ? "paused" : status));
     await logAdminAction(ctx, {
@@ -381,6 +393,7 @@ export const endRehearsal = mutation({
     if (!room.rehearsal || !room.rehearsalSnapshotId) throw new Error("This room is not in a rehearsal");
     const snapshot = await ctx.db.get(room.rehearsalSnapshotId);
     if (!snapshot) throw new Error("The rehearsal's snapshot is missing; use Restart instead");
+    assertFitsOneTransaction(restoreSize(snapshot), "end the rehearsal");
 
     const { missing, repricedTeams } = await applySnapshot(ctx, snapshot, () => "waiting");
     await ctx.db.patch(room._id, { rehearsal: undefined, rehearsalSnapshotId: undefined });
