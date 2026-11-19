@@ -11,14 +11,80 @@ export type UserRole = "admin" | "user";
 // CORE AUTH HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** The signed-in person's row, deactivated or not. Most code wants getCurrentUser. */
+/**
+ * The signed-in person's row, deactivated or not. Most code wants getCurrentUser.
+ *
+ * Found by the sign-in (tokenIdentifier), not the email claim, so roles never
+ * follow an email address from one account to another (AUDIT 2026-11
+ * SEC-006). A row from before sign-ins were stored has no tokenIdentifier; it
+ * is found by email until ensureUser links it to the sign-in that claims it.
+ */
 export async function getUserRow(ctx: QueryCtx | MutationCtx): Promise<Doc<"users"> | null> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity?.email) return null;
-  return await ctx.db
+  if (!identity) return null;
+  const linked = await ctx.db
+    .query("users")
+    .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
+    .first();
+  if (linked) return linked;
+  return await unlinkedRowByEmail(ctx, identity.email);
+}
+
+/** A row with this email that no sign-in has claimed yet, or null. */
+async function unlinkedRowByEmail(
+  ctx: QueryCtx | MutationCtx,
+  email: string | undefined,
+): Promise<Doc<"users"> | null> {
+  if (!email) return null;
+  const row = await ctx.db
+    .query("users")
+    .withIndex("by_email", (q) => q.eq("email", email))
+    .first();
+  return row && row.tokenIdentifier === undefined ? row : null;
+}
+
+export const EMAIL_LINKED_MESSAGE =
+  "This email is already linked to another sign-in. Contact Bid11Pro support to move it to this one.";
+
+/**
+ * The signed-in person's row, linked to their sign-in and created if needed
+ * (as a plain "user"). Keeps the stored email and name in step with the
+ * identity provider. Refuses when the email belongs to a row another sign-in
+ * has claimed. Doesn't check deactivation; callers decide.
+ */
+export async function linkOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity?.email) throw new Error("Not authenticated");
+  const row = await getUserRow(ctx);
+  if (row) {
+    const patch: Partial<Doc<"users">> = {};
+    if (row.tokenIdentifier === undefined) patch.tokenIdentifier = identity.tokenIdentifier;
+    if (identity.name && identity.name !== row.name) patch.name = identity.name;
+    if (identity.email !== row.email) {
+      // The address changed at the provider; follow it unless another row has it.
+      const taken = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", identity.email!))
+        .first();
+      if (!taken) patch.email = identity.email;
+    }
+    if (Object.keys(patch).length > 0) await ctx.db.patch(row._id, patch);
+    return { ...row, ...patch };
+  }
+  const sameEmail = await ctx.db
     .query("users")
     .withIndex("by_email", (q) => q.eq("email", identity.email!))
     .first();
+  if (sameEmail) throw new Error(EMAIL_LINKED_MESSAGE);
+  // Everyone starts as a "user"; the first admin comes from auth:bootstrapAdmin.
+  const userId = await ctx.db.insert("users", {
+    email: identity.email,
+    name: identity.name,
+    tokenIdentifier: identity.tokenIdentifier,
+    role: "user",
+    createdAt: Date.now(),
+  });
+  return (await ctx.db.get(userId))!;
 }
 
 export const DEACTIVATED_MESSAGE = "This account has been deactivated. Contact Bid11Pro support if you think this is a mistake.";
@@ -541,33 +607,40 @@ export const ensureUser = mutation({
     if (!identity?.email) {
       throw new Error("No email in identity");
     }
+    // Links a legacy row to this sign-in, or creates the row. Everyone starts
+    // as a "user": there is no "first sign-in becomes admin" rule (AUDIT
+    // 2026-11 SEC-007, PERF-002). Two simultaneous first sign-ins can't both
+    // insert: the reads are in this transaction, so the second conflicts,
+    // retries, and finds the row.
+    return (await linkOrCreateUser(ctx))._id;
+  },
+});
 
-    const existingUser = await ctx.db
+/**
+ * Support tool: release a row from the sign-in it is linked to, so the same
+ * person's new sign-in (e.g. after recreating their account) can claim it on
+ * next sign-in. CLI only:
+ *   npx convex run auth:unlinkSignIn '{"email": "them@example.com"}'
+ */
+export const unlinkSignIn = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const email = args.email.trim();
+    const user = await ctx.db
       .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
+      .withIndex("by_email", (q) => q.eq("email", email))
       .first();
-
-    if (existingUser) {
-      // Update name if changed
-      if (identity.name && identity.name !== existingUser.name) {
-        await ctx.db.patch(existingUser._id, { name: identity.name });
-      }
-      return existingUser._id;
-    }
-
-    // Everyone starts as a "user". There is no "first sign-in becomes admin"
-    // rule: on an empty deployment that handed the platform to whoever signed
-    // in first, and counting users read the whole table on every sign-up
-    // (AUDIT 2026-11 SEC-007, PERF-002). The first admin is made from the CLI
-    // with auth:bootstrapAdmin. Two simultaneous first sign-ins can't both
-    // insert: the by_email read above is in this transaction, so the second
-    // conflicts, retries, and finds the row.
-    return await ctx.db.insert("users", {
-      email: identity.email,
-      name: identity.name,
-      role: "user",
-      createdAt: Date.now(),
+    if (!user) throw new Error(`No account for ${email}`);
+    await ctx.db.patch(user._id, { tokenIdentifier: undefined });
+    await logAdminAction(ctx, {
+      userId: user._id,
+      userEmail: user.email,
+      action: "unlink_sign_in",
+      targetType: "user",
+      targetId: user._id,
+      previousData: { tokenIdentifier: user.tokenIdentifier },
     });
+    return { success: true };
   },
 });
 

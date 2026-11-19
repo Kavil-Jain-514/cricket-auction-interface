@@ -6,6 +6,7 @@ import {
   DEACTIVATED_MESSAGE,
   getCurrentUser,
   getUserRow,
+  linkOrCreateUser,
   getTournamentRole,
   logAdminAction,
   OWNER_ONLY,
@@ -39,22 +40,12 @@ function generateInviteToken(): string {
     .replace(/=+$/, "");
 }
 
-/** The signed-in user's row, created on first use (like auth:ensureUser). */
+/** The signed-in user's row, linked or created on first use (like auth:ensureUser). */
 export async function getOrCreateUser(ctx: MutationCtx): Promise<Doc<"users">> {
   // A deactivated account is refused, never replaced by a fresh row.
   const existing = await getUserRow(ctx);
   if (existing?.deactivatedAt !== undefined) throw new Error(DEACTIVATED_MESSAGE);
-  if (existing) return existing;
-
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity?.email) throw new Error("Not authenticated");
-  const userId = await ctx.db.insert("users", {
-    email: identity.email,
-    name: identity.name,
-    role: "user",
-    createdAt: Date.now(),
-  });
-  return (await ctx.db.get(userId))!;
+  return await linkOrCreateUser(ctx);
 }
 
 /**

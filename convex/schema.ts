@@ -28,8 +28,12 @@ export default defineSchema({
     // Set by the super-admin (auth:setUserActive). A deactivated account is
     // refused everywhere (getCurrentUser / requireUser) until reactivated.
     deactivatedAt: v.optional(v.number()),
+    // The sign-in this row belongs to (Clerk issuer + subject). Absent on rows
+    // from before it was stored, until their owner next signs in (SEC-006).
+    tokenIdentifier: v.optional(v.string()),
     createdAt: v.number(),
   })
+    .index("by_token", ["tokenIdentifier"])
     .index("by_email", ["email"])
     .index("by_accountType", ["accountType"])
     // Counting admins (last-admin guard, bootstrapAdmin) without a table scan.
