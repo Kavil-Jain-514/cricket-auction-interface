@@ -15,6 +15,7 @@ import {
   DEFAULT_BID_TIMER_SECONDS,
   teamPurseTotal,
   validateBidTimerSeconds,
+  formatPrice,
 } from "./bidRules";
 import {
   categoryValidator,
@@ -704,7 +705,7 @@ export const update = mutation({
         );
         if (overspent) {
           throw new ConvexError(
-            `${overspent.name} has already spent ₹${overspent.purseSpent}, more than the new purse of ₹${teamPurseTotal(newBasePurse, overspent)}. Correct their sales first.`,
+            `${overspent.name} has already spent ${formatPrice(overspent.purseSpent)}, more than the new purse of ${formatPrice(teamPurseTotal(newBasePurse, overspent))}. Correct their sales first.`,
           );
         }
         await Promise.all(

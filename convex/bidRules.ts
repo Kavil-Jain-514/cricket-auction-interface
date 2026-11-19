@@ -28,6 +28,33 @@ export function formatRupees(amount: number): string {
   }
 }
 
+const LAKH = 100_000;
+const CRORE = 10_000_000;
+
+/**
+ * A rupee amount in the unit that suits its size, for every price, purse and
+ * bid shown in the app (and in server messages):
+ * - under ₹1 lakh, exact: "₹500", "₹45,000"
+ * - lakhs up to a crore: "₹1.50L"
+ * - crores: "₹12.50Cr"
+ * Two decimals are cut, never rounded up, so a purse is never shown as more
+ * than it is (₹99,99,999 is "₹99.99L", not "₹100.00L"). `symbol` is "Rs."
+ * for PDFs whose font has no ₹.
+ */
+export function formatPrice(amount: number, symbol = "₹"): string {
+  if (!Number.isFinite(amount)) return `${symbol}0`;
+  const sign = amount < 0 ? "-" : "";
+  const abs = Math.abs(Math.trunc(amount));
+  // Hundredths of the unit in integers: 12.29 * 100 is 1228.99… in floats.
+  const cut = (unit: number) => {
+    const hundredths = Math.floor((abs * 100) / unit);
+    return `${Math.floor(hundredths / 100)}.${String(hundredths % 100).padStart(2, "0")}`;
+  };
+  if (abs >= CRORE) return `${sign}${symbol}${cut(CRORE)}Cr`;
+  if (abs >= LAKH) return `${sign}${symbol}${cut(LAKH)}L`;
+  return `${sign}${formatRupees(abs).replace("₹", symbol)}`;
+}
+
 /**
  * A team's whole purse: the tournament base purse plus any admin adjustments.
  * The money invariant is purseRemaining + purseSpent == teamPurseTotal.

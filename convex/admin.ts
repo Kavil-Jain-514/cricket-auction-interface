@@ -14,16 +14,15 @@ import {
   isWholeRupees,
   maxAllowedBid,
   reserveBasePrice,
+  formatPrice,
 } from "./bidRules";
 import type { Doc, Id } from "./_generated/dataModel";
 import { purseFromSales } from "./money";
 import { maxRuleViolation, minRuleShortfall, minRuleSlots } from "./squadRules";
 import { MAX_BASE_PURSE } from "./validation";
 
-// Helper: format purse amount for error messages
-function formatPurse(amount: number): string {
-  return `₹${(amount / 100000).toFixed(2)}L`;
-}
+// Purse amounts in error messages, in the same unit as the screens.
+const formatPurse = (amount: number) => formatPrice(amount);
 
 /**
  * A sold price set by hand must be a positive whole number of rupees: a
@@ -129,7 +128,7 @@ async function applySoldPriceChange(
   // Check if team has enough purse for price increase
   if (priceDifference > 0 && priceDifference > team.purseRemaining) {
     throw new ConvexError(
-      `Team has insufficient purse for price increase. Available: ₹${team.purseRemaining}`,
+      `Team has insufficient purse for price increase. Available: ${formatPrice(team.purseRemaining)}`,
     );
   }
 
@@ -188,7 +187,7 @@ async function debitTeamForPlayer(
 
   if (args.price > team.purseRemaining) {
     throw new ConvexError(
-      `Team has insufficient purse. Available: ₹${team.purseRemaining}, Required: ₹${args.price}`,
+      `Team has insufficient purse. Available: ${formatPrice(team.purseRemaining)}, Required: ${formatPrice(args.price)}`,
     );
   }
 

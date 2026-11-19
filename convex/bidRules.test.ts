@@ -7,6 +7,7 @@ import {
   nextMinimumBid,
   maxAllowedBid,
   reserveBasePrice,
+  formatPrice,
 } from "./bidRules";
 
 describe("isSquadFull", () => {
@@ -195,5 +196,39 @@ describe("effectiveBasePrice — player, then category, then tournament", () => 
 
   test("no tournament base price: the legacy default", () => {
     expect(effectiveBasePrice({}, {})).toBe(DEFAULT_BASE_PRICE);
+  });
+});
+
+describe("formatPrice: the unit follows the amount", () => {
+  test.each([
+    [0, "₹0"],
+    [500, "₹500"],
+    [2_500, "₹2,500"],
+    [45_000, "₹45,000"],
+    [99_999, "₹99,999"],
+    [100_000, "₹1.00L"],
+    [150_000, "₹1.50L"],
+    [1_234_567, "₹12.34L"], // cut, not rounded: never shows more than there is
+    [1_229_000, "₹12.29L"], // exact in integers (12.29 * 100 is 1228.99… in floats)
+    [575_000, "₹5.75L"],
+    [9_999_999, "₹99.99L"],
+    [10_000_000, "₹1.00Cr"],
+    [125_000_000, "₹12.50Cr"],
+    [1_000_000_000, "₹100.00Cr"],
+    [-25_000, "-₹25,000"],
+    [-150_000, "-₹1.50L"],
+  ])("%d -> %s", (amount, text) => {
+    expect(formatPrice(amount)).toBe(text);
+  });
+
+  test("never rounds up into a unit it hasn't reached", () => {
+    // 99,99,999 would round to "100.00L"; it must stay below a crore.
+    expect(formatPrice(9_999_999)).toBe("₹99.99L");
+    expect(formatPrice(99_999_999)).toBe("₹9.99Cr");
+  });
+
+  test("another symbol, for PDFs whose font has no ₹", () => {
+    expect(formatPrice(45_000, "Rs.")).toBe("Rs.45,000");
+    expect(formatPrice(150_000, "Rs.")).toBe("Rs.1.50L");
   });
 });

@@ -1,25 +1,23 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { ConvexError } from "convex/values";
+import { formatPrice } from "@/convex/bidRules";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Short format used in UI — always shows Lakhs: ₹1.50L */
+/**
+ * Every price, purse and bid on screen. The unit follows the amount:
+ * ₹45,000 · ₹1.50L · ₹12.50Cr (formatPrice in convex/bidRules.ts).
+ */
 export function formatCurrency(amount: number): string {
-  return `₹${(amount / 100000).toFixed(2)}L`;
+  return formatPrice(amount);
 }
 
-/**
- * Full format for documents and PDFs — picks the most readable unit:
- * ≥1 Cr → "Rs.X.XX Cr", ≥1 L → "Rs.X.XX L", ≥1K → "Rs.X.XK", else "Rs.X"
- */
+/** The same for PDFs, whose font has no ₹: Rs.45,000 · Rs.1.50L · Rs.12.50Cr. */
 export function formatCurrencyFull(amount: number): string {
-  if (amount >= 10000000) return `Rs.${(amount / 10000000).toFixed(2)} Cr`;
-  if (amount >= 100000) return `Rs.${(amount / 100000).toFixed(2)} L`;
-  if (amount >= 1000) return `Rs.${(amount / 1000).toFixed(1)}K`;
-  return `Rs.${amount}`;
+  return formatPrice(amount, "Rs.");
 }
 
 export function getPlayerInitials(name: string): string {

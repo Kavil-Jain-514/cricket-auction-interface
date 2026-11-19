@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -422,20 +422,68 @@ describe("several orders for one registration (AUDIT 2026-10 P1-8)", () => {
 });
 
 describe("abuse limits on the public form (AUDIT 2026-10 P1-9)", () => {
-  test("submissions are rate-limited per tournament, whatever the phone", async () => {
-    const t = convexTest(schema, modules);
-    const { tournamentId } = await setup(t);
-    for (let i = 0; i < 30; i++) {
-      await t.mutation(api.registrations.submit, {
-        tournamentId,
-        ...entry({ name: `Player ${i}`, phoneNumber: `98765${String(i).padStart(5, "0")}` }),
-      });
+  // Only Date is faked, so every call lands in one fixed rate-limit window.
+  const oneMinute = () => vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-19T10:00:05Z") });
+  const withCloudinary = async (fn: () => Promise<void>) => {
+    Object.assign(process.env, { CLOUDINARY_CLOUD_NAME: "c", CLOUDINARY_API_KEY: "k", CLOUDINARY_API_SECRET: "s" });
+    try {
+      await fn();
+    } finally {
+      delete process.env.CLOUDINARY_CLOUD_NAME;
+      delete process.env.CLOUDINARY_API_KEY;
+      delete process.env.CLOUDINARY_API_SECRET;
     }
+  };
 
-    await expect(
-      t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: "One More", phoneNumber: "9111111111" }) }),
-    ).rejects.toThrow(/Too many registrations right now/);
-    expect(await registrations(t)).toHaveLength(30);
+  test("a rush of 50 registrations in one minute, each with a photo and a payment screenshot, all go through", async () => {
+    oneMinute();
+    try {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t, { registrationFee: 300, paymentQrUrl: QR });
+      await withCloudinary(async () => {
+        await Promise.all(
+          Array.from({ length: 50 }, async (_, i) => {
+            const upload = async () => {
+              const sig = await t.action(api.registrations.getUploadSignature, { tournamentId });
+              return `https://res.cloudinary.com/c/image/upload/v1/${sig.folder}/${sig.public_id}.jpg`;
+            };
+            const res = await t.mutation(api.registrations.submit, {
+              tournamentId,
+              ...entry({ name: `Player ${i}`, phoneNumber: `98765${String(i).padStart(5, "0")}`, photoUrl: await upload() }),
+            });
+            await t.mutation(api.registrations.submitPaymentProof, {
+              registrationId: res.registrationId as Id<"registrations">,
+              proofUrl: await upload(),
+            });
+          }),
+        );
+      });
+      const rows = await registrations(t);
+      expect(rows).toHaveLength(50);
+      expect(rows.every((r) => r.status === "paid" && r.photoUrl && r.paymentProofUrl)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("submissions are still rate-limited per tournament, whatever the phone (200 a minute)", async () => {
+    oneMinute();
+    try {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      for (let i = 0; i < 200; i++) {
+        await t.mutation(api.registrations.submit, {
+          tournamentId,
+          ...entry({ name: `Player ${i}`, phoneNumber: `98765${String(i).padStart(5, "0")}` }),
+        });
+      }
+      await expect(
+        t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: "One More", phoneNumber: "9111111111" }) }),
+      ).rejects.toThrow(/Too many registrations right now/);
+      expect(await registrations(t)).toHaveLength(200);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("a duplicate of an existing player is still caught by name and phone", async () => {
@@ -457,17 +505,17 @@ describe("abuse limits on the public form (AUDIT 2026-10 P1-9)", () => {
     await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry() })).rejects.toThrow(/already registered/);
   });
 
-  test("photo upload signatures are rate-limited per tournament", async () => {
-    const t = convexTest(schema, modules);
-    const { tournamentId } = await setup(t);
-    Object.assign(process.env, { CLOUDINARY_CLOUD_NAME: "c", CLOUDINARY_API_KEY: "k", CLOUDINARY_API_SECRET: "s" });
+  test("photo upload signatures are still rate-limited per tournament (300 a minute)", async () => {
+    oneMinute();
     try {
-      for (let i = 0; i < 60; i++) await t.action(api.registrations.getUploadSignature, { tournamentId });
-      await expect(t.action(api.registrations.getUploadSignature, { tournamentId })).rejects.toThrow(/Too many uploads/);
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      await withCloudinary(async () => {
+        for (let i = 0; i < 300; i++) await t.action(api.registrations.getUploadSignature, { tournamentId });
+        await expect(t.action(api.registrations.getUploadSignature, { tournamentId })).rejects.toThrow(/Too many uploads/);
+      });
     } finally {
-      delete process.env.CLOUDINARY_CLOUD_NAME;
-      delete process.env.CLOUDINARY_API_KEY;
-      delete process.env.CLOUDINARY_API_SECRET;
+      vi.useRealTimers();
     }
   });
 

@@ -30,7 +30,7 @@ export function PriceTicker({
   className,
 }: {
   amount: number
-  /** Defaults to the app's lakh format (₹1.50L). */
+  /** Defaults to the app's price format (₹45,000 · ₹1.50L · ₹12.50Cr). */
   format?: (amount: number) => string
   className?: string
 }) {
