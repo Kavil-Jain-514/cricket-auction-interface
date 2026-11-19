@@ -38,6 +38,8 @@ const STUCK_DELETING_MS = 15 * 60 * 1000;
 // filling in, so the orphan tools never touch it.
 const ORPHAN_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 const ROOT_FOLDER = "cricket-auction/";
+// A timed-out delete throws, so its files go back to "pending" with backoff (REL-002).
+const CLOUDINARY_TIMEOUT_MS = 30_000;
 
 const CLOUDINARY_URL = /https:\/\/res\.cloudinary\.com\/[^\s"'\\]+/g;
 
@@ -243,6 +245,7 @@ async function deleteFromCloudinary(
   const res = await fetch(`https://api.cloudinary.com/v1_1/${config.cloudName}/resources/image/upload?${params}`, {
     method: "DELETE",
     headers: { Authorization: config.auth },
+    signal: AbortSignal.timeout(CLOUDINARY_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Cloudinary ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const body = (await res.json()) as { deleted?: Record<string, string> };
@@ -326,6 +329,7 @@ async function listStoredImages(config: { cloudName: string; auth: string }): Pr
     if (cursor) params.set("next_cursor", cursor);
     const res = await fetch(`https://api.cloudinary.com/v1_1/${config.cloudName}/resources/image?${params}`, {
       headers: { Authorization: config.auth },
+      signal: AbortSignal.timeout(CLOUDINARY_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`Cloudinary ${res.status}: ${(await res.text()).slice(0, 200)}`);
     const body = (await res.json()) as { resources: CloudinaryResource[]; next_cursor?: string };

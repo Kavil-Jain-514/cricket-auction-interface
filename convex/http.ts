@@ -11,6 +11,15 @@ import { normalizePhone } from "./notifications";
 
 const http = httpRouter();
 
+/** The parsed body, or null when it isn't JSON. */
+function parseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 http.route({
   path: "/razorpay/webhook",
   method: "POST",
@@ -30,13 +39,19 @@ http.route({
       return new Response("Invalid signature", { status: 401 });
     }
 
-    const event = JSON.parse(rawBody) as {
+    // Signed but unparseable: record it and answer 200, so Razorpay doesn't
+    // retry a body that will never parse (AUDIT 2026-11 REL-004).
+    const event = parseJson(rawBody) as {
       event?: string;
       payload?: {
         payment?: { entity?: { id?: string; amount?: number; order_id?: string } };
         order?: { entity?: { id?: string; notes?: { tournamentId?: string; registrationId?: string } } };
       };
-    };
+    } | null;
+    if (event === null) {
+      await ctx.runMutation(internal.ops.recordWebhook, { event: "unknown", outcome: "malformed payload" });
+      return Response.json({ ignored: "malformed payload" });
+    }
     if (event.event !== "order.paid") {
       await ctx.runMutation(internal.ops.recordWebhook, { event: event.event ?? "unknown", outcome: "ignored event" });
       return Response.json({ ignored: event.event ?? "unknown" });
@@ -118,7 +133,11 @@ http.route({
       return new Response("Invalid signature", { status: 401 });
     }
 
-    const body = JSON.parse(rawBody) as { entry?: Array<{ changes?: Array<{ value?: WhatsAppChange }> }> };
+    const body = parseJson(rawBody) as { entry?: Array<{ changes?: Array<{ value?: WhatsAppChange }> }> } | null;
+    if (body === null) {
+      console.warn("WhatsApp webhook: signed but malformed payload ignored");
+      return Response.json({ ok: true });
+    }
     const values = (body.entry ?? []).flatMap((e) => (e.changes ?? []).map((c) => c.value ?? {}));
     const statuses = values.flatMap((v) => v.statuses ?? []).flatMap((s) =>
       s.id && s.status ? [{ id: s.id, status: s.status, error: s.errors?.[0]?.title }] : [],

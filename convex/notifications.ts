@@ -61,6 +61,7 @@ const MAX_ATTEMPTS = 5;
 const BATCH_SIZE = 10; // per second: far below Meta's per-number throughput
 const RETRY_BASE_MS = 30_000; // 30s, 60s, 2m, 4m
 const STUCK_SENDING_MS = 5 * 60_000;
+const SEND_TIMEOUT_MS = 15_000;
 
 type Kind = Doc<"notifications">["kind"];
 type Payload = Doc<"notifications">["payload"];
@@ -244,6 +245,9 @@ const metaCloudProvider = (phoneNumberId: string, accessToken: string): Notifica
             components: [{ type: "body", parameters: template.params.map((text) => ({ type: "text", text })) }],
           },
         }),
+        // A hung request would hold the row in "sending" until the 5-minute
+        // reclaim; give up and retry instead (AUDIT 2026-11 REL-002).
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
       if (!res.ok) {
         const text = (await res.text()).slice(0, 300);

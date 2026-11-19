@@ -10,6 +10,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { PLAN_ORDER, type PlanTier } from "@/convex/planTiers";
 import { buildOrderRequest } from "@/lib/razorpayOrder";
 
+/** Give up on Razorpay rather than hold the request open (AUDIT 2026-11 REL-002). */
+const RAZORPAY_TIMEOUT_MS = 15_000;
+
 export async function POST(request: NextRequest) {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -30,6 +33,13 @@ export async function POST(request: NextRequest) {
 
   const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
   convex.setAuth(token);
+  // Owners only, checked before a Razorpay order exists: getPlanUsage below
+  // also admits auctioneers, and recordOrder's owner check comes after the
+  // order is created (AUDIT 2026-11 SEC-013).
+  const role = await convex.query(api.tournaments.myRole, { tournamentId }).catch(() => null);
+  if (role !== "owner" && role !== "super_admin") {
+    return NextResponse.json({ error: "Only the tournament's owner can upgrade its plan" }, { status: 403 });
+  }
   const usage = await convex.query(api.plans.getPlanUsage, { tournamentId }).catch(() => null);
   if (!usage) return NextResponse.json({ error: "You don't have access to this tournament" }, { status: 403 });
   if (!usage.tier) return NextResponse.json({ error: "This tournament has no limits; no upgrade needed" }, { status: 400 });
@@ -44,9 +54,13 @@ export async function POST(request: NextRequest) {
       Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`,
     },
     body: JSON.stringify(orderRequest),
+    signal: AbortSignal.timeout(RAZORPAY_TIMEOUT_MS),
+  }).catch((error: unknown) => {
+    console.error("Razorpay order request failed", error);
+    return null;
   });
-  if (!razorpay.ok) {
-    console.error("Razorpay order failed", razorpay.status, await razorpay.text());
+  if (!razorpay?.ok) {
+    if (razorpay) console.error("Razorpay order failed", razorpay.status, await razorpay.text());
     return NextResponse.json({ error: "Couldn't start the payment. Try again." }, { status: 502 });
   }
   const order = (await razorpay.json()) as { id: string; amount: number; currency: string };
