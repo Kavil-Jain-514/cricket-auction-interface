@@ -347,13 +347,9 @@ export async function findOwnerMembership(
 ): Promise<Doc<"teamMembers"> | null> {
   const memberships = await ctx.db
     .query("teamMembers")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .withIndex("by_user_tournament", (q) => q.eq("userId", userId).eq("tournamentId", tournamentId))
     .collect();
-  return (
-    memberships.find(
-      (m) => m.tournamentId === tournamentId && m.role === "owner",
-    ) ?? null
-  );
+  return memberships.find((m) => m.role === "owner") ?? null;
 }
 
 /** Delete every owner-bidding row for a team (used by teams:deleteTeam). */

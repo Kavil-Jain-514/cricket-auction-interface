@@ -223,8 +223,8 @@ export const me = query({
 
 /**
  * Admin audit log, newest first, one page at a time. Filters: tournament
- * (by_tournament index), action, and a timestamp range (by_timestamp index
- * when no tournament is given). Non-admins get an empty page.
+ * and a timestamp range through the indexes (by_tournament_timestamp, or
+ * by_timestamp without a tournament), then action. Non-admins get an empty page.
  */
 export const listAuditLogs = query({
   args: {
@@ -241,29 +241,24 @@ export const listAuditLogs = query({
     }
 
     const { tournamentId, action, from, to } = args;
+    // Both indexes end in timestamp, so the date range is an index range either way.
     const base = tournamentId
-      ? ctx.db
-          .query("auditLogs")
-          .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId))
+      ? ctx.db.query("auditLogs").withIndex("by_tournament_timestamp", (q) => {
+          const t = q.eq("tournamentId", tournamentId);
+          if (from !== undefined && to !== undefined) return t.gte("timestamp", from).lte("timestamp", to);
+          if (from !== undefined) return t.gte("timestamp", from);
+          if (to !== undefined) return t.lte("timestamp", to);
+          return t;
+        })
       : ctx.db.query("auditLogs").withIndex("by_timestamp", (q) => {
-          if (from !== undefined && to !== undefined) {
-            return q.gte("timestamp", from).lte("timestamp", to);
-          }
+          if (from !== undefined && to !== undefined) return q.gte("timestamp", from).lte("timestamp", to);
           if (from !== undefined) return q.gte("timestamp", from);
           if (to !== undefined) return q.lte("timestamp", to);
           return q;
         });
 
-    // The tournament index can't range on time, so dates filter there.
-    const filterDates = tournamentId !== undefined;
     return await base
-      .filter((q) =>
-        q.and(
-          action !== undefined ? q.eq(q.field("action"), action) : true,
-          filterDates && from !== undefined ? q.gte(q.field("timestamp"), from) : true,
-          filterDates && to !== undefined ? q.lte(q.field("timestamp"), to) : true,
-        ),
-      )
+      .filter((q) => (action !== undefined ? q.eq(q.field("action"), action) : true))
       .order("desc")
       .paginate(args.paginationOpts);
   },

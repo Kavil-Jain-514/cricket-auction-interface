@@ -365,10 +365,11 @@ export const listForTeamOwner = query({
     for (const r of requests) {
       if (r.status !== "approved") byTournament.set(r.tournamentId, { teamName: r.name, teamStatus: r.status });
     }
-    for (const m of memberships) {
-      const team = await ctx.db.get(m.teamId);
+    const memberTeams = await Promise.all(memberships.map((m) => ctx.db.get(m.teamId)));
+    memberships.forEach((m, i) => {
+      const team = memberTeams[i];
       if (team) byTournament.set(m.tournamentId, { teamName: team.name, teamStatus: m.role });
-    }
+    });
     const rows = await Promise.all(
       [...byTournament].map(async ([id, team]) => {
         const t = await ctx.db.get(id);

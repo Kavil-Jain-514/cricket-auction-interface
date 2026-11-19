@@ -242,12 +242,10 @@ export const recordOrder = mutation({
       .withIndex("by_order", (q) => q.eq("razorpayOrderId", args.razorpayOrderId))
       .first();
     if (existing) throw new Error("That order is already recorded");
-    const orders = (
-      await ctx.db
-        .query("registrationOrders")
-        .withIndex("by_tournament", (q) => q.eq("tournamentId", registration.tournamentId))
-        .collect()
-    ).filter((o) => o.registrationId === registration._id);
+    const orders = await ctx.db
+      .query("registrationOrders")
+      .withIndex("by_registration", (q) => q.eq("registrationId", registration._id))
+      .take(MAX_ORDERS_PER_REGISTRATION);
     if (orders.length >= MAX_ORDERS_PER_REGISTRATION) {
       throw new Error("Too many payment attempts for this registration. Contact the organiser.");
     }
@@ -554,12 +552,10 @@ export const getPaymentInfo = query({
     const registration = await ctx.db.get(args.registrationId);
     if (!registration) return null;
     const tournament = await ctx.db.get(registration.tournamentId);
-    const orders = (
-      await ctx.db
-        .query("registrationOrders")
-        .withIndex("by_tournament", (q) => q.eq("tournamentId", registration.tournamentId))
-        .collect()
-    ).filter((o) => o.registrationId === registration._id);
+    const orders = await ctx.db
+      .query("registrationOrders")
+      .withIndex("by_registration", (q) => q.eq("registrationId", registration._id))
+      .take(MAX_ORDERS_PER_REGISTRATION);
     return {
       status: registration.status,
       fee: registration.fee,

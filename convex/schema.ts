@@ -50,6 +50,8 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_tournament", ["tournamentId"])
+    // Tournament + date range in the audit log viewer.
+    .index("by_tournament_timestamp", ["tournamentId", "timestamp"])
     .index("by_timestamp", ["timestamp"]),
 
   // Tournaments table
@@ -254,7 +256,9 @@ export default defineSchema({
   })
     .index("by_tournament", ["tournamentId"])
     .index("by_tournament_phone", ["tournamentId", "phoneNumber"])
-    .index("by_order", ["razorpayOrderId"]),
+    .index("by_order", ["razorpayOrderId"])
+    // The registration a player was approved from (registrationForms:answersForPlayer).
+    .index("by_player", ["playerId"]),
 
   // The organiser's own registration questions (convex/registrationForm.ts),
   // one row per saved version so answers always resolve to the question they
@@ -309,7 +313,8 @@ export default defineSchema({
     paidAt: v.optional(v.number()),
   })
     .index("by_order", ["razorpayOrderId"])
-    .index("by_tournament", ["tournamentId"]),
+    .index("by_tournament", ["tournamentId"])
+    .index("by_refundDue", ["refundDue"]),
 
   // WhatsApp outbox (convex/notifications.ts). One row per event and person
   // (dedupeKey), so a restart, a re-sale to the same team, a retry or a
@@ -467,7 +472,8 @@ export default defineSchema({
     lastSeen: v.number(),
   })
     .index("by_room", ["auctionRoomId", "lastSeen"])
-    .index("by_user_room", ["userId", "auctionRoomId"]),
+    .index("by_user_room", ["userId", "auctionRoomId"])
+    .index("by_lastSeen", ["lastSeen"]),
 
   // Mutation exceptions seen by consoles and owner paddles (not rule refusals).
   clientErrors: defineTable({
@@ -511,7 +517,9 @@ export default defineSchema({
     paidAt: v.optional(v.number()),
   })
     .index("by_order", ["razorpayOrderId"])
-    .index("by_tournament", ["tournamentId"]),
+    .index("by_tournament", ["tournamentId"])
+    .index("by_registration", ["registrationId"])
+    .index("by_refundDue", ["refundDue"]),
 
   // Team members — users linked to a team (owners bid from their own phones).
   // A user belongs to at most one team per tournament (enforced by claimInvite).
@@ -523,6 +531,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_user", ["userId"])
+    // findOwnerMembership: one user's membership in one tournament.
+    .index("by_user_tournament", ["userId", "tournamentId"])
     .index("by_team", ["teamId"])
     .index("by_tournament", ["tournamentId"]),
 

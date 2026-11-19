@@ -78,9 +78,9 @@ export const purgeOld = internalMutation({
     const [webhooks, errors, presence] = await Promise.all([
       ctx.db.query("webhookEvents").withIndex("by_receivedAt", (q) => q.lt("receivedAt", month)).take(500),
       ctx.db.query("clientErrors").withIndex("by_at", (q) => q.lt("at", month)).take(500),
-      ctx.db.query("presence").collect(),
+      ctx.db.query("presence").withIndex("by_lastSeen", (q) => q.lt("lastSeen", now - 24 * 60 * 60 * 1000)).take(500),
     ]);
-    const stalePresence = presence.filter((p) => p.lastSeen < now - 24 * 60 * 60 * 1000);
+    const stalePresence = presence;
     await Promise.all([...webhooks, ...errors, ...stalePresence].map((doc) => ctx.db.delete(doc._id)));
   },
 });
@@ -138,8 +138,8 @@ export const liveOverview = query({
 
     // Refunds due: small tables on this path (only failed-to-apply payments).
     const [planRefunds, registrationRefunds] = await Promise.all([
-      ctx.db.query("paymentOrders").filter((q) => q.eq(q.field("refundDue"), true)).take(100),
-      ctx.db.query("registrationOrders").filter((q) => q.eq(q.field("refundDue"), true)).take(100),
+      ctx.db.query("paymentOrders").withIndex("by_refundDue", (q) => q.eq("refundDue", true)).take(100),
+      ctx.db.query("registrationOrders").withIndex("by_refundDue", (q) => q.eq("refundDue", true)).take(100),
     ]);
 
     return {
