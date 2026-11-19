@@ -73,8 +73,12 @@ jobs:
       # Regression guards in lighthouserc.json, set from the step 20 measurements
       # on Lighthouse's default slow-4G mobile profile: LCP <= 3.0 s (measured
       # 2.8 s; target 2.0 s), CLS <= 0.05, TBT <= 200 ms (lab stand-in for INP),
-      # JS <= 140 KB (measured 135 KB; the Next 16 + React floor is ~130 KB,
-      # so the 120 KB target is out of reach for any App Router page).
+      # JS <= 144 KB (measured 135 KB at first; the Next 16 + React floor is
+      # ~130 KB, so the 120 KB target is out of reach for any App Router page).
+      # Raised from 140 KB in Nov 2026: the Next 16.1.4 -> 16.4.6 security
+      # upgrade grew the shared React/Next runtime chunk by ~1.5 KB gzipped,
+      # putting / and /features at 143,991 bytes against a 143,360 limit. No
+      # app code on these pages changed.
       - name: Lighthouse CI
         run: npx --yes @lhci/cli@0.14.0 autorun
 
