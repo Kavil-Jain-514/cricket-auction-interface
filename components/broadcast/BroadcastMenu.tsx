@@ -10,7 +10,7 @@ import { OVERLAY_MODES, overlayUrl, type OverlayMode, type OverlayTheme } from '
 
 const MODE_LABELS: Record<OverlayMode, { title: string; hint: string }> = {
   'lower-third': { title: 'Lower third', hint: 'Player, current bid, last 3 bids and timer along the bottom.' },
-  full: { title: 'Full screen', hint: 'Hero layout with every team’s purse along the bottom.' },
+  full: { title: 'Full screen', hint: 'Large player photo and bid. A Teams button shows every team’s players and purse full screen.' },
 };
 
 interface BroadcastMenuProps {

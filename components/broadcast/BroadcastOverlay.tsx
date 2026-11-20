@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import dynamic from 'next/dynamic';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
@@ -10,12 +9,11 @@ import { useBidCountdown } from '@/hooks/useBidCountdown';
 import { playerAvatarSrc } from '@/components/ui/player-avatar';
 import type { OverlayParams } from '@/lib/overlayParams';
 import { OverlayStage, STAGE_HEIGHT, STAGE_WIDTH } from './OverlayStage';
+import { OverlayResult } from './OverlayResult';
 import { useConnectionView } from '@/lib/useConnectionView';
 import { useWakeLock } from '@/lib/wakeLock';
 
-const PlayerResultPopup = dynamic(() => import('@/components/auction/PlayerResultPopup').then(m => ({ default: m.PlayerResultPopup })), { ssr: false });
-
-/** SOLD / UNSOLD stinger length before returning to the layout. */
+/** SOLD / UNSOLD result card length before returning to the layout. */
 const STINGER_MS = 4000;
 /** Longest we hold a new player back waiting for their photo. */
 const PRELOAD_TIMEOUT_MS = 1500;
@@ -75,7 +73,7 @@ export function BroadcastOverlay({ roomId, mode, theme, safe }: BroadcastOverlay
 
   return (
     <div data-broadcast-overlay className="fixed inset-0 overflow-hidden bg-transparent">
-      <div style={{ width: STAGE_WIDTH, height: STAGE_HEIGHT, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+      <div className="relative" style={{ width: STAGE_WIDTH, height: STAGE_HEIGHT, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
         {liveData && rosterData && !stinger && !stale && (
           <OverlayStage
             mode={mode}
@@ -102,30 +100,26 @@ export function BroadcastOverlay({ roomId, mode, theme, safe }: BroadcastOverlay
               logoUrl: team.logoUrl,
               colorPrimary: team.colorPrimary,
               purseRemaining: team.purseRemaining,
+              purseSpent: team.purseSpent,
               playerCount: team.playerCount,
             }))}
+            maxPlayersPerTeam={settings?.maxPlayersPerTeam}
             countdown={countdown}
           />
         )}
+        {stinger && (
+          <OverlayResult
+            sold={stinger.sold}
+            playerName={stinger.playerName}
+            playerPhotoUrl={stinger.playerPhotoUrl}
+            teamName={stinger.teamName}
+            teamLogoUrl={stinger.teamLogoUrl}
+            teamColor={stinger.teamColor}
+            tournamentLogoUrl={rosterData?.tournament?.logoUrl}
+            amount={stinger.amount}
+          />
+        )}
       </div>
-
-      {stinger && (
-        <PlayerResultPopup
-          show
-          playerName={stinger.playerName}
-          playerPhotoUrl={stinger.playerPhotoUrl}
-          teamName={stinger.teamName}
-          teamLogoUrl={stinger.teamLogoUrl}
-          tournamentLogoUrl={rosterData?.tournament?.logoUrl}
-          amount={stinger.amount}
-          sold={stinger.sold}
-          teamColor={stinger.teamColor}
-          onClose={() => {}}
-          interactive={false}
-          avatarSize="2xl"
-          showConfetti={false}
-        />
-      )}
     </div>
   );
 }

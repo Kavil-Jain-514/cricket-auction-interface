@@ -24,8 +24,6 @@ interface PlayerResultPopupProps {
   interactive?: boolean;
   /** Avatar size — use '2xl' for larger viewer displays */
   avatarSize?: 'xl' | '2xl' | '3xl';
-  /** False on the broadcast overlay: confetti drops frames in OBS. */
-  showConfetti?: boolean;
 }
 
 export function PlayerResultPopup({
@@ -41,11 +39,10 @@ export function PlayerResultPopup({
   onClose,
   interactive = true,
   avatarSize = 'xl',
-  showConfetti = true,
 }: PlayerResultPopupProps) {
   // Confetti effect — isolated so onClose/interactive changes don't restart it
   useEffect(() => {
-    if (!show || !sold || !showConfetti) return;
+    if (!show || !sold) return;
 
     const duration = 5000;
     const end = Date.now() + duration;
@@ -74,7 +71,7 @@ export function PlayerResultPopup({
 
     frame();
     return () => cancelAnimationFrame(rafId);
-  }, [show, sold, teamColor, showConfetti]);
+  }, [show, sold, teamColor]);
 
   // Auto-close after 5 seconds (admin mode only)
   useEffect(() => {
