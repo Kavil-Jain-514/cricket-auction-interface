@@ -15,7 +15,7 @@ import { cn, getErrorMessage } from '@/lib/utils';
 const MAX_FEE = 100_000; // MAX_REGISTRATION_FEE in convex/validation.ts
 
 type Tournament = Pick<Doc<"tournaments">, "_id" | "name" | "description" | "logoUrl" | "organizationLogoUrl" | "status"> & {
-  settings: Pick<Doc<"tournaments">["settings"], "registrationFee" | "paymentQrUrl">;
+  settings: Pick<Doc<"tournaments">["settings"], "registrationFee" | "paymentQrUrl" | "oneRegistrationPerDevice">;
 };
 
 /** Free or paid registration. Saving a paid fee needs a whole-rupee amount. */
@@ -112,6 +112,56 @@ export function RegistrationFeeCard({ tournament }: { tournament: Tournament }) 
           {locked ? 'Completed tournaments can’t change.' : dirty ? 'Not saved yet' : `Saved: ${savedFee > 0 ? formatRupees(savedFee) : 'Free'}`}
         </span>
       </div>
+    </section>
+  );
+}
+
+/** One registration per device (browser), or any number. Saves on change. */
+export function RegistrationDeviceCard({ tournament }: { tournament: Tournament }) {
+  const setOnePerDevice = useMutation(api.tournaments.setOneRegistrationPerDevice);
+  const enabled = tournament.settings.oneRegistrationPerDevice === true;
+  const [saving, setSaving] = useState(false);
+  const locked = tournament.status === 'completed';
+
+  const toggle = async () => {
+    setSaving(true);
+    try {
+      await setOnePerDevice({ tournamentId: tournament._id, enabled: !enabled });
+      toast.success(!enabled ? 'One registration per device is on' : 'Any number of registrations per device');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not save the setting'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section aria-labelledby="device-title" className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 id="device-title" className="text-lg font-semibold">One registration per device</h2>
+          <p id="device-hint" className="text-sm text-slate-400">
+            Stops one phone from registering several players. Leave it off if captains or parents register players for others.
+            It is a deterrent, not proof: a private tab or another browser counts as a new device.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-labelledby="device-title"
+          aria-describedby="device-hint"
+          disabled={saving || locked}
+          onClick={toggle}
+          className={cn(
+            'relative mt-1 inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-50',
+            enabled ? 'bg-blue-600' : 'bg-slate-700',
+          )}
+        >
+          <span className={cn('inline-block h-5 w-5 rounded-full bg-white transition-transform', enabled ? 'translate-x-6' : 'translate-x-1')} />
+        </button>
+      </div>
+      {locked && <p className="text-xs text-slate-500">Completed tournaments can’t change.</p>}
     </section>
   );
 }

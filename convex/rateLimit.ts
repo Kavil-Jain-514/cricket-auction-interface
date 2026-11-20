@@ -3,7 +3,10 @@
 // limits are per resource (e.g. per tournament): they cap what a spammer can
 // cost us, while a real registration rush stays well under them.
 import { internalMutation, MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
+
+const PURGE_BATCH = 1000;
 
 /** Count one hit on `key`; false when the window's limit is already used. */
 export async function consumeRateLimit(
@@ -33,15 +36,20 @@ export const consume = internalMutation({
   handler: (ctx, args) => consumeRateLimit(ctx, args.key, args),
 });
 
-/** Daily cron (convex/crons.ts): drop windows older than a day. */
+/**
+ * Daily cron (convex/crons.ts): drop windows older than a day, in batches.
+ * Sharded limits (shardedRateLimit.ts) keep 16 rows per key, so a full batch
+ * schedules the next one instead of leaving the rest for tomorrow.
+ */
 export const purgeOldWindows = internalMutation({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<{ deleted: number }> => {
     const old = await ctx.db
       .query("rateLimits")
       .withIndex("by_windowStart", (q) => q.lt("windowStart", Date.now() - 24 * 60 * 60 * 1000))
-      .take(1000);
+      .take(PURGE_BATCH);
     await Promise.all(old.map((row) => ctx.db.delete(row._id)));
+    if (old.length === PURGE_BATCH) await ctx.scheduler.runAfter(0, internal.rateLimit.purgeOldWindows, {});
     return { deleted: old.length };
   },
 });

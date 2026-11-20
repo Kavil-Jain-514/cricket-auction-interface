@@ -720,13 +720,18 @@ export const update = mutation({
     }
 
     const { id, settings: _settings, sponsors: _sponsors, organizationLogoUrl, ...rest } = args;
+    // oneRegistrationPerDevice is set only by setOneRegistrationPerDevice
+    // (audit-logged); the settings modal never sends it, so keep the stored value.
+    const savedSettings = nextSettings
+      ? { ...nextSettings, oneRegistrationPerDevice: tournament.settings.oneRegistrationPerDevice }
+      : undefined;
 
     await ctx.db.patch(id, {
       ...rest,
       // "" clears it (patching undefined removes the field).
       ...(organizationLogoUrl !== undefined ? { organizationLogoUrl: organizationLogoUrl || undefined } : {}),
       ...(args.sponsors !== undefined ? { sponsors } : {}),
-      ...(nextSettings ? { settings: nextSettings } : {}),
+      ...(savedSettings ? { settings: savedSettings } : {}),
       updatedAt: Date.now(),
     });
 
@@ -737,7 +742,7 @@ export const update = mutation({
     // Audit only what actually changed (a base purse change moves every
     // team's purse, so it must be on record).
     const before: Record<string, unknown> = { ...tournament.settings };
-    const after: Record<string, unknown> = { ...(nextSettings ?? tournament.settings) };
+    const after: Record<string, unknown> = { ...(savedSettings ?? tournament.settings) };
     for (const key of ["name", "description", "logoUrl", "status"] as const) {
       before[key] = tournament[key];
       after[key] = rest[key] ?? tournament[key];
@@ -796,6 +801,38 @@ export const setRegistrationFee = mutation({
       targetId: args.tournamentId,
       previousData: { registrationFee: previous },
       newData: { registrationFee: args.fee },
+      tournamentId: args.tournamentId,
+    });
+    return { success: true };
+  },
+});
+
+/**
+ * Allow one registration per device (browser) on the public form, or not.
+ * Owners only, like the fee. Not locked while live. Off by default, so
+ * captains and parents can still register several players from one phone.
+ */
+export const setOneRegistrationPerDevice = mutation({
+  args: { tournamentId: v.id("tournaments"), enabled: v.boolean() },
+  handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) throw new ConvexError("Tournament not found");
+    const owner = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    if (tournament.status === "completed") throw new ConvexError("This tournament is completed, so its registration can't change.");
+    const previous = tournament.settings.oneRegistrationPerDevice === true;
+    if (previous === args.enabled) return { success: true };
+    await ctx.db.patch(args.tournamentId, {
+      settings: { ...tournament.settings, oneRegistrationPerDevice: args.enabled },
+      updatedAt: Date.now(),
+    });
+    await logAdminAction(ctx, {
+      userId: owner._id,
+      userEmail: owner.email,
+      action: "set_one_registration_per_device",
+      targetType: "tournament",
+      targetId: args.tournamentId,
+      previousData: { oneRegistrationPerDevice: previous },
+      newData: { oneRegistrationPerDevice: args.enabled },
       tournamentId: args.tournamentId,
     });
     return { success: true };
