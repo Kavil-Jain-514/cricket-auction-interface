@@ -15,7 +15,8 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { getErrorMessage, getRoleDisplay } from '@/lib/utils';
 import { formatRupees } from '@/convex/bidRules';
-import { buildRegistrationRows, formatAnswer } from '@/lib/registrationsWorkbook';
+import { buildRegistrationRows, formatAnswer, sortByRegistered, type RegisteredOrder } from '@/lib/registrationsWorkbook';
+import { formatSaleTime } from '@/lib/resultsWorkbook';
 
 type Status = 'pending_payment' | 'paid' | 'approved' | 'rejected';
 const FILTERS: Array<{ key: Status | 'all'; label: string }> = [
@@ -81,6 +82,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   const categories = [...(tournament?.settings.categories ?? [])].sort((a, b) => a.order - b.order);
   const confirm = useConfirm();
   const [filter, setFilter] = useState<Status | 'all'>('paid');
+  const [order, setOrder] = useState<RegisteredOrder>('newest');
   const [busy, setBusy] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<{ id: Id<"registrations">; name: string } | null>(null);
   const [reason, setReason] = useState('');
@@ -89,7 +91,8 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   // Simple mode: a free tournament with no unpaid entries left from when it charged.
   const free = fee === 0 && !(rows ?? []).some((r) => r.status === 'pending_payment');
   const filters = free ? FREE_FILTERS : FILTERS;
-  const shown = useMemo(() => (rows ?? []).filter((r) => filter === 'all' || r.status === filter), [rows, filter]);
+  const sorted = useMemo(() => sortByRegistered(rows ?? [], order), [rows, order]);
+  const shown = useMemo(() => sorted.filter((r) => filter === 'all' || r.status === filter), [sorted, filter]);
   const readyCount = (rows ?? []).filter((r) => r.status === 'paid').length;
   const link = typeof window !== 'undefined' ? `${window.location.origin}/register/${tournamentId}` : '';
 
@@ -97,7 +100,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
     if (!rows) return;
     try {
       const XLSX = await import('xlsx');
-      const data = buildRegistrationRows(rows, labels);
+      const data = buildRegistrationRows(sorted, labels);
       const workbook = XLSX.utils.book_new();
       const sheet = XLSX.utils.aoa_to_sheet(data);
       sheet['!cols'] = data[0].map((_, col) => ({ wch: Math.min(40, Math.max(...data.map((r) => String(r[col] ?? '').length), 8) + 2) }));
@@ -203,12 +206,18 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter">
-          {filters.map((f) => (
-            <button key={f.key} role="tab" aria-selected={filter === f.key} onClick={() => setFilter(f.key)} className={`rounded-full px-3 py-1.5 text-sm ${filter === f.key ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}>
-              {f.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter">
+            {filters.map((f) => (
+              <button key={f.key} role="tab" aria-selected={filter === f.key} onClick={() => setFilter(f.key)} className={`rounded-full px-3 py-1.5 text-sm ${filter === f.key ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <NativeSelect aria-label="Sort by registration time" value={order} onChange={(e) => setOrder(e.target.value as RegisteredOrder)} className="h-8 w-40">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+          </NativeSelect>
         </div>
 
         <ul className="divide-y divide-slate-800 rounded-xl border border-slate-800 bg-slate-900">
@@ -232,6 +241,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                   {!free && r.paymentRef ? ` (${r.paymentRef})` : ''}
                   {r.rejectReason ? ` · ${r.rejectReason}` : ''}
                 </div>
+                <div className="text-xs text-slate-500">Registered {formatSaleTime(r.createdAt)} IST</div>
                 {(messagesByRegistration.get(r._id) ?? []).length > 0 && (
                   <ul className="mt-1 flex flex-wrap gap-1.5" aria-label={`WhatsApp messages to ${r.name}`}>
                     {(messagesByRegistration.get(r._id) ?? []).map((m) => (
