@@ -9,8 +9,8 @@ import { ConvexError, v } from "convex/values";
 import { action, internalMutation, mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { api, internal } from "./_generated/api";
-import { consumeRateLimit } from "./rateLimit";
+import { internal } from "./_generated/api";
+import { consumeShardedRateLimit } from "./shardedRateLimit";
 import { logAdminAction, OWNER_ONLY, REVIEW_REGISTRATIONS, requireTournamentRole } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { insertValidatedPlayer } from "./players";
@@ -23,14 +23,16 @@ import { enqueueRegistrationNotification } from "./notifications";
 
 const MAX_PER_PHONE_PER_DAY = 3;
 // Per tournament, whatever the phone: a spammer rotating numbers is capped,
-// a real registration rush (a link shared in a group, 50+ people at once)
-// stays well under it. Each registrant may need two or three uploads (photo,
-// payment screenshot, file answers), hence the higher upload cap. The daily
-// upload cap and MAX_PER_PHONE_PER_DAY are what bound abuse.
-const SUBMIT_LIMIT = { limit: 200, windowMs: 60 * 1000 };
-const UPLOAD_SIGNATURE_LIMIT = { limit: 300, windowMs: 60 * 1000 };
+// a real registration rush (a link shared in a big group, hundreds of people
+// in the same minute) stays under it. Each registrant may need two or three
+// uploads (photo, payment screenshot, file answers), hence the higher upload
+// cap. The daily upload cap and MAX_PER_PHONE_PER_DAY are what bound abuse.
+// All three are sharded (convex/shardedRateLimit.ts) so a rush doesn't
+// serialise on one row; the effective cap is up to 63 above the number here.
+export const SUBMIT_LIMIT = { limit: 600, windowMs: 60 * 1000 };
+export const UPLOAD_SIGNATURE_LIMIT = { limit: 900, windowMs: 60 * 1000 };
 // And per day, so a tournament can't be used as free image hosting.
-const UPLOAD_DAILY_LIMIT = { limit: 2000, windowMs: 24 * 60 * 60 * 1000 };
+export const UPLOAD_DAILY_LIMIT = { limit: 2000, windowMs: 24 * 60 * 60 * 1000 };
 /** How long an upload may wait for its registration to be submitted. */
 const UPLOAD_GRANT_TTL_MS = 6 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -40,6 +42,10 @@ const PHOTO_FORMATS = "jpg,jpeg,png,webp";
 const tshirtSize = v.optional(
   v.union(v.literal("XS"), v.literal("S"), v.literal("M"), v.literal("L"), v.literal("XL"), v.literal("XXL"), v.literal("3XL"), v.literal("4XL")),
 );
+
+// The form's random device id (lib/deviceId.ts): a UUID in practice.
+const DEVICE_ID = /^[A-Za-z0-9_-]{8,64}$/;
+const RELOAD = "Reload the page and try again.";
 
 const duplicateKey = (name: string, phone: string | undefined) => `${name.trim().toLowerCase()}|${phone ?? ""}`;
 
@@ -58,6 +64,20 @@ function assertKnownCategory(tournament: Doc<"tournaments">, categoryId: string 
     throw new ConvexError("Pick a category from the tournament's list");
   }
 }
+
+/** Whether the public form takes entries: the same rule for the page, uploads and submit. */
+function registrationIsOpen(tournament: Doc<"tournaments"> | null): tournament is Doc<"tournaments"> {
+  return !!tournament && tournament.isActive !== false && tournament.settings.registrationOpen === true && tournament.status !== "completed";
+}
+
+/** Cloudinary signing config, or null when photo upload isn't set up. */
+function uploadConfig(): { cloudName: string; apiKey: string; apiSecret: string } | null {
+  const cloudName = ourCloudName();
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  return cloudName && apiKey && apiSecret ? { cloudName, apiKey, apiSecret } : null;
+}
+const UPLOAD_NOT_SET_UP = "Photo upload isn't set up; you can register without a photo";
 
 /**
  * Name, logo, sponsors, fee, payment QR, categories, the organiser's own
@@ -79,7 +99,8 @@ export const getPublicInfo = query({
       description: tournament.description,
       logoUrl: tournament.logoUrl,
       organizationLogoUrl: tournament.organizationLogoUrl,
-      open: tournament.settings.registrationOpen === true && tournament.status !== "completed",
+      open: registrationIsOpen(tournament),
+      onePerDevice: tournament.settings.oneRegistrationPerDevice === true,
       fee: tournament.settings.registrationFee ?? 0,
       paymentQrUrl: tournament.settings.paymentQrUrl,
       sponsors: tournament.sponsors ?? [],
@@ -98,21 +119,29 @@ export const getPublicInfo = query({
 export const getUploadSignature = action({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
-    const info = await ctx.runQuery(api.registrations.getPublicInfo, { tournamentId: args.tournamentId });
-    if (!info?.open) throw new ConvexError("Registration is closed");
-    const cloudName = ourCloudName();
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
-    if (!cloudName || !apiKey || !apiSecret) throw new ConvexError("Photo upload isn't set up; you can register without a photo");
     // The signature names one random file (public_id), recorded as a grant
     // that submit consumes: a signature can't be reused for more uploads,
     // and an upload can back one registration only (AUDIT 2026-11 SEC-003).
+    // issueUploadGrant also checks registration is open and upload is set up,
+    // in the same transaction (one round trip instead of a query + mutation).
     const publicId = crypto.randomUUID().replace(/-/g, "");
-    const issued = await ctx.runMutation(internal.registrations.issueUploadGrant, {
-      tournamentId: args.tournamentId,
-      publicId: `${PHOTO_FOLDER}/${publicId}`,
-    });
-    if (!issued) throw new ConvexError("Too many uploads right now. Try again in a minute.");
+    const grant = { tournamentId: args.tournamentId, publicId: `${PHOTO_FOLDER}/${publicId}` };
+    // The client doesn't resend actions, so a grant that lost a write
+    // conflict on every OCC retry is tried again here. A ConvexError is the
+    // server's answer (closed, busy) and goes straight back; anything else
+    // means the mutation didn't commit, so another try can't double-count.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await ctx.runMutation(internal.registrations.issueUploadGrant, grant);
+        break;
+      } catch (error) {
+        if (error instanceof ConvexError || attempt >= 3) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 50 + Math.random() * 250));
+      }
+    }
+    const config = uploadConfig();
+    if (!config) throw new ConvexError(UPLOAD_NOT_SET_UP);
+    const { cloudName, apiKey, apiSecret } = config;
     const params = {
       allowed_formats: PHOTO_FORMATS,
       folder: PHOTO_FOLDER,
@@ -123,14 +152,25 @@ export const getUploadSignature = action({
   },
 });
 
-/** Count the upload against the tournament's limits and record its grant; false when over. */
+/**
+ * Check registration is open and upload is set up, count the upload against
+ * the tournament's limits and record its grant. Throws the message the form
+ * shows; a refusal rolls back, so it uses neither the per-minute nor the
+ * daily budget. The random publicId seeds the shard.
+ */
 export const issueUploadGrant = internalMutation({
   args: { tournamentId: v.id("tournaments"), publicId: v.string() },
-  handler: async (ctx, args): Promise<boolean> => {
-    if (!(await consumeRateLimit(ctx, `upload:${args.tournamentId}`, UPLOAD_SIGNATURE_LIMIT))) return false;
-    if (!(await consumeRateLimit(ctx, `upload-day:${args.tournamentId}`, UPLOAD_DAILY_LIMIT))) return false;
+  handler: async (ctx, args): Promise<void> => {
+    if (!registrationIsOpen(await ctx.db.get(args.tournamentId))) throw new ConvexError("Registration is closed");
+    if (!uploadConfig()) throw new ConvexError(UPLOAD_NOT_SET_UP);
+    const busy = "Too many uploads right now. Try again in a minute.";
+    if (!(await consumeShardedRateLimit(ctx, `upload:${args.tournamentId}`, UPLOAD_SIGNATURE_LIMIT, args.publicId))) {
+      throw new ConvexError(busy);
+    }
+    if (!(await consumeShardedRateLimit(ctx, `upload-day:${args.tournamentId}`, UPLOAD_DAILY_LIMIT, args.publicId))) {
+      throw new ConvexError(busy);
+    }
     await ctx.db.insert("uploadGrants", { ...args, expiresAt: Date.now() + UPLOAD_GRANT_TTL_MS });
-    return true;
   },
 });
 
@@ -210,6 +250,8 @@ export const submit = mutation({
     consentWhatsApp: v.boolean(),
     // Answers to the organiser's own questions (registrationForm.ts).
     answers: v.optional(answersValidator),
+    // The browser's random id, for the organiser's one-per-device setting.
+    deviceId: v.optional(v.string()),
     website: v.string(),
   },
   handler: async (ctx, args) => {
@@ -219,11 +261,16 @@ export const submit = mutation({
       throw new ConvexError("Registration is closed for this tournament");
     }
     if (args.website.trim() !== "") return { success: true as const, needsPayment: false, fee: 0 };
-    if (!(await consumeRateLimit(ctx, `register:${args.tournamentId}`, SUBMIT_LIMIT))) {
+    // A server-side random seed: the shard is never the client's choice
+    // (shardedRateLimit.ts). Convex seeds Math.random per mutation.
+    if (!(await consumeShardedRateLimit(ctx, `register:${args.tournamentId}`, SUBMIT_LIMIT, String(Math.random())))) {
       throw new ConvexError("Too many registrations right now. Try again in a minute.");
     }
 
-    const { website: _honeypot, consentWhatsApp, tournamentId, categoryId, answers: rawAnswers, ...fields } = args;
+    const { website: _honeypot, consentWhatsApp, tournamentId, categoryId, answers: rawAnswers, deviceId, ...fields } = args;
+    if (deviceId !== undefined && !DEVICE_ID.test(deviceId)) throw new ConvexError(RELOAD);
+    const onePerDevice = tournament.settings.oneRegistrationPerDevice === true;
+    if (onePerDevice && deviceId === undefined) throw new ConvexError(RELOAD);
     const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
     if (errors.length > 0) throw new ConvexError(errors[0].message);
     if (!phoneNumber) throw new ConvexError("Phone number is required");
@@ -263,6 +310,20 @@ export const submit = mutation({
     ) {
       throw new ConvexError(`${fields.name.trim()} is already registered for this tournament`);
     }
+    // After the name + phone check, so the same person retrying hears they're
+    // registered (the form shows that as success), not about the device.
+    // Indexed on (tournament, device): only the same device ever conflicts.
+    if (onePerDevice) {
+      const fromDevice = await ctx.db
+        .query("registrations")
+        .withIndex("by_tournament_device", (q) => q.eq("tournamentId", tournamentId).eq("deviceId", deviceId))
+        .collect();
+      if (fromDevice.some((r) => r.status !== "rejected")) {
+        throw new ConvexError(
+          "This device has already been used to register for this tournament. To register someone else, use their phone or ask the organiser.",
+        );
+      }
+    }
 
     const fee = Math.max(0, tournament.settings.registrationFee ?? 0);
     const registrationId = await ctx.db.insert("registrations", {
@@ -273,6 +334,7 @@ export const submit = mutation({
       categoryId,
       consentWhatsApp,
       answers,
+      deviceId,
       status: fee > 0 ? "pending_payment" : "paid",
       fee,
       createdAt: now,

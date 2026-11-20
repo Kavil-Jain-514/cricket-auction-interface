@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useState } from 'react';
+import { use, useRef, useState } from 'react';
 import { useAction, useMutation, useQuery } from 'convex/react';
+import { ConvexError } from 'convex/values';
 import { Activity, Check, CheckCircle2, ClipboardList, ImageUp, QrCode, Tag, Upload, UserRound, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
@@ -14,6 +15,8 @@ import { Field, FormDivider, SectionHeading, formInputCls } from '@/components/u
 import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { PLAYER_ROLES, cn, getErrorMessage, getRoleBadgeBg } from '@/lib/utils';
 import { openRazorpayCheckout } from '@/lib/razorpayCheckout';
+import { retryWhenBusy } from '@/lib/retryWhenBusy';
+import { getDeviceId } from '@/lib/deviceId';
 import { formatRupees } from '@/convex/bidRules';
 import { DEFAULT_REQUIRED_FIELDS, missingRequiredField, validateAnswers, type StandardField } from '@/convex/registrationForm';
 import { CustomQuestions, answersToSubmit, type AnswerMap } from '@/components/registration/CustomQuestions';
@@ -26,7 +29,23 @@ const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const TSHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'] as const;
 
 // "qr": showing the QR, waiting for the screenshot. "offline": paying in person.
-type PayStep = 'choose' | 'qr' | 'offline' | 'paid';
+// "saved": an earlier attempt whose answer was lost turned out to have been
+// saved, so there is no registration id to pay against here.
+type PayStep = 'choose' | 'qr' | 'offline' | 'paid' | 'saved';
+
+const BUSY_NOTE = 'Lots of people are registering right now, you are in line. Retrying…';
+
+/** Cloudinary upload, tried once more on a network failure or a 5xx. */
+async function postToCloudinary(url: string, body: FormData): Promise<Response> {
+  try {
+    const res = await fetch(url, { method: 'POST', body });
+    if (res.status < 500) return res;
+  } catch {
+    // Network failure: fall through to the one retry.
+  }
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  return await fetch(url, { method: 'POST', body });
+}
 type Done = { registrationId?: Id<"registrations">; needsPayment: boolean; fee: number; step: PayStep };
 
 /** Public player registration. No sign-in; the organiser reviews every entry. */
@@ -59,6 +78,13 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<Done | null>(null);
   const [paying, setPaying] = useState(false);
+  // Shown (and announced) while a busy refusal is being retried.
+  const [busyNote, setBusyNote] = useState<string | null>(null);
+  // Blocks a second submit before the disabled button has rendered.
+  const submittingRef = useRef(false);
+  // name|phone of a submit whose outcome is unknown (the connection failed
+  // after sending). If the retry says "already registered", it was saved.
+  const uncertainSubmit = useRef<string | null>(null);
 
   const patch = (p: Partial<typeof form>) => setForm((f) => ({ ...f, ...p }));
   const setStep = (step: PayStep) => setDone((d) => (d ? { ...d, step } : d));
@@ -73,7 +99,12 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
       toast.error('Image must be 5 MB or smaller');
       return null;
     }
-    const sig = await getUploadSignature({ tournamentId });
+    let sig;
+    try {
+      sig = await retryWhenBusy(() => getUploadSignature({ tournamentId }), { onRetry: () => setBusyNote(BUSY_NOTE) });
+    } finally {
+      setBusyNote(null);
+    }
     const body = new FormData();
     body.append('file', file);
     body.append('api_key', sig.apiKey);
@@ -84,7 +115,9 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
     // registration's upload if it matches a name it signed.
     body.append('public_id', sig.public_id);
     body.append('allowed_formats', sig.allowed_formats);
-    const res = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloudName}/image/upload`, { method: 'POST', body });
+    // Same signature on the retry: it names this one file, so a first try that
+    // did land is simply overwritten.
+    const res = await postToCloudinary(`https://api.cloudinary.com/v1_1/${sig.cloudName}/image/upload`, body);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error?.message ?? 'Upload failed');
     return data.secure_url as string;
@@ -158,9 +191,12 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         return toast.error(errors[0].message);
       }
     }
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
+    const person = `${form.name.trim().toLowerCase()}|${form.phoneNumber.replace(/\D/g, '').slice(-10)}`;
     try {
-      const res = await submit({
+      const res = await retryWhenBusy(() => submit({
         tournamentId,
         name: form.name,
         phoneNumber: form.phoneNumber,
@@ -174,12 +210,26 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         photoUrl,
         consentWhatsApp: form.consentWhatsApp,
         answers: customForm ? { formVersion: customForm.version, values } : undefined,
+        deviceId: getDeviceId(),
         website: form.website,
-      });
+      }), { onRetry: () => setBusyNote(BUSY_NOTE) });
+      uncertainSubmit.current = null;
       setDone({ registrationId: res.registrationId, needsPayment: res.needsPayment, fee: res.fee, step: res.needsPayment ? 'choose' : 'paid' });
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Could not register'));
+      const message = getErrorMessage(error, 'Could not register');
+      if (uncertainSubmit.current === person && /is already registered for this tournament$/.test(message)) {
+        // Our earlier attempt reached the server; its answer was lost on the way back.
+        uncertainSubmit.current = null;
+        setDone({ needsPayment: info?.fee ? info.fee > 0 : false, fee: info?.fee ?? 0, step: 'saved' });
+      } else {
+        // A ConvexError is the server's answer (nothing was saved). Anything
+        // else may have been lost after the server saved the entry.
+        if (!(error instanceof ConvexError)) uncertainSubmit.current = person;
+        toast.error(message);
+      }
     } finally {
+      setBusyNote(null);
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -258,6 +308,18 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
           </>
         )}
 
+        {done.step === 'saved' && (
+          <>
+            <CheckCircle2 className="mx-auto w-12 h-12 text-green-400" />
+            <h2 className="text-xl font-bold">You&apos;re registered</h2>
+            <p className="text-sm text-slate-400">
+              Your entry was saved on an earlier try.{' '}
+              {done.needsPayment ? `If you haven't paid the ${fee} fee yet, pay the organiser; they'll mark it received. ` : ''}
+              The organiser will review your entry before the auction.
+            </p>
+          </>
+        )}
+
         {done.step === 'offline' && (
           <>
             <CheckCircle2 className="mx-auto w-12 h-12 text-green-400" />
@@ -307,6 +369,11 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
 
   return shell(
     <form onSubmit={handleSubmit} className="space-y-5 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      {info.onePerDevice && (
+        <p className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-300">
+          One registration per phone for this tournament. To register someone else, use their phone.
+        </p>
+      )}
       {info.fee > 0 && (
         <p className="rounded-lg bg-blue-500/10 px-3 py-2 text-sm text-blue-200">
           Registration fee: {formatRupees(info.fee)}, paid after you submit{info.paymentQrUrl ? ' by scanning the organiser’s QR' : ''} or in person.
@@ -466,6 +533,9 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
       </label>
       <p className="text-xs text-slate-400">Your phone number is only shared with the organiser. Reply STOP on WhatsApp at any time to stop the messages.</p>
 
+      <p role="status" aria-live="polite" className={cn('rounded-lg bg-blue-500/10 px-3 py-2 text-sm text-blue-200', !busyNote && 'sr-only')}>
+        {busyNote ?? ''}
+      </p>
       <Button type="submit" disabled={submitting || uploading !== null} className="w-full h-11">
         {submitting ? 'Submitting…' : 'Register'}
       </Button>

@@ -101,6 +101,8 @@ export default defineSchema({
       // Public self-registration (/register/<id>). Not locked while live.
       registrationOpen: v.optional(v.boolean()),
       registrationFee: v.optional(v.number()), // rupees; absent or 0 = free
+      // One registration per browser (the form's random device id). Absent = off.
+      oneRegistrationPerDevice: v.optional(v.boolean()),
       // UPI QR the registrant scans to pay the fee; they upload a screenshot.
       paymentQrUrl: v.optional(v.string()),
     }),
@@ -275,11 +277,16 @@ export default defineSchema({
     // Answers to the organiser's own questions, with the form version they
     // were given against (registrationFormVersions). Absent = none asked.
     answers: v.optional(answersValidator),
+    // Random id the form keeps in the browser's storage (not personal data).
+    // Recorded always, so switching oneRegistrationPerDevice on also counts
+    // earlier entries. Absent for entries from before it existed.
+    deviceId: v.optional(v.string()),
     createdAt: v.number(),
     reviewedAt: v.optional(v.number()),
   })
     .index("by_tournament", ["tournamentId"])
     .index("by_tournament_phone", ["tournamentId", "phoneNumber"])
+    .index("by_tournament_device", ["tournamentId", "deviceId"])
     .index("by_order", ["razorpayOrderId"])
     // The registration a player was approved from (registrationForms:answersForPlayer).
     .index("by_player", ["playerId"]),

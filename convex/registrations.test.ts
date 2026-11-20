@@ -5,6 +5,8 @@ import { api } from "./_generated/api";
 import schema from "./schema";
 import type { Doc, Id } from "./_generated/dataModel";
 import { cloudinarySignature } from "./cloudinarySignature";
+import { perShardLimit, RATE_LIMIT_SHARDS } from "./shardedRateLimit";
+import { SUBMIT_LIMIT, UPLOAD_DAILY_LIMIT, UPLOAD_SIGNATURE_LIMIT } from "./registrations";
 
 // Step 19: public player registration with an optional fee. Fixtures follow
 // auctions.test.ts (see there for why _generated stays in the glob).
@@ -308,6 +310,7 @@ describe("public info", () => {
       description: undefined,
       logoUrl: undefined,
       open: true,
+      onePerDevice: false,
       fee: 250,
       paymentQrUrl: undefined,
       sponsors: [],
@@ -466,21 +469,78 @@ describe("abuse limits on the public form (AUDIT 2026-10 P1-9)", () => {
     }
   });
 
-  test("submissions are still rate-limited per tournament, whatever the phone (200 a minute)", async () => {
+  // Sharded per-tournament limits (convex/shardedRateLimit.ts). convex-test
+  // runs transactions one at a time, so these prove the caps and the
+  // bookkeeping, not production OCC behaviour under real concurrency; that is
+  // what scripts/loadtest/registrations.mjs is for.
+  const phoneFor = (i: number) => `98765${String(i).padStart(5, "0")}`;
+  const MINUTE = 60 * 1000;
+  /** Fill every shard of `key` for the current window, as a rush would. */
+  const fillShards = (t: ReturnType<typeof convexTest>, key: string, limit: number) =>
+    t.run(async (ctx) => {
+      const now = Date.now();
+      for (let s = 0; s < RATE_LIMIT_SHARDS; s++) {
+        await ctx.db.insert("rateLimits", { key: `${key}:${s}`, windowStart: now - (now % MINUTE), count: perShardLimit(limit) });
+      }
+    });
+  const rateRows = (t: ReturnType<typeof convexTest>) =>
+    t.run(async (ctx) => (await ctx.db.query("rateLimits").collect()).map(({ key, windowStart, count }) => ({ key, windowStart, count })));
+
+  test("300 simultaneous registrations all go through", async () => {
     oneMinute();
     try {
       const t = convexTest(schema, modules);
       const { tournamentId } = await setup(t);
-      for (let i = 0; i < 200; i++) {
-        await t.mutation(api.registrations.submit, {
-          tournamentId,
-          ...entry({ name: `Player ${i}`, phoneNumber: `98765${String(i).padStart(5, "0")}` }),
-        });
-      }
+      const results = await Promise.all(
+        Array.from({ length: 300 }, (_, i) =>
+          t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: `Player ${i}`, phoneNumber: phoneFor(i), consentWhatsApp: false }) }),
+        ),
+      );
+      expect(results.every((r) => r.success)).toBe(true);
+      expect(await registrations(t)).toHaveLength(300);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("submissions are still capped per tournament, whatever the phone; a refused one writes nothing", async () => {
+    oneMinute();
+    try {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      await fillShards(t, `register:${tournamentId}`, SUBMIT_LIMIT.limit);
+      const before = await rateRows(t);
       await expect(
         t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: "One More", phoneNumber: "9111111111" }) }),
       ).rejects.toThrow(/Too many registrations right now/);
-      expect(await registrations(t)).toHaveLength(200);
+      expect(await registrations(t)).toHaveLength(0);
+      expect(await rateRows(t)).toEqual(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a submit refused by validation doesn't use up the tournament's budget", async () => {
+    oneMinute();
+    try {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({ age: 2 }) })).rejects.toThrow(/Age/);
+      expect(await rateRows(t)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the per-tournament cap resets when the minute rolls over", async () => {
+    oneMinute();
+    try {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      await fillShards(t, `register:${tournamentId}`, SUBMIT_LIMIT.limit);
+      await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry() })).rejects.toThrow(/Too many registrations right now/);
+      vi.setSystemTime(new Date("2026-11-19T10:01:05Z"));
+      await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry() })).resolves.toMatchObject({ success: true });
     } finally {
       vi.useRealTimers();
     }
@@ -505,18 +565,69 @@ describe("abuse limits on the public form (AUDIT 2026-10 P1-9)", () => {
     await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry() })).rejects.toThrow(/already registered/);
   });
 
-  test("photo upload signatures are still rate-limited per tournament (300 a minute)", async () => {
+  test("450 simultaneous photo upload signatures all go through", async () => {
     oneMinute();
     try {
       const t = convexTest(schema, modules);
       const { tournamentId } = await setup(t);
       await withCloudinary(async () => {
-        for (let i = 0; i < 300; i++) await t.action(api.registrations.getUploadSignature, { tournamentId });
-        await expect(t.action(api.registrations.getUploadSignature, { tournamentId })).rejects.toThrow(/Too many uploads/);
+        const sigs = await Promise.all(Array.from({ length: 450 }, () => t.action(api.registrations.getUploadSignature, { tournamentId })));
+        expect(new Set(sigs.map((s) => s.public_id)).size).toBe(450);
+      });
+      expect(await t.run((ctx) => ctx.db.query("uploadGrants").collect())).toHaveLength(450);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("signatures are still capped per tournament; a refused one issues no grant and uses no daily budget", async () => {
+    oneMinute();
+    try {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      await fillShards(t, `upload:${tournamentId}`, UPLOAD_SIGNATURE_LIMIT.limit);
+      const before = await rateRows(t);
+      await withCloudinary(async () => {
+        await expect(t.action(api.registrations.getUploadSignature, { tournamentId })).rejects.toThrow(/Too many uploads right now/);
+      });
+      expect(await t.run((ctx) => ctx.db.query("uploadGrants").collect())).toHaveLength(0);
+      expect(await rateRows(t)).toEqual(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the daily upload cap still applies", async () => {
+    oneMinute();
+    try {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        const day = 24 * 60 * MINUTE;
+        for (let s = 0; s < RATE_LIMIT_SHARDS; s++) {
+          await ctx.db.insert("rateLimits", { key: `upload-day:${tournamentId}:${s}`, windowStart: now - (now % day), count: perShardLimit(UPLOAD_DAILY_LIMIT.limit) });
+        }
+      });
+      await withCloudinary(async () => {
+        await expect(t.action(api.registrations.getUploadSignature, { tournamentId })).rejects.toThrow(/Too many uploads right now/);
       });
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test("signatures: closed registration and missing Cloudinary setup keep their messages, closed first", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { registrationOpen: false });
+    await expect(t.action(api.registrations.getUploadSignature, { tournamentId })).rejects.toThrow(/Registration is closed/);
+    await withCloudinary(async () => {
+      await expect(t.action(api.registrations.getUploadSignature, { tournamentId })).rejects.toThrow(/Registration is closed/);
+    });
+    const open = convexTest(schema, modules);
+    const o = await setup(open);
+    await expect(open.action(api.registrations.getUploadSignature, { tournamentId: o.tournamentId })).rejects.toThrow(/isn't set up/);
+    expect(await open.run((ctx) => ctx.db.query("uploadGrants").collect())).toHaveLength(0);
   });
 
   test("getPaymentInfo says how many checkouts are left, so the order route can refuse early", async () => {
@@ -649,5 +760,90 @@ describe("single-use upload grants (AUDIT 2026-11 SEC-003)", () => {
     await expect(
       t.mutation(api.registrations.submit, { tournamentId, ...entry({ photoUrl: urlFor(`${sig.folder}/${sig.public_id}`) }) }),
     ).rejects.toThrow(/photo/i);
+  });
+});
+
+describe("one registration per device (organiser setting)", () => {
+  const DEVICE = "device-aaaaaaaa-1111";
+  const OTHER_DEVICE = "device-bbbbbbbb-2222";
+  const onePerDevice = (t: ReturnType<typeof convexTest>, tournamentId: Id<"tournaments">, enabled: boolean) =>
+    t.withIdentity(OWNER).mutation(api.tournaments.setOneRegistrationPerDevice, { tournamentId, enabled });
+
+  test("off by default: one device can register several people, and the device is recorded", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    expect(await t.query(api.registrations.getPublicInfo, { tournamentId })).toMatchObject({ onePerDevice: false });
+    await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) });
+    await t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: "Second Person", phoneNumber: "9123456780", deviceId: DEVICE }) });
+    await t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: "No Device", phoneNumber: "9123456781" }) });
+    const rows = await registrations(t);
+    expect(rows.map((r) => r.deviceId)).toEqual([DEVICE, DEVICE, undefined]);
+  });
+
+  test("on: a second person from the same device is refused and nothing is written; another device is fine", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await onePerDevice(t, tournamentId, true);
+    expect(await t.query(api.registrations.getPublicInfo, { tournamentId })).toMatchObject({ onePerDevice: true });
+    await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) });
+    await expect(
+      t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: "Second Person", phoneNumber: "9123456780", deviceId: DEVICE }) }),
+    ).rejects.toThrow(/already been used to register/);
+    expect(await registrations(t)).toHaveLength(1);
+    await t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: "Second Person", phoneNumber: "9123456780", deviceId: OTHER_DEVICE }) });
+    expect(await registrations(t)).toHaveLength(2);
+  });
+
+  test("on: it counts entries made before the switch, but not rejected ones", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const first = await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) });
+    await onePerDevice(t, tournamentId, true);
+    const second = () => t.mutation(api.registrations.submit, { tournamentId, ...entry({ name: "Second Person", phoneNumber: "9123456780", deviceId: DEVICE }) });
+    await expect(second()).rejects.toThrow(/already been used to register/);
+    await t.withIdentity(OWNER).mutation(api.registrations.reject, { registrationId: first.registrationId as Id<"registrations">, reason: "Wrong person" });
+    await expect(second()).resolves.toMatchObject({ success: true });
+  });
+
+  test("on: the same person retrying is told they're already registered, not about the device", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await onePerDevice(t, tournamentId, true);
+    await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) });
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) })).rejects.toThrow(
+      /Ravi Kumar is already registered for this tournament/,
+    );
+  });
+
+  test("on: a submit without a device id is refused; a malformed id is always refused", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: "bad id!" }) })).rejects.toThrow(/Reload the page/);
+    await onePerDevice(t, tournamentId, true);
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry() })).rejects.toThrow(/Reload the page/);
+    expect(await registrations(t)).toHaveLength(0);
+  });
+
+  test("only owners switch it; it's audit-logged, refused once completed, and kept when other settings are saved", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await expect(
+      t.withIdentity(OTHER).mutation(api.tournaments.setOneRegistrationPerDevice, { tournamentId, enabled: true }),
+    ).rejects.toThrow();
+    await onePerDevice(t, tournamentId, true);
+    const logs = await t.run((ctx) => ctx.db.query("auditLogs").collect());
+    expect(logs.filter((l) => l.action === "set_one_registration_per_device")).toHaveLength(1);
+
+    // The settings modal sends the whole settings object, without this field.
+    const tournament = (await t.run((ctx) => ctx.db.get(tournamentId)))!;
+    const { oneRegistrationPerDevice: _omitted, ...modalSettings } = tournament.settings;
+    await t.withIdentity(OWNER).mutation(api.tournaments.update, { id: tournamentId, settings: { ...modalSettings, maxPlayersPerTeam: 6 } });
+    expect((await t.run((ctx) => ctx.db.get(tournamentId)))!.settings).toMatchObject({ maxPlayersPerTeam: 6, oneRegistrationPerDevice: true });
+    // ...and the settings audit entry doesn't claim the switch changed.
+    const settingsLogs = (await t.run((ctx) => ctx.db.query("auditLogs").collect())).filter((l) => l.action !== "set_one_registration_per_device");
+    expect(JSON.stringify(settingsLogs.map((l) => l.newData))).not.toContain("oneRegistrationPerDevice");
+
+    await t.run((ctx) => ctx.db.patch(tournamentId, { status: "completed" }));
+    await expect(onePerDevice(t, tournamentId, false)).rejects.toThrow(/completed/);
   });
 });
