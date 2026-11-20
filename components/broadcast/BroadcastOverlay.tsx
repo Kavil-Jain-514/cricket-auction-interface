@@ -46,7 +46,7 @@ export function BroadcastOverlay({ roomId, mode, theme, safe }: BroadcastOverlay
 
   useTransparentPage();
   useWakeLock(true);
-  const scale = useStageScale();
+  const stage = useStageFit();
   // On a stream a frozen price is worse than nothing: hide the card while
   // the socket has been down for a few seconds; it returns resynced.
   const connection = useConnectionView();
@@ -73,7 +73,7 @@ export function BroadcastOverlay({ roomId, mode, theme, safe }: BroadcastOverlay
 
   return (
     <div data-broadcast-overlay className="fixed inset-0 overflow-hidden bg-transparent">
-      <div className="relative" style={{ width: STAGE_WIDTH, height: STAGE_HEIGHT, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+      <div className="relative" style={{ width: stage.width, height: stage.height, transform: `scale(${stage.scale})`, transformOrigin: 'top left' }}>
         {liveData && rosterData && !stinger && !stale && (
           <OverlayStage
             mode={mode}
@@ -134,16 +134,33 @@ function useTransparentPage() {
   }, []);
 }
 
-/** Fit the fixed 1920x1080 stage to the window (1 in a 1920x1080 Browser Source). */
-function useStageScale(): number {
-  const [scale, setScale] = useState(1);
+interface StageFit {
+  scale: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Fill the window edge to edge. Content is sized for a 1920x1080 stage and
+ * scaled so that box fits; a window that isn't 16:9 (a wide projector, a
+ * browser window) widens or heightens the stage instead of leaving a gap.
+ * A 1920x1080 Browser Source is exactly 1920x1080 at scale 1.
+ */
+export function stageFit(windowWidth: number, windowHeight: number): StageFit {
+  const scale = Math.min(windowWidth / STAGE_WIDTH, windowHeight / STAGE_HEIGHT);
+  if (!(scale > 0)) return { scale: 1, width: STAGE_WIDTH, height: STAGE_HEIGHT };
+  return { scale, width: windowWidth / scale, height: windowHeight / scale };
+}
+
+function useStageFit(): StageFit {
+  const [fit, setFit] = useState<StageFit>({ scale: 1, width: STAGE_WIDTH, height: STAGE_HEIGHT });
   useEffect(() => {
-    const fit = () => setScale(Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT));
-    fit();
-    window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
+    const update = () => setFit(stageFit(window.innerWidth, window.innerHeight));
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
   }, []);
-  return scale;
+  return fit;
 }
 
 type SaleEvent = NonNullable<ReturnType<typeof useQuery<typeof api.auctions.getLatestSaleEvent>>>;

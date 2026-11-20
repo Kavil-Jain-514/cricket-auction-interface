@@ -30,7 +30,7 @@ vi.mock("@/convex/_generated/api", () => ({
   },
 }));
 
-import { BroadcastOverlay } from "./BroadcastOverlay";
+import { BroadcastOverlay, stageFit } from "./BroadcastOverlay";
 import { OverlayStage, TeamsPanel, type OverlayView } from "./OverlayStage";
 import { OverlayResult } from "./OverlayResult";
 
@@ -146,10 +146,25 @@ describe("OverlayStage — layouts", () => {
     }
   });
 
-  test("full layout: large photo, no team strip, Teams button when there are teams", () => {
+  test("full layout: photo and details split the card in half, timer above the card", () => {
+    const html = renderToString(<OverlayStage {...stageView} mode="full" />);
+    expect(html).toContain("grid-cols-2");
+    expect(html).toContain("w-full! h-full!");
+    // The ring renders in the header slot, before the card and its details.
+    const timerAt = html.indexOf('role="timer"');
+    expect(timerAt).toBeGreaterThan(html.indexOf("data-header-timer"));
+    expect(timerAt).toBeLessThan(html.indexOf("data-full-layout"));
+    expect(html.split('role="timer"')).toHaveLength(2); // exactly one ring
+  });
+
+  test("lower third keeps its timer inside the card", () => {
+    const html = renderToString(<OverlayStage {...stageView} />);
+    expect(html.indexOf('role="timer"')).toBeGreaterThan(html.indexOf("data-lower-third"));
+  });
+
+  test("full layout: no team strip, Teams button when there are teams", () => {
     const html = renderToString(<OverlayStage {...stageView} mode="full" teams={twoTeams} />);
     expect(html).toContain("data-full-layout");
-    expect(html).toContain("w-180!");
     expect(html).toContain("data-teams-button");
     expect(html).not.toContain("Delhi Dynamos · "); // teams stay hidden until asked for
     expect(html).not.toContain("data-teams-panel");
@@ -213,5 +228,29 @@ describe("OverlayResult — static SOLD / UNSOLD card", () => {
     expect(html).toContain("UNSOLD");
     expect(html).toContain("Base Price: ₹1.00L");
     expect(html).toContain("No bids received");
+  });
+});
+
+describe("stageFit — fills the window with no gap", () => {
+  test("1920x1080 Browser Source: unchanged", () => {
+    expect(stageFit(1920, 1080)).toEqual({ scale: 1, width: 1920, height: 1080 });
+  });
+
+  test("wider than 16:9: full height, stage widens to the edge", () => {
+    const fit = stageFit(3016, 1536);
+    expect(fit.height).toBeCloseTo(1080);
+    expect(fit.width * fit.scale).toBeCloseTo(3016);
+    expect(fit.width).toBeGreaterThan(1920);
+  });
+
+  test("taller than 16:9: full width, stage heightens to the edge", () => {
+    const fit = stageFit(1440, 1080);
+    expect(fit.width).toBeCloseTo(1920);
+    expect(fit.height * fit.scale).toBeCloseTo(1080);
+    expect(fit.height).toBeGreaterThan(1080);
+  });
+
+  test("zero-size window falls back to the base stage", () => {
+    expect(stageFit(0, 0)).toEqual({ scale: 1, width: 1920, height: 1080 });
   });
 });
