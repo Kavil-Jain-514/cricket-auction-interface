@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildRegistrationRows, formatAnswer, sortByRegistered, type QuestionLabels } from "./registrationsWorkbook";
+import { buildRegistrationRows, formatAnswer, type QuestionLabels } from "./registrationsWorkbook";
 
 const LABELS: QuestionLabels = {
   q_club: { label: "Club", type: "short_text", archived: false },
@@ -38,24 +38,10 @@ describe("buildRegistrationRows", () => {
       LABELS,
     );
     expect(rows[0]).toEqual([
-      "Name", "Mobile", "Age", "Role", "Hand", "Status", "Fee (₹)", "Registered (IST)",
+      "Name", "Mobile", "Age", "Role", "Hand", "Status", "Fee (₹)", "Registered",
       "Club", "Expected bid", "Days", "Old question (archived)",
     ]);
-    // Midnight UTC is 05:30 in India.
-    expect(rows[1].slice(7)).toEqual(["03 Nov 2026, 05:30", "Gym", 150000, "", "kept"]);
+    expect(rows[1].slice(7)).toEqual(["2026-11-03", "Gym", 150000, "", "kept"]);
     expect(rows[2].slice(8)).toEqual(["", "", "", ""]);
-  });
-});
-
-describe("sortByRegistered", () => {
-  const rows = [
-    { name: "B", createdAt: 2 },
-    { name: "C", createdAt: 3 },
-    { name: "A", createdAt: 1 },
-  ];
-  test("newest or oldest first, without changing the input", () => {
-    expect(sortByRegistered(rows, "newest").map((r) => r.name)).toEqual(["C", "B", "A"]);
-    expect(sortByRegistered(rows, "oldest").map((r) => r.name)).toEqual(["A", "B", "C"]);
-    expect(rows.map((r) => r.name)).toEqual(["B", "C", "A"]);
   });
 });

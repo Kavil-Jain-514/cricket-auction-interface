@@ -4,7 +4,6 @@
 // into a workbook with the xlsx package, as resultsWorkbook does.
 import type { AnswerValue, QuestionType } from '@/convex/registrationForm';
 import { formatAmount } from '@/lib/amount';
-import { formatSaleTime } from '@/lib/resultsWorkbook';
 import { getRoleDisplay } from '@/lib/utils';
 
 export type QuestionLabels = Record<string, { label: string; type: QuestionType; archived: boolean }>;
@@ -38,7 +37,7 @@ export function buildRegistrationRows(rows: RegistrationRow[], labels: QuestionL
     .filter((id) => !labels[id].archived || answered.has(id))
     .sort((a, b) => Number(labels[a].archived) - Number(labels[b].archived));
   const header = [
-    'Name', 'Mobile', 'Age', 'Role', 'Hand', 'Status', 'Fee (₹)', 'Registered (IST)',
+    'Name', 'Mobile', 'Age', 'Role', 'Hand', 'Status', 'Fee (₹)', 'Registered',
     ...ids.map((id) => (labels[id].archived ? `${labels[id].label} (archived)` : labels[id].label)),
   ];
   const body = rows.map((r) => {
@@ -51,7 +50,7 @@ export function buildRegistrationRows(rows: RegistrationRow[], labels: QuestionL
       r.battingBowlingHand,
       r.status,
       r.fee,
-      formatSaleTime(r.createdAt),
+      new Date(r.createdAt).toISOString().slice(0, 10),
       ...ids.map((id) => {
         const value = byId.get(id);
         // Numbers stay numbers so the sheet can sum them.
@@ -61,12 +60,4 @@ export function buildRegistrationRows(rows: RegistrationRow[], labels: QuestionL
     ];
   });
   return [header, ...body];
-}
-
-export type RegisteredOrder = 'newest' | 'oldest';
-
-/** A sorted copy by submission time; the input is left as it is. */
-export function sortByRegistered<T extends { createdAt: number }>(rows: T[], order: RegisteredOrder): T[] {
-  const sign = order === 'newest' ? -1 : 1;
-  return [...rows].sort((a, b) => sign * (a.createdAt - b.createdAt));
 }
