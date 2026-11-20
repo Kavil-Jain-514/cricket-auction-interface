@@ -22,7 +22,6 @@ import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalAction,
   internalMutation,
-  internalQuery,
   mutation,
   query,
   type MutationCtx,
@@ -59,10 +58,22 @@ export function toE164(
 export { formatRupees };
 
 const MAX_ATTEMPTS = 5;
-const BATCH_SIZE = 10; // per second: far below Meta's per-number throughput
+/** Messages per batch, and the gap between batches: 10 a second, far below Meta's per-number throughput. */
+export const NOTIFY_BATCH_SIZE = 10;
+export const NOTIFY_BATCH_INTERVAL_MS = 1000;
+const BATCH_SIZE = NOTIFY_BATCH_SIZE;
 const RETRY_BASE_MS = 30_000; // 30s, 60s, 2m, 4m
 const STUCK_SENDING_MS = 5 * 60_000;
 const SEND_TIMEOUT_MS = 15_000;
+/** How long after an enqueue the worker starts, so a burst of registrations is sent as one paced run. */
+export const NOTIFY_KICK_DELAY_MS = 3000;
+/**
+ * How long a run's lease lasts without renewal. Renewed every batch; a batch
+ * can take BATCH_SIZE sends at SEND_TIMEOUT_MS each, so the lease outlives the
+ * slowest batch. A crashed run blocks the worker for at most this long.
+ */
+const LEASE_MS = BATCH_SIZE * SEND_TIMEOUT_MS + 60_000;
+const LEASE_NAME = "whatsapp";
 
 type Kind = Doc<"notifications">["kind"];
 type Payload = Doc<"notifications">["payload"];
@@ -74,6 +85,87 @@ const defaultCountryCode = () => process.env.WHATSAPP_DEFAULT_COUNTRY_CODE ?? "9
 function maskPhone(e164: string): string {
   return `+${e164.slice(0, 2)}•••••${e164.slice(-4)}`;
 }
+
+/*
+ * One worker at a time (2026-11-20; the registration load test). Before, every
+ * enqueue scheduled its own processQueue, so a rush of 300 registrations
+ * started 300 workers that all claimed the head of the same queue (OCC
+ * conflicts, runs failing until the 5-minute sweep) and, by rescheduling
+ * themselves, kept several chains sending in parallel, past the pace above.
+ *
+ * Now a run must hold the "whatsapp" lease (workerLeases). The lease row is
+ * shared, so the transaction that enqueues never touches it: enqueue (inside
+ * submit, a sale, an approval) only inserts its own outbox row and schedules
+ * `kick`, which inserts a new scheduler entry and conflicts with nothing. The
+ * kick, a separate transaction a few seconds later, starts a run only if no
+ * run holds the lease; the kicks of a burst find it held and end without
+ * writing. The run sends a batch, renews the lease, and schedules its next
+ * batch NOTIFY_BATCH_INTERVAL_MS later; finishRun releases the lease in the
+ * same transaction that finds nothing due, so a row enqueued meanwhile is
+ * either seen by that check or kicks a new run after the release. A crashed
+ * run's lease expires after LEASE_MS; the 5-minute sweep (crons.ts) then
+ * takes over. claimDue still hands each row to one run only, so overlapping
+ * runs (an expired lease, an old argument-less call) never send twice.
+ */
+
+/** Take the worker lease if nobody holds it (or theirs expired); the new run id, or null. */
+async function acquireLease(ctx: MutationCtx): Promise<string | null> {
+  const now = Date.now();
+  const lease = await ctx.db
+    .query("workerLeases")
+    .withIndex("by_name", (q) => q.eq("name", LEASE_NAME))
+    .first();
+  if (lease && lease.leaseUntil > now) return null;
+  const runId = `${now.toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  if (lease) await ctx.db.patch(lease._id, { runId, leaseUntil: now + LEASE_MS });
+  else await ctx.db.insert("workerLeases", { name: LEASE_NAME, runId, leaseUntil: now + LEASE_MS });
+  return runId;
+}
+
+async function leaseFor(ctx: MutationCtx, runId: string) {
+  const lease = await ctx.db
+    .query("workerLeases")
+    .withIndex("by_name", (q) => q.eq("name", LEASE_NAME))
+    .first();
+  return lease && lease.runId === runId ? lease : null;
+}
+
+/** Start a run unless one holds the lease. Scheduled by enqueue; never by the enqueuing transaction itself. */
+export const kick = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<boolean> => {
+    const runId = await acquireLease(ctx);
+    if (runId) await ctx.scheduler.runAfter(0, internal.notifications.processQueue, { runId });
+    return runId !== null;
+  },
+});
+
+/** For an argument-less run (the sweep cron, or calls queued before this change). */
+export const tryAcquire = internalMutation({
+  args: {},
+  handler: (ctx): Promise<string | null> => acquireLease(ctx),
+});
+
+/**
+ * End of a run with a short batch: release the lease if nothing is due, and
+ * wake a later run for the earliest retry. Anything due keeps the run going.
+ */
+export const finishRun = internalMutation({
+  args: { runId: v.string() },
+  handler: async (ctx, args): Promise<{ done: boolean }> => {
+    const lease = await leaseFor(ctx, args.runId);
+    if (!lease) return { done: true }; // lost the lease: another run carries on
+    const now = Date.now();
+    const next = await ctx.db
+      .query("notifications")
+      .withIndex("by_status_next", (q) => q.eq("status", "queued"))
+      .first();
+    if (next && next.nextAttemptAt <= now) return { done: false };
+    await ctx.db.delete(lease._id);
+    if (next) await ctx.scheduler.runAt(next.nextAttemptAt, internal.notifications.kick, {});
+    return { done: true };
+  },
+});
 
 /** Insert one outbox row unless this event was already queued, and wake the worker. */
 async function enqueue(
@@ -88,7 +180,8 @@ async function enqueue(
   if (existing) return null;
   const now = Date.now();
   const id = await ctx.db.insert("notifications", { ...row, status: "queued", attempts: 0, nextAttemptAt: now, createdAt: now });
-  await ctx.scheduler.runAfter(0, internal.notifications.processQueue, {});
+  // Only a new scheduler entry: no shared row is read or written here.
+  await ctx.scheduler.runAfter(NOTIFY_KICK_DELAY_MS, internal.notifications.kick, {});
   return id;
 }
 
@@ -148,11 +241,17 @@ export async function enqueueRegistrationNotification(
   });
 }
 
-/** Claim up to BATCH_SIZE due rows (and any stuck in "sending"). */
+/**
+ * Claim up to BATCH_SIZE due rows (and any stuck in "sending") for the run
+ * holding the lease, renewing it. Null when the run no longer holds it.
+ */
 export const claimDue = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { runId: v.string() },
+  handler: async (ctx, args) => {
+    const lease = await leaseFor(ctx, args.runId);
+    if (!lease) return null;
     const now = Date.now();
+    await ctx.db.patch(lease._id, { leaseUntil: now + LEASE_MS });
     const due = await ctx.db
       .query("notifications")
       .withIndex("by_status_next", (q) => q.eq("status", "queued").lte("nextAttemptAt", now))
@@ -176,18 +275,6 @@ export const claimDue = internalMutation({
       claimed.push({ _id: n._id, kind: n.kind, payload: n.payload });
     }
     return claimed;
-  },
-});
-
-/** Earliest retry still queued, or null when the outbox is drained. */
-export const nextDueAt = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const next = await ctx.db
-      .query("notifications")
-      .withIndex("by_status_next", (q) => q.eq("status", "queued"))
-      .first();
-    return next?.nextAttemptAt ?? null;
   },
 });
 
@@ -310,29 +397,29 @@ async function sendOne(kind: Kind, payload: Payload): Promise<SendResult> {
 }
 
 /**
- * Drain the outbox: one batch per run, then reschedule itself for the next
- * batch (1s later) or the earliest retry. Runs for every enqueue, so several
- * may overlap; claimDue hands each row to exactly one of them.
+ * One batch of the outbox for the run holding the lease (see the comment
+ * above acquireLease), then the next batch NOTIFY_BATCH_INTERVAL_MS later.
+ * Without a runId (the sweep cron, or a call queued before the lease
+ * existed) it takes the lease if free and works as a new run, else does
+ * nothing.
  */
 export const processQueue = internalAction({
-  args: {},
+  args: { runId: v.optional(v.string()) },
   // Explicit types: this action calls back into its own module through
   // `internal`, which would otherwise make the generated API types circular.
-  handler: async (ctx): Promise<{ processed: number }> => {
-    const claimed: Array<{ _id: Id<"notifications">; kind: Kind; payload: Payload }> =
-      await ctx.runMutation(internal.notifications.claimDue, {});
+  handler: async (ctx, args): Promise<{ processed: number }> => {
+    const runId: string | null = args.runId ?? (await ctx.runMutation(internal.notifications.tryAcquire, {}));
+    if (!runId) return { processed: 0 };
+    const claimed: Array<{ _id: Id<"notifications">; kind: Kind; payload: Payload }> | null =
+      await ctx.runMutation(internal.notifications.claimDue, { runId });
+    if (!claimed) return { processed: 0 }; // another run holds the lease
     for (const row of claimed) {
       const result = await sendOne(row.kind, row.payload);
       await ctx.runMutation(internal.notifications.recordResult, { id: row._id, ...result });
     }
-    if (claimed.length === BATCH_SIZE) {
-      await ctx.scheduler.runAfter(1000, internal.notifications.processQueue, {});
-    } else {
-      const next: number | null = await ctx.runQuery(internal.notifications.nextDueAt, {});
-      if (next !== null) {
-        await ctx.scheduler.runAfter(Math.max(0, next - Date.now()), internal.notifications.processQueue, {});
-      }
-    }
+    const more: boolean =
+      claimed.length === BATCH_SIZE || !(await ctx.runMutation(internal.notifications.finishRun, { runId })).done;
+    if (more) await ctx.scheduler.runAfter(NOTIFY_BATCH_INTERVAL_MS, internal.notifications.processQueue, { runId });
     return { processed: claimed.length };
   },
 });
@@ -409,7 +496,7 @@ export const resend = mutation({
     const owner = await requireTournamentRole(ctx, row.tournamentId, OWNER_ONLY);
     if (row.status !== "failed") throw new ConvexError("Only failed messages can be resent");
     await ctx.db.patch(row._id, { status: "queued", attempts: 0, nextAttemptAt: Date.now(), lastError: undefined, claimedAt: undefined });
-    await ctx.scheduler.runAfter(0, internal.notifications.processQueue, {});
+    await ctx.scheduler.runAfter(0, internal.notifications.kick, {});
     await logAdminAction(ctx, {
       userId: owner._id,
       userEmail: owner.email,

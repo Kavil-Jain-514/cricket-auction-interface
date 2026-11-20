@@ -805,14 +805,16 @@ describe("one registration per device (organiser setting)", () => {
     await expect(second()).resolves.toMatchObject({ success: true });
   });
 
-  test("on: the same person retrying is told they're already registered, not about the device", async () => {
+  test("on: the same person retrying gets their registration back, not the device refusal", async () => {
     const t = convexTest(schema, modules);
     const { tournamentId } = await setup(t);
     await onePerDevice(t, tournamentId, true);
-    await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) });
-    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) })).rejects.toThrow(
-      /Ravi Kumar is already registered for this tournament/,
-    );
+    const first = await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) });
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) })).resolves.toMatchObject({
+      alreadyRegistered: true,
+      registrationId: first.registrationId,
+    });
+    expect(await registrations(t)).toHaveLength(1);
   });
 
   test("on: a submit without a device id is refused; a malformed id is always refused", async () => {
@@ -845,5 +847,69 @@ describe("one registration per device (organiser setting)", () => {
 
     await t.run((ctx) => ctx.db.patch(tournamentId, { status: "completed" }));
     await expect(onePerDevice(t, tournamentId, false)).rejects.toThrow(/completed/);
+  });
+});
+
+describe("same person, same device, submitting again (a lost answer)", () => {
+  const DEVICE = "device-retry-0000-1111";
+  const CLOUD = "bid11";
+  beforeEach(() => {
+    Object.assign(process.env, { CLOUDINARY_CLOUD_NAME: CLOUD, CLOUDINARY_API_KEY: "k", CLOUDINARY_API_SECRET: "s" });
+  });
+  afterEach(() => {
+    delete process.env.CLOUDINARY_CLOUD_NAME;
+    delete process.env.CLOUDINARY_API_KEY;
+    delete process.env.CLOUDINARY_API_SECRET;
+  });
+  const notifications = (t: ReturnType<typeof convexTest>) => t.run((ctx) => ctx.db.query("notifications").collect());
+
+  test("gets its existing registration back, still awaiting the fee, and nothing new is written", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { registrationFee: 300 });
+    const first = await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) });
+    const again = await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) });
+    expect(again).toEqual({ success: true, alreadyRegistered: true, registrationId: first.registrationId, needsPayment: true, fee: 300 });
+    expect(await registrations(t)).toHaveLength(1);
+    expect(await notifications(t)).toHaveLength(1);
+  });
+
+  test("a retry carrying the same, already used, photo still finds the registration", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const sig = await t.action(api.registrations.getUploadSignature, { tournamentId });
+    const photoUrl = `https://res.cloudinary.com/${CLOUD}/image/upload/v1/${sig.folder}/${sig.public_id}.jpg`;
+    const first = await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE, photoUrl }) });
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE, photoUrl }) })).resolves.toMatchObject({
+      alreadyRegistered: true,
+      registrationId: first.registrationId,
+      needsPayment: false,
+    });
+  });
+
+  test("another device, or none, gets the duplicate error and no registration id", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { registrationFee: 300 });
+    await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) });
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: "someone-elses-device" }) })).rejects.toThrow(
+      /already registered/,
+    );
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry() })).rejects.toThrow(/already registered/);
+  });
+
+  test("an entry made without a device id is never handed back", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await t.mutation(api.registrations.submit, { tournamentId, ...entry() });
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) })).rejects.toThrow(/already registered/);
+  });
+
+  test("a rejected entry is not handed back: the person registers afresh", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const first = await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) });
+    await t.withIdentity(OWNER).mutation(api.registrations.reject, { registrationId: first.registrationId as Id<"registrations">, reason: "Typo" });
+    const again = await t.mutation(api.registrations.submit, { tournamentId, ...entry({ deviceId: DEVICE }) });
+    expect(again.registrationId).not.toBe(first.registrationId);
+    expect(again).not.toHaveProperty("alreadyRegistered");
   });
 });

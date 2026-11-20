@@ -20,6 +20,12 @@
 //   node scripts/loadtest/registrations.mjs                     # 200, all at once
 //   N=200 RAMP_MS=60000 node scripts/loadtest/registrations.mjs # spread over 1 min
 //   N=200 PHOTOS=1 node scripts/loadtest/registrations.mjs      # with photo grants
+//   N=300 CONSENT=1 node scripts/loadtest/registrations.mjs     # WhatsApp consent on (see below)
+//
+// CONSENT=1 ticks the WhatsApp box, so every registration queues a message,
+// and then waits for the outbox to drain. The numbers are made up but are
+// valid Indian mobile formats, so it refuses to run unless the deployment
+// sends nothing real: WHATSAPP_PROVIDER=log or WHATSAPP_NOTIFICATIONS_ENABLED=false.
 //
 // | Env          | Default | Meaning                                          |
 // | N            | 200     | registrants                                      |
@@ -27,6 +33,7 @@
 // | PHOTOS       | off     | 1 = each registrant gets an upload signature     |
 // | KEEP         | off     | 1 = don't delete the test tournament             |
 // | TOURNAMENT_ID|         | use this tournament (registration open, fee 0)   |
+// | CONSENT      | off     | 1 = WhatsApp consent on; needs a log provider    |
 // -----------------------------------------------------------------------------
 
 import { execFileSync } from "node:child_process";
@@ -41,6 +48,8 @@ const cfg = {
   n: int("N", 200),
   rampMs: int("RAMP_MS", 0),
   photos: env.PHOTOS === "1",
+  consent: env.CONSENT === "1",
+  drainTimeoutMs: int("DRAIN_TIMEOUT_MS", 180_000),
   keep: env.KEEP === "1",
   tournamentId: env.TOURNAMENT_ID ?? null,
   out: env.OUT ?? `scripts/loadtest/report-registrations-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
@@ -59,6 +68,26 @@ if (!Number.isInteger(cfg.n) || cfg.n < 1) fail(`N must be a whole number above 
 if (!Number.isFinite(cfg.rampMs) || cfg.rampMs < 0) fail(`RAMP_MS must be 0 or more, got ${env.RAMP_MS}`);
 if (!cfg.tournamentId && !(dotenv.CONVEX_DEPLOYMENT ?? "").startsWith("dev:")) {
   fail("Without TOURNAMENT_ID this script creates and deletes data, so it only runs against a dev deployment");
+}
+
+/** A deployment env var's value ("" when unset), via the Convex CLI. */
+function deploymentEnv(name) {
+  try {
+    return execFileSync("npx", ["convex", "env", "get", name], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return "";
+  }
+}
+if (cfg.consent) {
+  const provider = deploymentEnv("WHATSAPP_PROVIDER");
+  const enabled = deploymentEnv("WHATSAPP_NOTIFICATIONS_ENABLED");
+  if (provider !== "log" && enabled !== "false") {
+    fail(
+      "CONSENT=1 would send real WhatsApp messages to made-up numbers. On the DEV deployment first run\n" +
+        "  npx convex env set WHATSAPP_PROVIDER log\n" +
+        "and afterwards\n  npx convex env remove WHATSAPP_PROVIDER",
+    );
+  }
 }
 
 const IDENTITY = JSON.stringify({
@@ -141,7 +170,7 @@ async function registrant(i) {
       battingBowlingHand: i % 3 ? "Right-handed" : "Left-handed",
       phoneNumber: `9${runTag}${String(i).padStart(5, "0")}`,
       ...(photoUrl ? { photoUrl } : {}),
-      consentWhatsApp: false,
+      consentWhatsApp: cfg.consent,
       deviceId: `loadtest-${runTag}-${String(i).padStart(5, "0")}`,
       website: "",
     });
@@ -179,6 +208,22 @@ await Promise.all(Array.from({ length: cfg.n }, (_, i) => registrantWithTimeout(
 clearInterval(keepAlive);
 const wallMs = Date.now() - started;
 
+// ── consent: wait for the outbox to drain ───────────────────────────────────
+let outbox = null;
+if (cfg.consent) {
+  const t0 = Date.now();
+  let rowsNow = [];
+  for (;;) {
+    rowsNow = run("notifications:listForTournament", { tournamentId });
+    const pending = rowsNow.filter((r) => r.status === "queued" || r.status === "sending").length;
+    if ((rowsNow.length > 0 && pending === 0) || Date.now() - t0 > cfg.drainTimeoutMs) break;
+    await sleep(3000);
+  }
+  const byStatus = {};
+  for (const r of rowsNow) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+  outbox = { rows: rowsNow.length, byStatus, drainMs: Date.now() - t0 };
+}
+
 // ── verify what was stored ──────────────────────────────────────────────────
 const stored = run("registrations:list", { tournamentId });
 const rows = (Array.isArray(stored) ? stored : stored?.registrations ?? []).filter((r) =>
@@ -199,6 +244,7 @@ const report = {
   outcomes: Object.fromEntries(outcomes),
   stored: rows.length,
   duplicatePhones: rows.length - phones.size,
+  ...(outbox ? { outbox } : {}),
 };
 
 console.log("\n── Registration load test ──");
@@ -212,6 +258,10 @@ console.log("Outcomes:");
 for (const [k, c] of [...outcomes].sort((a, b) => b[1] - a[1])) console.log(`  ${String(c).padStart(5)}  ${k}`);
 console.log(`Stored rows          ${rows.length} (expected ${ok})`);
 console.log(`Duplicate phones     ${report.duplicatePhones}`);
+if (outbox) {
+  console.log(`Outbox rows          ${outbox.rows} (expected ${ok})  ${JSON.stringify(outbox.byStatus)}`);
+  console.log(`Outbox drained in    ${outbox.drainMs} ms after the last submit`);
+}
 
 writeFileSync(cfg.out, JSON.stringify(report, null, 2));
 console.log(`Report: ${cfg.out}`);
@@ -222,6 +272,10 @@ if (!cfg.tournamentId && !cfg.keep) {
   console.log(`Deleted test tournament ${tournamentId}`);
 }
 
-const pass = ok === cfg.n && rows.length === ok && report.duplicatePhones === 0;
+const pass =
+  ok === cfg.n &&
+  rows.length === ok &&
+  report.duplicatePhones === 0 &&
+  (!outbox || (outbox.rows === ok && (outbox.byStatus.sent ?? 0) + (outbox.byStatus.skipped ?? 0) === ok));
 console.log(pass ? "\nPASS" : "\nFAIL");
 process.exit(pass ? 0 : 1);

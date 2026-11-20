@@ -282,34 +282,48 @@ export const submit = mutation({
     if (fields.photoUrl && !isUploadedImage(fields.photoUrl)) {
       throw new ConvexError("Upload your photo with the form's photo button");
     }
-    if (fields.photoUrl) {
-      await consumeUploadGrant(ctx, fields.photoUrl, tournamentId, "Upload your photo again with the form's photo button");
-    }
-    assertKnownCategory(tournament, categoryId);
-    const answers = await checkAnswers(ctx, tournamentId, rawAnswers);
 
+    // Same person (name + phone) before any upload grant is used: a retry
+    // after a lost answer carries the photo the first attempt already used,
+    // and must reach this check rather than "upload your photo again".
+    // Indexed on the normalised phone: no full roster scan on a public path.
+    // (Approval re-checks against every player, legacy phone formats too.)
     const now = Date.now();
     const samePhone = await ctx.db
       .query("registrations")
       .withIndex("by_tournament_phone", (q) => q.eq("tournamentId", tournamentId).eq("phoneNumber", phoneNumber))
       .collect();
-    if (samePhone.filter((r) => r.createdAt > now - DAY_MS).length >= MAX_PER_PHONE_PER_DAY) {
-      throw new ConvexError("Too many registrations from this phone number today. Try again tomorrow.");
-    }
-
-    // Indexed on the normalised phone: no full roster scan on a public path.
-    // (Approval re-checks against every player, legacy phone formats too.)
     const key = duplicateKey(fields.name, phoneNumber);
+    const existing = samePhone.find((r) => r.status !== "rejected" && duplicateKey(r.name, r.phoneNumber) === key);
+    // The same browser that made it (its random device id, never shown to
+    // anyone else) gets it back, so a lost answer still reaches the payment
+    // step. Anyone else, who may only know the name and phone, gets the
+    // error and no id. Nothing is written for this answer.
+    if (existing && deviceId !== undefined && existing.deviceId === deviceId) {
+      return {
+        success: true as const,
+        alreadyRegistered: true as const,
+        registrationId: existing._id,
+        needsPayment: existing.status === "pending_payment",
+        fee: existing.fee,
+      };
+    }
     const playersWithPhone = await ctx.db
       .query("players")
       .withIndex("by_tournament_phone", (q) => q.eq("tournamentId", tournamentId).eq("phoneNumber", phoneNumber))
       .collect();
-    if (
-      samePhone.some((r) => r.status !== "rejected" && duplicateKey(r.name, r.phoneNumber) === key) ||
-      playersWithPhone.some((p) => duplicateKey(p.name, playerPhone(p)) === key)
-    ) {
+    if (existing || playersWithPhone.some((p) => duplicateKey(p.name, playerPhone(p)) === key)) {
       throw new ConvexError(`${fields.name.trim()} is already registered for this tournament`);
     }
+    if (samePhone.filter((r) => r.createdAt > now - DAY_MS).length >= MAX_PER_PHONE_PER_DAY) {
+      throw new ConvexError("Too many registrations from this phone number today. Try again tomorrow.");
+    }
+
+    if (fields.photoUrl) {
+      await consumeUploadGrant(ctx, fields.photoUrl, tournamentId, "Upload your photo again with the form's photo button");
+    }
+    assertKnownCategory(tournament, categoryId);
+    const answers = await checkAnswers(ctx, tournamentId, rawAnswers);
     // After the name + phone check, so the same person retrying hears they're
     // registered (the form shows that as success), not about the device.
     // Indexed on (tournament, device): only the same device ever conflicts.

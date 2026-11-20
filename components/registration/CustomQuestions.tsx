@@ -184,6 +184,7 @@ export function CustomQuestions({
                     disabled={uploading !== null || preview || !uploadFile}
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
+                      e.target.value = ''; // so choosing the same file again after a failure still uploads
                       if (!file || !uploadFile) return;
                       setUploading(q.id);
                       try {

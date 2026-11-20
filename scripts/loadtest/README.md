@@ -158,3 +158,50 @@ clients never loaded the form or reached any function; it varied run to run
 (0, 3, 44) and looks like a limit on one machine opening hundreds of sockets
 at once, not the app. Re-measure before relying on these, ideally from more
 than one machine.
+
+### WhatsApp consent on (CONSENT=1)
+
+Every registration then queues a WhatsApp message. Since 2026-11-20 the outbox
+has one leased worker (`convex/notifications.ts`): submit only inserts its own
+row and schedules a `kick`; the worker sends 10 a second until the queue is
+empty. The script waits for the outbox to drain and counts the rows.
+
+The generated numbers are valid Indian mobile formats, so the script refuses
+to run unless the deployment sends nothing real. Dev has real Meta
+credentials, so switch it to the log provider for the run, and back after:
+
+```bash
+npx convex env set WHATSAPP_PROVIDER log          # dev only
+N=300 CONSENT=1 node scripts/loadtest/registrations.mjs
+N=500 CONSENT=1 PHOTOS=1 node scripts/loadtest/registrations.mjs
+npx convex env remove WHATSAPP_PROVIDER           # back to real sending
+```
+
+Pass: exit 0 (every submit succeeds, one outbox row per registration, all
+`sent`), submit p95 under about 2 s, near-zero OCC reconnects, and a drain
+rate at or below 10 a second. One worker waits 1 s after each batch's sends,
+so it measured about 7 a second; several workers would go faster and overrun
+the pace.
+
+| Date | Deployment | N | Shape | Submit p95 | OK | Outbox | OCC reconnects | Drained |
+|---|---|---|---|---|---|---|---|---|
+| 2026-11-20 | dev, log provider | 300 | consent | 1.0 s | 288 | 288 sent | 0 | 19.6 s after the last submit (30 s spent waiting on 12 refused sockets) |
+| 2026-11-20 | dev, log provider | 500 | consent + photos | 848 ms | 500 | 500 sent | 0 | 62.6 s after the last submit (≈ 7 a second) |
+
+The 12 failures in the first row are WebSocket handshakes refused on the
+test machine (`non-101`), as in the earlier runs; they never reached a
+function. Afterwards the dev outbox and lease tables were empty and
+`WHATSAPP_PROVIDER` was removed again.
+
+## Manual check of the registration form (browser; not automated)
+
+Unverified in a browser so far. On /register/<id> of a dev test tournament:
+
+1. Busy retry: fill all 600/min submit shards for the tournament (as the tests do) and submit: "Lots of people are registering right now…" shows and a screen reader announces it.
+2. Double-click Register (and press Enter twice): one registration only.
+3. Organiser requires a photo; submit without one: "Photo is required"-style error, nothing saved.
+4. Optional photo: block api.cloudinary.com in devtools, pick a photo: "Upload failed", no photo shown; Register stays enabled and submits without a photo only if you choose to.
+5. Pick the same photo again after that failure: it uploads (the input is reset).
+6. Go offline (devtools), press Register: after 15 s the "slow or offline" note shows; go online: success screen, one registration.
+7. Dropped answer: submit, kill the connection right after the request leaves, retry: success (fee tournament: the pay buttons when it's the same browser).
+8. Someone else's name + phone that is already registered, from another browser: the normal "already registered" error, not success.

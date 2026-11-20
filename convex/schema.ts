@@ -534,6 +534,15 @@ export default defineSchema({
     .index("by_publicId", ["publicId"])
     .index("by_expiresAt", ["expiresAt"]),
 
+  // Which run of a background worker may work right now (one row per worker,
+  // e.g. "whatsapp"; convex/notifications.ts). Expires, so a crashed run can
+  // never block the worker for longer than leaseUntil.
+  workerLeases: defineTable({
+    name: v.string(),
+    runId: v.string(),
+    leaseUntil: v.number(),
+  }).index("by_name", ["name"]),
+
   // Fixed-window counters for public entry points (convex/rateLimit.ts).
   rateLimits: defineTable({
     key: v.string(), // e.g. "register:<tournamentId>"
