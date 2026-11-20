@@ -31,7 +31,8 @@ vi.mock("@/convex/_generated/api", () => ({
 }));
 
 import { BroadcastOverlay } from "./BroadcastOverlay";
-import { OverlayStage, type OverlayView } from "./OverlayStage";
+import { OverlayStage, TeamsPanel, type OverlayView } from "./OverlayStage";
+import { OverlayResult } from "./OverlayResult";
 
 const now = Date.now();
 const live = {
@@ -55,8 +56,8 @@ const live = {
 const roster = {
   currentPlayer: { _id: "p1", name: "Virat Kohli", role: "Batter", basePrice: 100_000 },
   teams: [
-    { _id: "teamA", name: "Mumbai Mavericks", colorPrimary: "#1d4ed8", purseRemaining: 850_000, playerCount: 1 },
-    { _id: "teamB", name: "Delhi Dynamos", colorPrimary: "#dc2626", purseRemaining: 1_000_000, playerCount: 0 },
+    { _id: "teamA", name: "Mumbai Mavericks", colorPrimary: "#1d4ed8", purseRemaining: 850_000, purseSpent: 150_000, playerCount: 1 },
+    { _id: "teamB", name: "Delhi Dynamos", colorPrimary: "#dc2626", purseRemaining: 1_000_000, purseSpent: 0, playerCount: 0 },
   ],
   tournament: {
     _id: "t1",
@@ -92,13 +93,14 @@ describe("BroadcastOverlay — no session", () => {
     expect(html).not.toContain("data-lower-third");
   });
 
-  test("full mode adds the team purse strip", () => {
+  test("full mode keeps team purses behind the Teams button, not on screen", () => {
     setData();
     const html = renderToString(
       <BroadcastOverlay roomId="room1" mode="full" theme="light" safe />,
     );
-    expect(html).toContain("data-purse-strip");
-    expect(html).toContain("₹10.00L"); // Delhi's purse
+    expect(html).toContain("data-teams-button");
+    expect(html).not.toContain("data-teams-panel");
+    expect(html).not.toContain("₹10.00L"); // Delhi's purse
   });
 });
 
@@ -108,7 +110,7 @@ const stageView: OverlayView = {
   safe: false,
   tournament: { name: "Test Cup", footerText: "Hosted by Sunrise CC" },
   status: "live",
-  player: { _id: "p1", name: "Virat Kohli", role: "Batter" },
+  player: { _id: "p1", name: "Virat Kohli", role: "Batter", playerNumber: 18, age: 36, battingBowlingHand: "Right-handed" },
   basePrice: 100_000,
   currentBid: 150_000,
   isFirstBid: false,
@@ -121,6 +123,8 @@ const stageView: OverlayView = {
   countdown: { enabled: true, secondsLeft: 8, fraction: 0.27, tone: "amber", paused: false, expired: false },
 };
 
+const twoTeams = roster.teams;
+
 describe("OverlayStage — layouts", () => {
   test("lower-third: player, base, bid, leading team, ticker, timer", () => {
     const html = renderToString(<OverlayStage {...stageView} />);
@@ -130,7 +134,39 @@ describe("OverlayStage — layouts", () => {
     expect(html).toContain("₹1.50L");
     expect(html).toContain("Delhi Dynamos");
     expect(html).toContain('role="timer"');
-    expect(html).not.toContain("data-purse-strip");
+    expect(html).not.toContain("data-teams-button"); // no teams in this view
+  });
+
+  test("player number, hand and age show with the other details in both layouts", () => {
+    for (const mode of ["lower-third", "full"] as const) {
+      const html = renderToString(<OverlayStage {...stageView} mode={mode} />);
+      expect(html).toContain("#<!-- -->18");
+      expect(html).toContain("Right-handed");
+      expect(html).toContain("36 yrs");
+    }
+  });
+
+  test("full layout: large photo, no team strip, Teams button when there are teams", () => {
+    const html = renderToString(<OverlayStage {...stageView} mode="full" teams={twoTeams} />);
+    expect(html).toContain("data-full-layout");
+    expect(html).toContain("w-180!");
+    expect(html).toContain("data-teams-button");
+    expect(html).not.toContain("Delhi Dynamos · "); // teams stay hidden until asked for
+    expect(html).not.toContain("data-teams-panel");
+  });
+
+  test("teams panel: every team with players bought and purse left", () => {
+    const html = renderToString(
+      <TeamsPanel view={{ ...stageView, mode: "full", teams: twoTeams, maxPlayersPerTeam: 15 }} onClose={() => {}} />,
+    );
+    expect(html).toContain("data-teams-panel");
+    expect(html).toContain("Test Cup · Teams");
+    expect(html).toContain("Mumbai Mavericks");
+    expect(html).toContain("Delhi Dynamos");
+    expect(html).toContain("₹8.50L");
+    expect(html).toContain("₹10.00L");
+    expect(html).toContain("Spent ₹1.50L");
+    expect(html).toContain(" / 15");
   });
 
   test("timer off hides the ring", () => {
@@ -150,10 +186,32 @@ describe("BroadcastOverlay — connection (AUDIT 2026-10 P1-13)", () => {
         <BroadcastOverlay roomId="room1" mode="full" theme="dark" safe={false} />,
       );
       expect(html).toContain("data-broadcast-overlay");
-      expect(html).not.toContain("data-purse-strip");
+      expect(html).not.toContain("data-teams-button");
       expect(html).not.toContain("Hosted by Sunrise CC");
     } finally {
       connection.kind = "live";
     }
+  });
+});
+
+describe("OverlayResult — static SOLD / UNSOLD card", () => {
+  test("sold: player, team and price, with no animation", () => {
+    const html = renderToString(
+      <OverlayResult sold playerName="Virat Kohli" teamName="Mumbai Mavericks" teamColor="#1d4ed8" amount={150_000} />,
+    );
+    expect(html).toContain("SOLD!");
+    expect(html).toContain("Virat Kohli");
+    expect(html).toContain("Mumbai Mavericks");
+    expect(html).toContain("₹1.50L");
+    expect(html).not.toMatch(/animate|transform/);
+  });
+
+  test("unsold: base price and no team", () => {
+    const html = renderToString(
+      <OverlayResult sold={false} playerName="Virat Kohli" teamName={null} amount={100_000} />,
+    );
+    expect(html).toContain("UNSOLD");
+    expect(html).toContain("Base Price: ₹1.00L");
+    expect(html).toContain("No bids received");
   });
 });
