@@ -1,6 +1,7 @@
 "use client";
 
-import { Trophy, Pause } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Trophy, Pause, Users, X } from 'lucide-react';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { ImgWithFallback } from '@/components/ui/img-with-fallback';
@@ -18,19 +19,32 @@ export interface OverlayTeam {
   logoUrl?: string;
   colorPrimary: string;
   purseRemaining: number;
+  purseSpent: number;
   playerCount: number;
+}
+
+export interface OverlayPlayer {
+  _id: string;
+  name: string;
+  role?: string | string[];
+  photoUrl?: string;
+  playerNumber?: number;
+  age?: number;
+  battingBowlingHand?: string;
 }
 
 export interface OverlayView extends OverlayParams {
   tournament: { name: string; logoUrl?: string; footerText?: string } | null;
   status: string;
-  player: { _id: string; name: string; role?: string | string[]; photoUrl?: string } | null;
+  player: OverlayPlayer | null;
   basePrice: number;
   currentBid: number;
   isFirstBid: boolean;
   leadingTeam: { name: string; logoUrl?: string; colorPrimary: string } | null;
   ticker: Array<{ id: string; teamName: string; teamColor: string; amount: number }>;
   teams: OverlayTeam[];
+  /** Squad size, for the teams panel's "players bought" count. */
+  maxPlayersPerTeam?: number;
   countdown: BidCountdown;
 }
 
@@ -39,12 +53,14 @@ const THEMES = {
     panel: 'bg-slate-950/85 text-white border border-white/10 shadow-2xl',
     muted: 'text-slate-300',
     chip: 'bg-white/10 text-white',
+    screen: 'bg-slate-950 text-white',
     bid: 'bg-linear-to-r from-yellow-500 to-orange-600 text-white',
   },
   light: {
     panel: 'bg-white/92 text-slate-900 border border-slate-900/10 shadow-2xl',
     muted: 'text-slate-600',
     chip: 'bg-slate-900/10 text-slate-900',
+    screen: 'bg-slate-50 text-slate-900',
     bid: 'bg-linear-to-r from-yellow-400 to-orange-500 text-slate-950',
   },
 } as const;
@@ -57,17 +73,40 @@ const DEFAULT_PADDING = 'px-12 py-8';
 const BID_POP = 'animate-in fade-in zoom-in-95 duration-300 motion-reduce:animate-none';
 
 /**
- * The 1920x1080 broadcast stage. Purely presentational: BroadcastOverlay owns
- * the queries, preloading and the SOLD/UNSOLD stinger.
+ * The 1920x1080 broadcast stage. Presentational apart from the teams panel
+ * toggle: BroadcastOverlay owns the queries, preloading and the SOLD/UNSOLD card.
  */
 export function OverlayStage(view: OverlayView) {
   const t = THEMES[view.theme];
+  const [teamsOpen, setTeamsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!teamsOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setTeamsOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [teamsOpen]);
+
   return (
     <div
       className={`relative flex flex-col ${view.safe ? SAFE_PADDING : DEFAULT_PADDING}`}
       style={{ width: STAGE_WIDTH, height: STAGE_HEIGHT }}
     >
-      <Branding view={view} />
+      <div className="flex items-start justify-between gap-4">
+        <Branding view={view} />
+        {view.teams.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setTeamsOpen(true)}
+            className={`ml-auto inline-flex items-center gap-3 rounded-full px-6 py-3 text-2xl font-semibold cursor-pointer ${t.panel}`}
+            data-teams-button
+          >
+            <Users className="w-7 h-7" /> Teams
+          </button>
+        )}
+      </div>
       <div className="flex-1 min-h-0 flex flex-col justify-end">
         {view.mode === 'full' ? <FullLayout view={view} /> : <LowerThird view={view} />}
       </div>
@@ -76,6 +115,7 @@ export function OverlayStage(view: OverlayView) {
           {view.tournament.footerText}
         </p>
       )}
+      {teamsOpen && <TeamsPanel view={view} onClose={() => setTeamsOpen(false)} />}
     </div>
   );
 }
@@ -112,14 +152,14 @@ function Ring({ countdown, size }: { countdown: BidCountdown; size: 'md' | 'lg' 
   );
 }
 
-function BidBlock({ view, large }: { view: OverlayView; large?: boolean }) {
+function BidBlock({ view }: { view: OverlayView }) {
   const t = THEMES[view.theme];
   return (
-    <div className={`rounded-2xl ${large ? 'px-10 py-6' : 'px-8 py-4'} text-center ${t.bid}`}>
+    <div className={`rounded-2xl px-8 py-4 text-center ${t.bid}`}>
       <div className="text-lg font-semibold tracking-widest opacity-90">
         {view.isFirstBid ? 'STARTING PRICE' : 'CURRENT BID'}
       </div>
-      <div key={view.currentBid} className={`${large ? 'text-8xl' : 'text-7xl'} font-extrabold leading-none tabular-nums ${BID_POP}`}>
+      <div key={view.currentBid} className={`text-7xl font-extrabold leading-none tabular-nums ${BID_POP}`}>
         {formatCurrency(view.currentBid)}
       </div>
     </div>
@@ -161,12 +201,19 @@ function Ticker({ view }: { view: OverlayView }) {
   );
 }
 
-function RoleChips({ view }: { view: OverlayView }) {
+function PlayerChips({ view }: { view: OverlayView }) {
   const t = THEMES[view.theme];
-  const role = view.player?.role ? getRoleDisplay(view.player.role).trim() : '';
+  const player = view.player;
+  const role = player?.role ? getRoleDisplay(player.role).trim() : '';
+  const chip = `rounded-full px-5 py-1.5 text-2xl ${t.chip}`;
   return (
     <div className="flex flex-wrap gap-3">
-      {role && <span className={`rounded-full px-5 py-1.5 text-2xl font-semibold ${t.chip}`}>{role}</span>}
+      {player?.playerNumber ? (
+        <span className="rounded-full px-5 py-1.5 text-2xl font-extrabold bg-blue-600 text-white">#{player.playerNumber}</span>
+      ) : null}
+      {role && <span className={`${chip} font-semibold`}>{role}</span>}
+      {player?.battingBowlingHand && <span className={chip}>{player.battingBowlingHand}</span>}
+      {player?.age ? <span className={chip}>{`${player.age} yrs`}</span> : null}
       <span className={`rounded-full px-5 py-1.5 text-2xl ${t.chip}`}>{`Base ${formatCurrency(view.basePrice)}`}</span>
     </div>
   );
@@ -196,7 +243,7 @@ function LowerThird({ view }: { view: OverlayView }) {
       <PlayerAvatar name={view.player.name} photoUrl={view.player.photoUrl} size="2xl" priority className="rounded-2xl w-56! h-56!" />
       <div className="flex-1 min-w-0 flex flex-col gap-4">
         <h1 className="text-6xl font-extrabold leading-none truncate">{view.player.name}</h1>
-        <RoleChips view={view} />
+        <PlayerChips view={view} />
         <LeadingTeam view={view} />
       </div>
       <BidBlock view={view} />
@@ -210,46 +257,90 @@ function FullLayout({ view }: { view: OverlayView }) {
   const t = THEMES[view.theme];
   const text = view.player ? null : idleText(view.status) ?? 'Next player coming up';
   return (
-    <div className="flex-1 min-h-0 flex flex-col gap-6">
-      <div className="flex-1 min-h-0 flex items-center justify-center">
-        {view.player ? (
-          <div className={`flex items-center gap-12 rounded-3xl p-10 ${t.panel}`}>
-            <PlayerAvatar name={view.player.name} photoUrl={view.player.photoUrl} size="3xl" priority className="rounded-3xl w-120! h-120!" />
-            <div className="flex flex-col gap-6 w-190">
-              <h1 className="text-8xl font-extrabold leading-none">{view.player.name}</h1>
-              <RoleChips view={view} />
-              <div className="flex items-center gap-6">
-                <div className="flex-1"><BidBlock view={view} large /></div>
-                <Ring countdown={view.countdown} size="lg" />
-              </div>
-              <LeadingTeam view={view} />
+    <div className="flex-1 min-h-0 flex items-center justify-center" data-full-layout>
+      {view.player ? (
+        // The photo is the hero: 720px square, the details share the rest.
+        <div className={`w-full flex items-center gap-12 rounded-3xl p-8 ${t.panel}`}>
+          <PlayerAvatar name={view.player.name} photoUrl={view.player.photoUrl} size="3xl" priority className="rounded-3xl w-180! h-180! shrink-0" />
+          <div className="flex-1 min-w-0 flex flex-col gap-6">
+            <h1 className="text-7xl font-extrabold leading-tight line-clamp-2 break-words">{view.player.name}</h1>
+            <PlayerChips view={view} />
+            <div className="flex items-center gap-6">
+              <div className="flex-1 min-w-0"><BidBlock view={view} /></div>
+              <Ring countdown={view.countdown} size="lg" />
             </div>
+            <LeadingTeam view={view} />
           </div>
-        ) : (
-          <StatusCard view={view} text={text!} />
-        )}
-      </div>
-      <PurseStrip view={view} />
+        </div>
+      ) : (
+        <StatusCard view={view} text={text!} />
+      )}
     </div>
   );
 }
 
-function PurseStrip({ view }: { view: OverlayView }) {
+function teamColumns(count: number): number {
+  if (count <= 4) return 2;
+  if (count <= 9) return 3;
+  if (count <= 16) return 4;
+  return 5;
+}
+
+/** Full-screen team table, opened from the Teams button: players bought and purse left. */
+export function TeamsPanel({ view, onClose }: { view: OverlayView; onClose: () => void }) {
   const t = THEMES[view.theme];
-  if (view.teams.length === 0) return null;
+  const max = view.maxPlayersPerTeam;
   return (
-    <div className={`grid gap-3 rounded-2xl p-4 ${t.panel}`} style={{ gridTemplateColumns: `repeat(${Math.min(view.teams.length, 10)}, minmax(0, 1fr))` }} data-purse-strip>
-      {view.teams.map((team) => (
-        <div key={team._id} className="flex items-center gap-3 min-w-0 rounded-xl px-3 py-2 border-b-4" style={{ borderBottomColor: team.colorPrimary }}>
-          <TeamLogo name={team.name} logoUrl={team.logoUrl} primaryColor={team.colorPrimary} size="sm" />
-          <div className="min-w-0">
-            <div className="text-lg font-semibold truncate">{team.name}</div>
-            <div className={`text-base tabular-nums ${t.muted}`}>
-              {formatCurrency(team.purseRemaining)} · {team.playerCount}p
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="overlay-teams-title"
+      className={`absolute inset-0 z-10 flex flex-col gap-8 ${view.safe ? SAFE_PADDING : DEFAULT_PADDING} ${t.screen}`}
+      data-teams-panel
+    >
+      <div className="flex items-center justify-between gap-4">
+        <h2 id="overlay-teams-title" className="text-5xl font-extrabold">
+          {view.tournament?.name ? `${view.tournament.name} · Teams` : 'Teams'}
+        </h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className={`inline-flex items-center gap-2 rounded-full px-6 py-3 text-2xl font-semibold cursor-pointer ${t.chip}`}
+          aria-label="Close teams"
+        >
+          <X className="w-7 h-7" /> Close
+        </button>
+      </div>
+      <div
+        className="flex-1 min-h-0 grid gap-5 auto-rows-fr"
+        style={{ gridTemplateColumns: `repeat(${teamColumns(view.teams.length)}, minmax(0, 1fr))` }}
+      >
+        {view.teams.map((team) => (
+          <div
+            key={team._id}
+            className={`min-h-0 flex flex-col justify-center gap-3 rounded-2xl px-6 py-4 border-l-8 ${t.chip}`}
+            style={{ borderLeftColor: team.colorPrimary }}
+          >
+            <div className="flex items-center gap-4 min-w-0">
+              <TeamLogo name={team.name} logoUrl={team.logoUrl} primaryColor={team.colorPrimary} size="lg" />
+              <span className="text-3xl font-bold truncate">{team.name}</span>
+            </div>
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <div className={`text-lg font-semibold tracking-wider ${t.muted}`}>PLAYERS</div>
+                <div className="text-4xl font-extrabold tabular-nums">
+                  {team.playerCount}{max ? <span className={`text-2xl font-semibold ${t.muted}`}>{` / ${max}`}</span> : null}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className={`text-lg font-semibold tracking-wider ${t.muted}`}>PURSE LEFT</div>
+                <div className="text-4xl font-extrabold tabular-nums">{formatCurrency(team.purseRemaining)}</div>
+                <div className={`text-lg tabular-nums ${t.muted}`}>{`Spent ${formatCurrency(team.purseSpent)}`}</div>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
