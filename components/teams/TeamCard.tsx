@@ -15,6 +15,7 @@ import { useMutation } from 'convex/react';
 import { toast } from 'sonner';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { generateTeamPdf } from '@/lib/generateTeamPdf';
+import { buildTeamPdfPlayers } from '@/lib/teamPdfPlayers';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
@@ -60,41 +61,15 @@ export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
   const canDelete = canModify && isAuctionLive === false;
 
   const handleDownloadPdf = async () => {
+    // Without the player list the squad and a picked captain would be missing.
+    if (!players) {
+      toast.info('Players are still loading, try again in a moment');
+      return;
+    }
     toast.info('Generating PDF...');
     try {
-      const captainPlayer = team.captainPlayerId
-        ? players?.find(p => p._id === team.captainPlayerId)
-        : undefined;
-
-      const pdfPlayers = teamPlayers.map(p => ({
-        name: p.name,
-        age: p.age,
-        role: Array.isArray(p.role) ? p.role.join(", ") : p.role,
-        soldPrice: p.soldPrice,
-        jerseyNumber: p.jerseyNumber,
-        jerseyName: p.jerseyName,
-        battingBowlingHand: p.battingBowlingHand,
-        phoneNumber: (p as Record<string, unknown>).phoneNumber as string | undefined,
-        tshirtSize: p.tshirtSize,
-        isCaptain: p._id === team.captainPlayerId,
-      }));
-
-      // Captain chosen from the player pool isn't sold via auction, so it
-      // won't be in teamPlayers — add it explicitly as the first squad row.
-      if (captainPlayer && !pdfPlayers.some(p => p.isCaptain)) {
-        pdfPlayers.unshift({
-          name: captainPlayer.name,
-          age: captainPlayer.age,
-          role: Array.isArray(captainPlayer.role) ? captainPlayer.role.join(", ") : captainPlayer.role,
-          soldPrice: captainPlayer.soldPrice,
-          jerseyNumber: captainPlayer.jerseyNumber,
-          jerseyName: captainPlayer.jerseyName,
-          battingBowlingHand: captainPlayer.battingBowlingHand,
-          phoneNumber: (captainPlayer as Record<string, unknown>).phoneNumber as string | undefined,
-          tshirtSize: captainPlayer.tshirtSize,
-          isCaptain: true,
-        });
-      }
+      // Squad + captain, whether picked from players or entered by hand.
+      const pdfPlayers = buildTeamPdfPlayers(team, players);
 
       await generateTeamPdf({
         name: team.name,

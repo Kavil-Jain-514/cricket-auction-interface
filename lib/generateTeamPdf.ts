@@ -1,18 +1,6 @@
 import { jsPDF } from "jspdf";
 import { formatCurrencyFull } from "@/lib/utils";
-
-interface Player {
-  name: string;
-  role: string;
-  soldPrice?: number;
-  age?: number;
-  jerseyNumber?: number;
-  jerseyName?: string;
-  battingBowlingHand: string;
-  phoneNumber?: string;
-  tshirtSize?: string;
-  isCaptain?: boolean;
-}
+import type { PdfPlayer } from "@/lib/teamPdfPlayers";
 
 interface TeamData {
   name: string;
@@ -22,7 +10,7 @@ interface TeamData {
   colorSecondary: string;
   purseRemaining: number;
   purseSpent: number;
-  players: Player[];
+  players: PdfPlayer[];
   tournamentName?: string;
   logoUrl?: string;
   groupLabel?: string; // e.g. "Group A (A1)" — only set once the draw is locked
@@ -275,13 +263,19 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
     doc.setFont("helvetica", "normal");
     doc.text(player.age != null ? `${player.age}` : "-", margin + 35, y + 2);
     doc.text(player.phoneNumber || "-", margin + 45, y + 2);
-    drawRoleBadge(doc, player.role, margin + 65, y + 2);
+    if (player.role) {
+      drawRoleBadge(doc, player.role, margin + 65, y + 2);
+    } else {
+      doc.text("-", margin + 65, y + 2);
+    }
     doc.text(`${player.jerseyNumber || "-"}`, margin + 90, y + 2);
     doc.text((player.jerseyName || "-").substring(0, 10), margin + 102, y + 2);
     doc.text(player.tshirtSize || "-", margin + 128, y + 2);
 
     // Simplify hand display
-    const hand = player.battingBowlingHand.includes("Right") ? "R" : "L";
+    const hand = !player.battingBowlingHand
+      ? "-"
+      : player.battingBowlingHand.includes("Right") ? "R" : "L";
     doc.text(hand, margin + 140, y + 2);
 
     if (player.isCaptain && !player.soldPrice) {
