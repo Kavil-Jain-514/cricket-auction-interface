@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { FormBuilder } from '@/components/registration/FormBuilder';
 import { CustomQuestions, type AnswerMap } from '@/components/registration/CustomQuestions';
 import { ShareRegistration } from '@/components/registration/ShareRegistration';
-import { RegistrationFeeCard, RegistrationLogosCard } from '@/components/registration/RegistrationSetup';
+import { RegistrationDeviceCard, RegistrationFeeCard, RegistrationLogosCard } from '@/components/registration/RegistrationSetup';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { DEFAULT_REQUIRED_FIELDS, normalizeQuestions, validateFormQuestions, type Question, type RequiredFields } from '@/convex/registrationForm';
 import { getErrorMessage } from '@/lib/utils';
@@ -106,6 +106,7 @@ export default function RegistrationFormPage({ params }: { params: Promise<{ id:
       {tournament && (
         <>
           <RegistrationFeeCard key={`fee-${tournament.settings.registrationFee ?? 0}`} tournament={tournament} />
+          <RegistrationDeviceCard tournament={tournament} />
           <RegistrationLogosCard tournament={tournament} />
         </>
       )}

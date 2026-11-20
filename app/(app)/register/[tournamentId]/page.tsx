@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from 'react';
+import { use, useRef, useState } from 'react';
 import { useAction, useMutation, useQuery } from 'convex/react';
 import { Activity, Check, CheckCircle2, ClipboardList, ImageUp, QrCode, Tag, Upload, UserRound, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
@@ -14,6 +14,9 @@ import { Field, FormDivider, SectionHeading, formInputCls } from '@/components/u
 import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { PLAYER_ROLES, cn, getErrorMessage, getRoleBadgeBg } from '@/lib/utils';
 import { openRazorpayCheckout } from '@/lib/razorpayCheckout';
+import { retryWhenBusy } from '@/lib/retryWhenBusy';
+import { getDeviceId } from '@/lib/deviceId';
+import { afterSubmitFailure, personKey } from '@/lib/registrationSubmit';
 import { formatRupees } from '@/convex/bidRules';
 import { DEFAULT_REQUIRED_FIELDS, missingRequiredField, validateAnswers, type StandardField } from '@/convex/registrationForm';
 import { CustomQuestions, answersToSubmit, type AnswerMap } from '@/components/registration/CustomQuestions';
@@ -26,7 +29,26 @@ const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const TSHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'] as const;
 
 // "qr": showing the QR, waiting for the screenshot. "offline": paying in person.
-type PayStep = 'choose' | 'qr' | 'offline' | 'paid';
+// "saved": an earlier attempt whose answer was lost turned out to have been
+// saved, so there is no registration id to pay against here.
+type PayStep = 'choose' | 'qr' | 'offline' | 'paid' | 'saved';
+
+const BUSY_NOTE = 'Lots of people are registering right now, you are in line. Retrying…';
+const SLOW_NOTE = 'Your connection is slow or offline. Keep this page open: your registration is sent as soon as it is back.';
+/** When to tell someone a submit is still waiting for the connection. */
+const SLOW_SUBMIT_MS = 15_000;
+
+/** Cloudinary upload, tried once more on a network failure or a 5xx. */
+async function postToCloudinary(url: string, body: FormData): Promise<Response> {
+  try {
+    const res = await fetch(url, { method: 'POST', body });
+    if (res.status < 500) return res;
+  } catch {
+    // Network failure: fall through to the one retry.
+  }
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  return await fetch(url, { method: 'POST', body });
+}
 type Done = { registrationId?: Id<"registrations">; needsPayment: boolean; fee: number; step: PayStep };
 
 /** Public player registration. No sign-in; the organiser reviews every entry. */
@@ -59,12 +81,30 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<Done | null>(null);
   const [paying, setPaying] = useState(false);
+  // Shown (and announced) while a busy refusal is being retried.
+  const [busyNote, setBusyNote] = useState<string | null>(null);
+  // Blocks a second submit before the disabled button has rendered.
+  const submittingRef = useRef(false);
+  // The person (personKey) whose submit ended ambiguously in this session;
+  // see lib/registrationSubmit.ts.
+  const ambiguousFor = useRef<string | null>(null);
+  // Uploads still running anywhere on the page (photo, file answers, proof).
+  const [uploadsInFlight, setUploadsInFlight] = useState(0);
 
   const patch = (p: Partial<typeof form>) => setForm((f) => ({ ...f, ...p }));
   const setStep = (step: PayStep) => setDone((d) => (d ? { ...d, step } : d));
 
-  /** Direct, signed upload to Cloudinary; returns the image URL. */
+  /** Direct, signed upload to Cloudinary; returns the image URL. Counted while it runs. */
   const uploadImage = async (file: File): Promise<string | null> => {
+    setUploadsInFlight((n) => n + 1);
+    try {
+      return await uploadImageNow(file);
+    } finally {
+      setUploadsInFlight((n) => n - 1);
+    }
+  };
+
+  const uploadImageNow = async (file: File): Promise<string | null> => {
     if (!PHOTO_TYPES.includes(file.type)) {
       toast.error('Image must be JPG, PNG or WebP');
       return null;
@@ -73,7 +113,12 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
       toast.error('Image must be 5 MB or smaller');
       return null;
     }
-    const sig = await getUploadSignature({ tournamentId });
+    let sig;
+    try {
+      sig = await retryWhenBusy(() => getUploadSignature({ tournamentId }), { onRetry: () => setBusyNote(BUSY_NOTE) });
+    } finally {
+      setBusyNote(null);
+    }
     const body = new FormData();
     body.append('file', file);
     body.append('api_key', sig.apiKey);
@@ -84,10 +129,14 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
     // registration's upload if it matches a name it signed.
     body.append('public_id', sig.public_id);
     body.append('allowed_formats', sig.allowed_formats);
-    const res = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloudName}/image/upload`, { method: 'POST', body });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message ?? 'Upload failed');
-    return data.secure_url as string;
+    // Same signature on the retry: it names this one file, so a first try that
+    // did land is simply overwritten.
+    const res = await postToCloudinary(`https://api.cloudinary.com/v1_1/${sig.cloudName}/image/upload`, body);
+    const data = (await res.json().catch(() => null)) as { secure_url?: string; error?: { message?: string } } | null;
+    if (!res.ok) throw new Error(data?.error?.message ?? 'Upload failed. Try again.');
+    // Never report success without the file's address: the photo would be silently missing.
+    if (!data?.secure_url) throw new Error('Upload failed. Try again.');
+    return data.secure_url;
   };
 
   const uploadPhoto = async (file: File) => {
@@ -132,6 +181,9 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
+    // A photo or file still uploading would otherwise be left out without a word.
+    if (uploadsInFlight > 0) return toast.error('Wait for the upload to finish');
     // The organiser's required standard details: the same check the server runs.
     const missing = missingRequiredField(
       required,
@@ -158,9 +210,14 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         return toast.error(errors[0].message);
       }
     }
+    submittingRef.current = true;
     setSubmitting(true);
+    const person = personKey(form.name, form.phoneNumber);
+    // The Convex client holds a submit until the connection is back, so it
+    // never fails just for being offline; say so instead of spinning silently.
+    const slow = setTimeout(() => setBusyNote(SLOW_NOTE), SLOW_SUBMIT_MS);
     try {
-      const res = await submit({
+      const res = await retryWhenBusy(() => submit({
         tournamentId,
         name: form.name,
         phoneNumber: form.phoneNumber,
@@ -174,12 +231,25 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         photoUrl,
         consentWhatsApp: form.consentWhatsApp,
         answers: customForm ? { formVersion: customForm.version, values } : undefined,
+        deviceId: getDeviceId(),
         website: form.website,
-      });
+      }), { onRetry: () => setBusyNote(BUSY_NOTE) });
+      // Also when the server recognised this browser's earlier entry
+      // (alreadyRegistered): it comes back with its id, so paying still works.
+      ambiguousFor.current = null;
       setDone({ registrationId: res.registrationId, needsPayment: res.needsPayment, fee: res.fee, step: res.needsPayment ? 'choose' : 'paid' });
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Could not register'));
+      const outcome = afterSubmitFailure(ambiguousFor.current, person, error);
+      ambiguousFor.current = outcome.ambiguousFor;
+      if (outcome.show === 'saved') {
+        setDone({ needsPayment: info?.fee ? info.fee > 0 : false, fee: info?.fee ?? 0, step: 'saved' });
+      } else {
+        toast.error(outcome.message);
+      }
     } finally {
+      clearTimeout(slow);
+      setBusyNote(null);
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -236,6 +306,10 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
           <SponsorBand sponsors={sponsors} />
         </header>
         {children}
+        {/* Retry and connection notes, announced on every screen (form and payment). */}
+        <p role="status" aria-live="polite" className={cn('rounded-lg bg-blue-500/10 px-3 py-2 text-sm text-blue-200', !busyNote && 'sr-only')}>
+          {busyNote ?? ''}
+        </p>
       </div>
     </main>
   );
@@ -254,6 +328,18 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
             <h2 className="text-xl font-bold">You&apos;re registered</h2>
             <p className="text-sm text-slate-400">
               {done.needsPayment ? 'Payment received. ' : ''}The organiser will review your entry before the auction.
+            </p>
+          </>
+        )}
+
+        {done.step === 'saved' && (
+          <>
+            <CheckCircle2 className="mx-auto w-12 h-12 text-green-400" />
+            <h2 className="text-xl font-bold">You&apos;re registered</h2>
+            <p className="text-sm text-slate-400">
+              Your entry was saved on an earlier try, but this page lost the answer, so it can&apos;t take the fee here.{' '}
+              {done.needsPayment ? `Pay the ${fee} fee to the organiser in person (or ask them for the payment QR); they'll mark it received. ` : ''}
+              The organiser will review your entry before the auction.
             </p>
           </>
         )}
@@ -292,7 +378,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
             <label className={cn('flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700', uploading && 'pointer-events-none opacity-60')}>
               <ImageUp className="h-4 w-4" />
               {uploading === 'proof' ? 'Uploading…' : 'Upload payment screenshot'}
-              <input type="file" accept={PHOTO_TYPES.join(',')} className="sr-only" disabled={uploading !== null} onChange={(e) => e.target.files?.[0] && uploadProof(e.target.files[0])} />
+              <input type="file" accept={PHOTO_TYPES.join(',')} className="sr-only" disabled={uploading !== null} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void uploadProof(file); }} />
             </label>
             <button type="button" onClick={payOffline} disabled={paying || uploading !== null} className="text-sm text-slate-400 underline-offset-2 hover:text-white hover:underline">
               Skip, I&apos;ll pay offline
@@ -307,6 +393,11 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
 
   return shell(
     <form onSubmit={handleSubmit} className="space-y-5 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      {info.onePerDevice && (
+        <p className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-300">
+          One registration per phone for this tournament. To register someone else, use their phone.
+        </p>
+      )}
       {info.fee > 0 && (
         <p className="rounded-lg bg-blue-500/10 px-3 py-2 text-sm text-blue-200">
           Registration fee: {formatRupees(info.fee)}, paid after you submit{info.paymentQrUrl ? ' by scanning the organiser’s QR' : ''} or in person.
@@ -327,7 +418,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
                   <span>{uploading === 'photo' ? 'Uploading…' : 'Face photo'}</span>
                 </>
               )}
-              <input type="file" accept={PHOTO_TYPES.join(',')} className="sr-only" disabled={uploading !== null} onChange={(e) => e.target.files?.[0] && uploadPhoto(e.target.files[0])} />
+              <input type="file" accept={PHOTO_TYPES.join(',')} className="sr-only" disabled={uploading !== null} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void uploadPhoto(file); }} />
             </label>
           </div>
           <div className="grid grid-cols-2 content-start gap-3">
@@ -466,7 +557,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
       </label>
       <p className="text-xs text-slate-400">Your phone number is only shared with the organiser. Reply STOP on WhatsApp at any time to stop the messages.</p>
 
-      <Button type="submit" disabled={submitting || uploading !== null} className="w-full h-11">
+      <Button type="submit" disabled={submitting || uploading !== null || uploadsInFlight > 0} className="w-full h-11">
         {submitting ? 'Submitting…' : 'Register'}
       </Button>
     </form>,
