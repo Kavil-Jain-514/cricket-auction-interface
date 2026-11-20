@@ -79,6 +79,9 @@ jobs:
       # upgrade grew the shared React/Next runtime chunk by ~1.5 KB gzipped,
       # putting / and /features at 143,991 bytes against a 143,360 limit. No
       # app code on these pages changed.
+      # 5 runs per URL: the median then needs 3 slow runs to fail, so one busy
+      # shared runner no longer fails TBT on unchanged code (Nov 2026: same tree
+      # passed twice and failed once at 364 ms).
       - name: Lighthouse CI
         run: npx --yes @lhci/cli@0.14.0 autorun
 
@@ -88,3 +91,5 @@ jobs:
         with:
           name: lighthouse-reports
           path: .lighthouseci
+          # v4 skips dot-folders unless told otherwise; without this nothing uploads.
+          include-hidden-files: true
