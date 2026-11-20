@@ -73,7 +73,7 @@ const DEFAULT_PADDING = 'px-12 py-8';
 const BID_POP = 'animate-in fade-in zoom-in-95 duration-300 motion-reduce:animate-none';
 
 /**
- * The 1920x1080 broadcast stage. Presentational apart from the teams panel
+ * The broadcast stage (1920x1080, wider or taller to fill the window). Presentational apart from the teams panel
  * toggle: BroadcastOverlay owns the queries, preloading and the SOLD/UNSOLD card.
  */
 export function OverlayStage(view: OverlayView) {
@@ -92,15 +92,19 @@ export function OverlayStage(view: OverlayView) {
   return (
     <div
       className={`relative flex flex-col ${view.safe ? SAFE_PADDING : DEFAULT_PADDING}`}
-      style={{ width: STAGE_WIDTH, height: STAGE_HEIGHT }}
+      style={{ width: '100%', height: '100%' }}
     >
-      <div className="flex items-start justify-between gap-4">
+      {/* Logo | timer (full mode: above the card) | Teams */}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-4">
         <Branding view={view} />
+        <div className="col-start-2 self-center" data-header-timer>
+          {view.mode === 'full' && view.player && <Ring countdown={view.countdown} size="lg" />}
+        </div>
         {view.teams.length > 0 && (
           <button
             type="button"
             onClick={() => setTeamsOpen(true)}
-            className={`ml-auto inline-flex items-center gap-3 rounded-full px-6 py-3 text-2xl font-semibold cursor-pointer ${t.panel}`}
+            className={`col-start-3 justify-self-end inline-flex items-center gap-3 rounded-full px-6 py-3 text-2xl font-semibold cursor-pointer ${t.panel}`}
             data-teams-button
           >
             <Users className="w-7 h-7" /> Teams
@@ -257,23 +261,22 @@ function FullLayout({ view }: { view: OverlayView }) {
   const t = THEMES[view.theme];
   const text = view.player ? null : idleText(view.status) ?? 'Next player coming up';
   return (
-    <div className="flex-1 min-h-0 flex items-center justify-center" data-full-layout>
+    <div className="flex-1 min-h-0 mt-6 flex items-stretch justify-center" data-full-layout>
       {view.player ? (
-        // The photo is the hero: 720px square, the details share the rest.
-        <div className={`w-full flex items-center gap-12 rounded-3xl p-8 ${t.panel}`}>
-          <PlayerAvatar name={view.player.name} photoUrl={view.player.photoUrl} size="3xl" priority className="rounded-3xl w-180! h-180! shrink-0" />
-          <div className="flex-1 min-w-0 flex flex-col gap-6">
-            <h1 className="text-7xl font-extrabold leading-tight line-clamp-2 break-words">{view.player.name}</h1>
+        // Half photo, half details; the timer sits above the card in the header.
+        <div className={`w-full h-full grid grid-cols-2 gap-10 rounded-3xl p-8 ${t.panel}`}>
+          <PlayerAvatar name={view.player.name} photoUrl={view.player.photoUrl} size="3xl" priority className="rounded-3xl w-full! h-full! min-h-0" />
+          <div className="min-w-0 flex flex-col justify-center gap-6" data-player-details>
+            <h1 className="text-7xl font-extrabold leading-tight line-clamp-2 wrap-break-word">{view.player.name}</h1>
             <PlayerChips view={view} />
-            <div className="flex items-center gap-6">
-              <div className="flex-1 min-w-0"><BidBlock view={view} /></div>
-              <Ring countdown={view.countdown} size="lg" />
-            </div>
+            <BidBlock view={view} />
             <LeadingTeam view={view} />
           </div>
         </div>
       ) : (
-        <StatusCard view={view} text={text!} />
+        <div className="self-center">
+          <StatusCard view={view} text={text!} />
+        </div>
       )}
     </div>
   );
