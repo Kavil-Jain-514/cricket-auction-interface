@@ -1,0 +1,215 @@
+/* Home page animations (app/(marketing)/page.tsx and components/marketing/home).
+   CSS only: the marketing pages have a script budget (lighthouserc.json).
+   Everything stops under prefers-reduced-motion and shows its final frame. */
+
+/* ── Hero bidding war: one 12 s cycle ─────────────────────────────────
+   Bids 0-3 each own a 2 s window (animation-delay = i * 2s); the final bid
+   shows from 8 s, SOLD lands at 10 s, then the loop restarts. */
+.hm-step {
+  opacity: 0;
+  animation: hm-window 12s var(--ease-floodlight) infinite both;
+}
+.hm-step-final {
+  animation: hm-final 12s var(--ease-floodlight) infinite both;
+}
+@keyframes hm-window {
+  0% { opacity: 0; transform: translateY(35%); }
+  2% { opacity: 1; transform: none; }
+  15.5% { opacity: 1; transform: none; }
+  16.66%, 100% { opacity: 0; transform: translateY(-35%); }
+}
+@keyframes hm-final {
+  0%, 66.66% { opacity: 0; transform: translateY(35%); }
+  68.5% { opacity: 1; transform: none; }
+  98% { opacity: 1; transform: none; }
+  100% { opacity: 0; }
+}
+
+.hm-timer { animation: hm-timer 2s linear infinite; }
+@keyframes hm-timer {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+.hm-sold { opacity: 0; animation: hm-sold 12s var(--ease-floodlight) infinite; }
+@keyframes hm-sold {
+  0%, 83% { opacity: 0; transform: scale(1.6) rotate(-8deg); }
+  86% { opacity: 1; transform: scale(0.95) rotate(-4deg); }
+  88%, 97% { opacity: 1; transform: rotate(-4deg); }
+  100% { opacity: 0; transform: rotate(-4deg); }
+}
+.hm-sold-wash { opacity: 0; animation: hm-wash 12s ease-out infinite; }
+@keyframes hm-wash {
+  0%, 83% { opacity: 0; }
+  85% { opacity: 1; }
+  97% { opacity: 0.6; }
+  100% { opacity: 0; }
+}
+
+.hm-confetti { opacity: 0; animation: hm-confetti 12s cubic-bezier(0.1, 0.8, 0.3, 1) infinite; }
+@keyframes hm-confetti {
+  0%, 84% { opacity: 0; transform: translate(0, 0) rotate(0); }
+  85% { opacity: 1; }
+  93% { opacity: 1; transform: translate(var(--x), var(--y)) rotate(var(--r)); }
+  97%, 100% { opacity: 0; transform: translate(var(--x), calc(var(--y) + 60px)) rotate(calc(var(--r) * 2)); }
+}
+
+/* Owner phones: a tap ring on each of their bids. */
+.hm-tap { opacity: 0; animation: hm-tap 12s ease-out infinite; }
+.hm-tap-final { opacity: 0; animation: hm-tap-final 12s ease-out infinite both; }
+@keyframes hm-tap {
+  0% { opacity: 0; transform: scale(0.9); }
+  0.5% { opacity: 1; transform: scale(0.9); }
+  6% { opacity: 0; transform: scale(1.25); }
+  100% { opacity: 0; }
+}
+@keyframes hm-tap-final {
+  0%, 66.66% { opacity: 0; transform: scale(0.9); }
+  67% { opacity: 1; transform: scale(0.9); }
+  73%, 100% { opacity: 0; transform: scale(1.25); }
+}
+
+.hm-float { animation: hm-float 6s ease-in-out infinite; }
+.hm-float:nth-of-type(2) { animation-delay: -3s; }
+@keyframes hm-float {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-10px) rotate(-1deg); }
+}
+
+.hm-live-dot { animation: hm-blink 1.4s ease-in-out infinite; }
+@keyframes hm-blink {
+  50% { opacity: 0.25; }
+}
+
+/* ── Ticker band ─────────────────────────────────────────────────────── */
+.hm-marquee { animation: hm-marquee 40s linear infinite; }
+.hm-marquee-wrap:hover .hm-marquee { animation-play-state: paused; }
+@keyframes hm-marquee {
+  to { transform: translateX(-50%); }
+}
+
+/* ── Life of a bid: a 6 s loop ───────────────────────────────────────── */
+.hm-pulse { animation: hm-pulse 6s var(--ease-floodlight) infinite; }
+@keyframes hm-pulse {
+  0%, 8% { left: 0; opacity: 0; }
+  12% { opacity: 1; }
+  45% { left: 50%; }
+  55% { left: 50%; }
+  80% { left: 100%; opacity: 1; }
+  85%, 100% { left: 100%; opacity: 0; }
+}
+.hm-press { animation: hm-press 6s ease-out infinite; }
+@keyframes hm-press {
+  0%, 4%, 14%, 100% { transform: none; filter: none; }
+  8% { transform: scale(0.94); filter: brightness(1.3); }
+}
+.hm-check { animation: hm-check 6s var(--ease-floodlight) infinite both; }
+@keyframes hm-check {
+  0%, 38% { opacity: 0.15; transform: scale(0.6); }
+  44%, 95% { opacity: 1; transform: none; }
+  100% { opacity: 0.15; transform: scale(0.6); }
+}
+.hm-flash { animation: hm-flash 6s ease-out infinite; }
+@keyframes hm-flash {
+  0%, 78% { color: var(--fl-ink-muted); transform: none; }
+  82% { color: var(--fl-signal); transform: scale(1.12); }
+  92%, 100% { color: var(--fl-ink); transform: none; }
+}
+
+/* ── Group draw shuffle ──────────────────────────────────────────────── */
+.hm-shuffle { animation: hm-shuffle 4s var(--ease-floodlight) infinite; }
+@keyframes hm-shuffle {
+  0%, 10% { opacity: 0; transform: translateY(-14px) rotate(-6deg); }
+  20%, 85% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(10px); }
+}
+
+/* ── Scroll reveals (progressive: only where scroll timelines exist) ── */
+@supports (animation-timeline: view()) {
+  .hm-reveal {
+    animation: hm-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 45%;
+  }
+}
+@keyframes hm-reveal {
+  from { opacity: 0; transform: translateY(32px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Hover lift for cards. */
+.hm-card {
+  transition:
+    transform var(--dur-base) var(--ease-floodlight),
+    border-color var(--dur-base) var(--ease-floodlight),
+    box-shadow var(--dur-base) var(--ease-floodlight);
+}
+.hm-card:hover {
+  transform: translateY(-4px);
+  border-color: rgb(34 211 238 / 0.5);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Big gradient headline text. */
+.hm-gradient-text {
+  background: linear-gradient(100deg, var(--fl-ink) 20%, var(--fl-signal) 50%, var(--fl-ink) 80%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: hm-sheen 6s ease-in-out infinite;
+}
+@keyframes hm-sheen {
+  0%, 100% { background-position: 100% 0; }
+  50% { background-position: 0 0; }
+}
+
+/* Floodlight beams over the hero. */
+.hm-beam {
+  animation: hm-beam 9s ease-in-out infinite alternate;
+  transform-origin: top center;
+}
+@keyframes hm-beam {
+  from { transform: rotate(-12deg); opacity: 0.5; }
+  to { transform: rotate(12deg); opacity: 1; }
+}
+
+/* ── Reduced motion: no movement, final frames only ──────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .hm-step,
+  .hm-step-final,
+  .hm-timer,
+  .hm-sold,
+  .hm-sold-wash,
+  .hm-confetti,
+  .hm-tap,
+  .hm-tap-final,
+  .hm-float,
+  .hm-live-dot,
+  .hm-marquee,
+  .hm-pulse,
+  .hm-press,
+  .hm-check,
+  .hm-flash,
+  .hm-shuffle,
+  .hm-reveal,
+  .hm-gradient-text,
+  .hm-beam {
+    animation: none !important;
+  }
+  .hm-step,
+  .hm-confetti,
+  .hm-tap,
+  .hm-tap-final,
+  .hm-pulse,
+  .hm-sold,
+  .hm-sold-wash {
+    opacity: 0;
+  }
+  .hm-step-final,
+  .hm-check,
+  .hm-shuffle {
+    opacity: 1;
+  }
+  .hm-card:hover { transform: none; }
+}
