@@ -3,6 +3,7 @@
 // A 6 s loop; each check ticks in turn. Static under reduced motion.
 import { Check, MonitorPlay, Server, Smartphone } from "lucide-react";
 
+import { Rupees } from "@/components/marketing/home/Rupees";
 import { formatCurrency } from "@/lib/utils";
 
 const CHECKS = [
@@ -57,7 +58,9 @@ export function LifeOfABid() {
         <ol className="relative grid gap-6 lg:grid-cols-3">
           {/* The wire between the stages, with a pulse running along it. */}
           <span aria-hidden className="absolute top-1/2 right-[16%] left-[16%] hidden h-0.5 bg-line lg:block">
-            <span className="hm-pulse absolute -top-1 block size-2.5 rounded-full bg-signal shadow-glow" />
+            <span className="hm-pulse absolute inset-0 block">
+              <span className="absolute -top-1 -left-1 block size-2.5 rounded-full bg-signal shadow-glow" />
+            </span>
           </span>
 
           <Stage icon={Smartphone} step={1} title="Owner taps raise">
@@ -92,7 +95,9 @@ export function LifeOfABid() {
           <Stage icon={MonitorPlay} step={3} title="The room sees it">
             <div className="flex flex-col items-center gap-1 rounded-card border border-line bg-canvas p-4">
               <span className="text-xs font-semibold tracking-widest text-ink-muted uppercase">Current bid</span>
-              <span className="hm-flash font-head text-5xl font-bold tabular">{formatCurrency(2600000)}</span>
+              <span className="hm-flash font-head text-5xl font-bold text-ink tabular">
+                <Rupees text={formatCurrency(2600000)} />
+              </span>
               <span className="text-sm font-semibold text-[#60a5fa]">Harbour Hawks lead</span>
             </div>
             <p className="text-sm text-ink-muted">

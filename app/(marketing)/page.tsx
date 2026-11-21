@@ -20,8 +20,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import "./home.css";
-
 import { buttonVariants } from "@/components/ds/button";
 import { TeamChip } from "@/components/ds/team-chip";
 import { CtaBand } from "@/components/marketing/CtaBand";
@@ -29,6 +27,7 @@ import { JsonLd } from "@/components/marketing/JsonLd";
 import { Screenshot } from "@/components/marketing/Screenshot";
 import { HeroAuction } from "@/components/marketing/home/HeroAuction";
 import { LifeOfABid } from "@/components/marketing/home/LifeOfABid";
+import { Rupees } from "@/components/marketing/home/Rupees";
 import { formatRupees } from "@/convex/bidRules";
 import { PLAN_ORDER, PLAN_TIERS } from "@/convex/planTiers";
 import { FAQS, FEATURES, HOW_IT_WORKS } from "@/lib/marketing/content";
@@ -146,8 +145,8 @@ export default function HomePage() {
       <section className="fl-turf relative overflow-hidden border-b border-line">
         <div aria-hidden className="pointer-events-none absolute inset-0">
           <div className="absolute -top-40 left-1/2 h-96 w-[60rem] -translate-x-1/2 rounded-full bg-signal/10 blur-3xl" />
-          <div className="hm-beam absolute -top-20 left-[12%] h-[40rem] w-40 bg-linear-to-b from-white/10 to-transparent blur-2xl" />
-          <div className="hm-beam absolute -top-20 right-[12%] h-[40rem] w-40 bg-linear-to-b from-white/10 to-transparent blur-2xl [animation-delay:-4.5s]" />
+          <div className="hm-beam absolute -top-20 left-[12%] h-[40rem] w-64 bg-[radial-gradient(ellipse_at_top,rgb(255_255_255/0.09),transparent_70%)]" />
+          <div className="hm-beam absolute -top-20 right-[12%] h-[40rem] w-64 bg-[radial-gradient(ellipse_at_top,rgb(255_255_255/0.09),transparent_70%)] [animation-delay:-4.5s]" />
         </div>
         <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-4 py-16 sm:px-6 lg:grid-cols-2 lg:py-24">
           <div className="flex flex-col gap-6">
@@ -174,7 +173,9 @@ export default function HomePage() {
               {FACTS.map((f) => (
                 <div key={f.label} className="flex flex-col">
                   <dt className="order-2 text-xs text-ink-muted">{f.label}</dt>
-                  <dd className="order-1 font-head text-3xl font-bold text-ink tabular">{f.value}</dd>
+                  <dd className="order-1 font-head text-3xl font-bold text-ink tabular">
+                    {f.value.startsWith("₹") ? <Rupees text={f.value} /> : f.value}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -397,7 +398,9 @@ export default function HomePage() {
                 )}
               >
                 <h3 className="font-head text-2xl font-bold tracking-wide uppercase">{plan.label}</h3>
-                <p className="font-head text-4xl font-bold tabular">{formatRupees(plan.price)}</p>
+                <p className="font-head text-4xl font-bold tabular">
+                  <Rupees text={formatRupees(plan.price)} />
+                </p>
                 <p className="text-sm text-ink-muted">
                   {plan.maxTeams} teams · {plan.maxPlayers} players
                 </p>

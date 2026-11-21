@@ -9,6 +9,7 @@ import { Id } from '@/convex/_generated/dataModel';
 import type { TeamOwnerStatus } from '@/convex/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { FormModal } from '@/components/ui/form-modal';
 import { toCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
 
@@ -104,11 +105,28 @@ function CopyButton({ row }: { row: Row }) {
 }
 
 /**
- * Super-admin only: the tournament's organisers and team owners with their
- * emails (auth:tournamentPeople refuses everyone else). Mounted only for
- * super-admins, so nobody else even subscribes.
+ * Super-admin only: a header button that opens the tournament's organisers and
+ * team owners with their emails (auth:tournamentPeople refuses everyone else).
+ * Mounted only for super-admins, and the query only runs while the popup is open.
  */
-export function TournamentPeople({ tournamentId, tournamentName }: { tournamentId: Id<"tournaments">; tournamentName: string }) {
+export function TournamentPeopleButton({ tournamentId, tournamentName }: { tournamentId: Id<"tournaments">; tournamentName: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => setOpen(true)}
+        className="h-11 border-slate-600 px-4 text-sm text-slate-300 hover:bg-slate-700 hover:text-white"
+      >
+        <Users className="mr-2 h-4 w-4" aria-hidden /> People
+      </Button>
+      {open && <TournamentPeopleModal tournamentId={tournamentId} tournamentName={tournamentName} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function TournamentPeopleModal({ tournamentId, tournamentName, onClose }: { tournamentId: Id<"tournaments">; tournamentName: string; onClose: () => void }) {
   const people = useQuery(api.auth.tournamentPeople, { tournamentId });
   const [search, setSearch] = useState('');
 
@@ -135,7 +153,7 @@ export function TournamentPeople({ tournamentId, tournamentName }: { tournamentI
       ...organisers.map((r) => ['Organisers', r.name, r.email, r.detail, '']),
       ...owners.map((r) => ['Team owners', r.name, r.email, r.detail, r.badge?.label]),
     ]);
-    const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' }));
+    const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
     link.download = `${tournamentName.replace(/[^\w-]+/g, '-').replace(/^-|-$/g, '') || 'tournament'}-people.csv`;
@@ -144,20 +162,22 @@ export function TournamentPeople({ tournamentId, tournamentName }: { tournamentI
   };
 
   return (
-    <section aria-labelledby="people-title" className="mb-6 sm:mb-8 rounded-xl border border-slate-700 bg-slate-800/50 p-4 sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 id="people-title" className="flex items-center gap-2 text-lg font-bold">
-            <Users className="h-5 w-5 text-blue-400" aria-hidden /> People
-          </h2>
-          <p className="text-sm text-slate-400">Super-admin only. Organisers and team owners with their emails.</p>
+    <FormModal
+      icon={Users}
+      title="People"
+      subtitle="Super-admin only. Organisers and team owners with their emails."
+      onClose={onClose}
+      width="4xl"
+      footer={
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
+          <Button type="button" variant="outline" onClick={onClose} className="h-10 sm:min-w-28">Close</Button>
+          <Button type="button" onClick={exportCsv} disabled={!people} className="h-10">
+            <Download className="mr-2 h-4 w-4" aria-hidden /> Export CSV
+          </Button>
         </div>
-        <Button type="button" variant="outline" onClick={exportCsv} disabled={!people} className="h-11 border-slate-600 bg-slate-800 px-4 text-sm text-slate-200 hover:bg-slate-700 hover:text-white">
-          <Download className="mr-2 h-4 w-4" aria-hidden /> Export CSV
-        </Button>
-      </div>
-
-      <div className="relative mt-4">
+      }
+    >
+      <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
         <Input
           type="search"
@@ -177,6 +197,6 @@ export function TournamentPeople({ tournamentId, tournamentName }: { tournamentI
           <PeopleList title="Team owners" detailLabel="Team" rows={shownOwners} empty={needle ? 'No team owners match.' : 'No team owners yet.'} />
         </>
       )}
-    </section>
+    </FormModal>
   );
 }

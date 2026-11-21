@@ -1,14 +1,13 @@
 // components/marketing/home/HeroAuction.tsx - The hero's looping bidding war.
-// Pure CSS (see app/(marketing)/home.css): the marketing pages have a script
+// Pure CSS (see the home section of app/globals.css): the marketing pages have a script
 // budget, so there is no client component here. One 12 s cycle: four bids
 // two seconds apart, the final bid, then SOLD with a confetti burst. Under
 // reduced motion only the final, sold frame is shown. Fictional data.
 import { Gavel, Timer } from "lucide-react";
 import type { CSSProperties } from "react";
 
-import { PriceTicker } from "@/components/ds/price-ticker";
-import { StatTile } from "@/components/ds/stat-tile";
 import { TeamChip } from "@/components/ds/team-chip";
+import { Rupees } from "@/components/marketing/home/Rupees";
 import { formatCurrency } from "@/lib/utils";
 
 const HAWKS = { name: "Harbour Hawks", color: "#1d4ed8" };
@@ -40,7 +39,7 @@ export function HeroAuction() {
       <OwnerPhone team={HAWKS} bids={[0, 2, 4]} className="-top-24 -left-6 lg:-left-10" />
       <OwnerPhone team={TITANS} bids={[1, 3]} className="-right-3 -bottom-8 2xl:-right-8" />
 
-      <div className="relative flex flex-col gap-5 overflow-hidden rounded-panel border border-line bg-surface/85 p-6 shadow-floating backdrop-blur">
+      <div className="relative flex flex-col gap-5 overflow-hidden rounded-panel border border-line bg-surface/95 p-6 shadow-floating">
         <div className="flex items-center justify-between text-sm">
           <span className="font-semibold tracking-widest text-signal uppercase">Set 1 · Marquee</span>
           <span className="inline-flex items-center gap-2 text-ink-muted">
@@ -58,11 +57,13 @@ export function HeroAuction() {
           </div>
         </div>
 
-        {/* Price: one ticker per bid, stacked in the same grid cell. */}
-        <div className="grid h-[1em] overflow-hidden text-7xl sm:text-8xl">
+        {/* Price: one per bid, stacked in the same grid cell. Plain text, not
+            PriceTicker: five tickers are ~350 digit spans, doubled by the RSC
+            payload, and that HTML weight cost the page its LCP budget. */}
+        <div className="grid h-[1em] overflow-hidden font-head text-7xl leading-none font-bold tabular sm:text-8xl">
           {BIDS.map((b, i) => (
             <div key={b.amount} className={`${stepClass(i)} [grid-area:1/1]`} style={stepStyle(i)}>
-              <PriceTicker amount={b.amount} className="text-ink" />
+              <Rupees text={formatCurrency(b.amount)} />
             </div>
           ))}
         </div>
@@ -84,20 +85,8 @@ export function HeroAuction() {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div className="grid">
-            {BIDS.map((b, i) => (
-              <div key={b.amount} className={`${stepClass(i)} [grid-area:1/1]`} style={stepStyle(i)}>
-                <StatTile label="Leader's purse left" value={formatCurrency(b.purse - b.amount)} />
-              </div>
-            ))}
-          </div>
-          <div className="grid">
-            {BIDS.map((b, i) => (
-              <div key={b.amount} className={`${stepClass(i)} [grid-area:1/1]`} style={stepStyle(i)}>
-                <StatTile label="Next bid" value={formatCurrency(b.amount + 200000)} tone="signal" />
-              </div>
-            ))}
-          </div>
+          <HeroTile label="Leader's purse left" values={BIDS.map((b) => b.purse - b.amount)} />
+          <HeroTile label="Next bid" values={BIDS.map((b) => b.amount + 200000)} className="text-signal" />
         </div>
 
         {/* SOLD moment */}
@@ -128,6 +117,22 @@ export function HeroAuction() {
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** StatTile's look, with one label and a value per bid stacked under it. */
+function HeroTile({ label, values, className }: { label: string; values: number[]; className?: string }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-card border border-line bg-surface p-4">
+      <span className="text-xs font-semibold tracking-wider text-ink-muted uppercase">{label}</span>
+      <span className={`grid font-head text-4xl leading-none font-bold tabular ${className ?? "text-ink"}`}>
+        {values.map((v, i) => (
+          <span key={i} className={`${stepClass(i)} [grid-area:1/1]`} style={stepStyle(i)}>
+            <Rupees text={formatCurrency(v)} />
+          </span>
+        ))}
+      </span>
     </div>
   );
 }
