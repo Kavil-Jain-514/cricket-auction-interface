@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
 import { PlayerAvatar } from '@/components/ui/player-avatar';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { RegistrationDetailsModal } from '@/components/registration/RegistrationDetailsModal';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { getErrorMessage, getRoleDisplay } from '@/lib/utils';
 import { formatRupees } from '@/convex/bidRules';
@@ -79,6 +80,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   const markPaid = useMutation(api.registrations.markPaid);
   const setCategory = useMutation(api.registrations.setCategory);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<Id<"registrations"> | null>(null);
   const categories = [...(tournament?.settings.categories ?? [])].sort((a, b) => a.order - b.order);
   const confirm = useConfirm();
   const [filter, setFilter] = useState<Status | 'all'>('paid');
@@ -93,6 +95,8 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   const filters = free ? FREE_FILTERS : FILTERS;
   const sorted = useMemo(() => sortByRegistered(rows ?? [], order), [rows, order]);
   const shown = useMemo(() => sorted.filter((r) => filter === 'all' || r.status === filter), [sorted, filter]);
+  // Looked up from the live list so the card follows approve/reject.
+  const opened = openId ? (rows ?? []).find((r) => r._id === openId) : undefined;
   const readyCount = (rows ?? []).filter((r) => r.status === 'paid').length;
   const link = typeof window !== 'undefined' ? `${window.location.origin}/register/${tournamentId}` : '';
 
@@ -222,11 +226,19 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
 
         <ul className="divide-y divide-slate-800 rounded-xl border border-slate-800 bg-slate-900">
           {shown.map((r) => (
-            <li key={r._id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-4">
+            <li
+              key={r._id}
+              onClick={(e) => {
+                // Buttons, selects, links and the answers toggle keep their own action.
+                if ((e.target as HTMLElement).closest('button, a, select, summary, input, textarea, label')) return;
+                setOpenId(r._id);
+              }}
+              className="flex cursor-pointer flex-col sm:flex-row sm:items-center gap-3 p-4 transition-colors hover:bg-slate-800/40"
+            >
               <PlayerAvatar name={r.name} photoUrl={r.photoUrl} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold">{r.name}</span>
+                  <button type="button" onClick={() => setOpenId(r._id)} className="font-semibold text-left hover:underline underline-offset-2">{r.name}</button>
                   <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-300">{free && r.status === 'paid' ? 'Waiting' : STATUS_LABEL[r.status]}</span>
                   {r.duplicate && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300">
@@ -327,6 +339,17 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
           {rows === undefined && <li className="p-6 text-center text-sm text-slate-500">Loading…</li>}
         </ul>
       </main>
+
+      {opened && (
+        <RegistrationDetailsModal
+          registration={opened}
+          labels={labels}
+          free={free}
+          categoryName={categories.find((c) => c.id === opened.categoryId)?.name}
+          onViewProof={setProofUrl}
+          onClose={() => setOpenId(null)}
+        />
+      )}
 
       {proofUrl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setProofUrl(null)}>
