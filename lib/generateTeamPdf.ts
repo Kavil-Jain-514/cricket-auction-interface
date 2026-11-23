@@ -28,40 +28,34 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
     : { r: 59, g: 130, b: 246 }; // default blue
 }
 
-// Role badge: colored pill with short abbreviation
-function getRoleBadgeStyle(role: string): {
-  abbr: string;
-  r: number;
-  g: number;
-  b: number;
-} {
-  const lower = role.toLowerCase();
-  if (lower.includes("wicket") || lower === "wk")
-    return { abbr: "WK", r: 16, g: 185, b: 129 }; // emerald
-  if (lower.includes("all")) return { abbr: "AR", r: 147, g: 51, b: 234 }; // purple
-  if (lower.includes("bowl")) return { abbr: "BOWL", r: 234, g: 88, b: 12 }; // orange
-  return { abbr: "BAT", r: 59, g: 130, b: 246 }; // blue
-}
+// Squad table column x-offsets from the left margin (header and rows share these).
+const COL = {
+  index: 2,
+  name: 8,
+  age: 48,
+  phone: 58,
+  jerseyNumber: 82,
+  jerseyName: 96,
+  size: 126,
+  hand: 139,
+  price: 152,
+} as const;
 
-function drawRoleBadge(doc: jsPDF, role: string, x: number, y: number): void {
-  // Use primary role only (first item if comma-separated)
-  const primaryRole = role.split(",")[0].trim();
-  const { abbr, r, g, b } = getRoleBadgeStyle(primaryRole);
-  const badgeW = abbr.length <= 2 ? 9 : abbr.length === 3 ? 12 : 15;
-  const badgeH = 5;
-
-  doc.setFillColor(r, g, b);
-  doc.roundedRect(x, y - 3.5, badgeW, badgeH, 1, 1, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(5.5);
-  doc.setFont("helvetica", "bold");
-  // Center text manually — avoids align option incompatibility with jsPDF 4.x
-  const textW = doc.getTextWidth(abbr);
-  doc.text(abbr, x + (badgeW - textW) / 2, y + 0.5);
-  // Reset
+// Squad table column labels, vertically centred in the 8-tall header band at `y`.
+function drawTableHeader(doc: jsPDF, margin: number, y: number): void {
   doc.setTextColor(30, 30, 30);
   doc.setFontSize(7);
-  doc.setFont("helvetica", "normal");
+  doc.setFont("helvetica", "bold");
+  const textY = y + 5.3;
+  doc.text("#", margin + COL.index, textY);
+  doc.text("Player Name", margin + COL.name, textY);
+  doc.text("Age", margin + COL.age, textY);
+  doc.text("Phone", margin + COL.phone, textY);
+  doc.text("Jersey#", margin + COL.jerseyNumber, textY);
+  doc.text("Jersey Name", margin + COL.jerseyName, textY);
+  doc.text("Size", margin + COL.size, textY);
+  doc.text("Hand", margin + COL.hand, textY);
+  doc.text("Price", margin + COL.price, textY);
 }
 
 // Helper function to load image as base64
@@ -110,20 +104,19 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(24);
   doc.setFont("helvetica", "bold");
-  doc.text(team.name, textStartX, y + 10);
+  doc.text(team.name, textStartX, 20);
+
+  // Owner & Sponsor (directly under the team name, inside the header band)
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  const ownerText = `Owner: ${team.ownerName || "N/A"}${team.sponsorName ? ` | Sponsor: ${team.sponsorName}` : ""}`;
+  doc.text(ownerText, textStartX, 29);
 
   // Tournament Name (if available)
   if (team.tournamentName) {
     doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(team.tournamentName, textStartX, y + 20);
+    doc.text(team.tournamentName, textStartX, 37);
   }
-
-  // Owner & Sponsor
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "normal");
-  const ownerText = `Owner: ${team.ownerName || "N/A"}${team.sponsorName ? ` | Sponsor: ${team.sponsorName}` : ""}`;
-  doc.text(ownerText, textStartX, y + 30);
 
   // Group badge (top-right of header, only present once the draw is locked)
   if (team.groupLabel) {
@@ -190,20 +183,10 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
   doc.setFillColor(230, 230, 230);
   doc.rect(margin, y, pageWidth - margin * 2, 8, "F");
 
-  doc.setFontSize(7);
-  doc.setFont("helvetica", "bold");
-  doc.text("#", margin + 2, y + 6);
-  doc.text("Player Name", margin + 8, y + 6);
-  doc.text("Age", margin + 35, y + 6);
-  doc.text("Phone", margin + 45, y + 6);
-  doc.text("Role", margin + 65, y + 6);
-  doc.text("Jersey#", margin + 90, y + 6);
-  doc.text("Jersey Name", margin + 102, y + 6);
-  doc.text("Size", margin + 128, y + 6);
-  doc.text("Hand", margin + 140, y + 6);
-  doc.text("Price", margin + 153, y + 6);
+  drawTableHeader(doc, margin, y);
 
-  y += 10;
+  // Rows paint from y - 4, so start 12 below the 8-tall header to keep it clear.
+  y += 12;
 
   // Players List
   doc.setFont("helvetica", "normal");
@@ -225,21 +208,9 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
       // Add header on new page
       doc.setFillColor(230, 230, 230);
       doc.rect(margin, y, pageWidth - margin * 2, 8, "F");
+      drawTableHeader(doc, margin, y);
 
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "bold");
-      doc.text("#", margin + 2, y + 6);
-      doc.text("Player Name", margin + 8, y + 6);
-      doc.text("Age", margin + 35, y + 6);
-      doc.text("Phone", margin + 45, y + 6);
-      doc.text("Role", margin + 65, y + 6);
-      doc.text("Jersey#", margin + 90, y + 6);
-      doc.text("Jersey Name", margin + 102, y + 6);
-      doc.text("Size", margin + 128, y + 6);
-      doc.text("Hand", margin + 140, y + 6);
-      doc.text("Price", margin + 153, y + 6);
-
-      y += 10;
+      y += 12;
       doc.setFont("helvetica", "normal");
     }
 
@@ -254,36 +225,31 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
 
     doc.setFontSize(7);
     doc.setTextColor(30, 30, 30);
-    doc.text(`${index + 1}`, margin + 2, y + 2);
+    doc.text(`${index + 1}`, margin + COL.index, y + 2);
     const displayName = player.isCaptain
       ? `${player.name} (C)`
       : player.name;
     doc.setFont("helvetica", player.isCaptain ? "bold" : "normal");
-    doc.text(displayName.substring(0, 20), margin + 8, y + 2);
+    doc.text(displayName.substring(0, 26), margin + COL.name, y + 2);
     doc.setFont("helvetica", "normal");
-    doc.text(player.age != null ? `${player.age}` : "-", margin + 35, y + 2);
-    doc.text(player.phoneNumber || "-", margin + 45, y + 2);
-    if (player.role) {
-      drawRoleBadge(doc, player.role, margin + 65, y + 2);
-    } else {
-      doc.text("-", margin + 65, y + 2);
-    }
-    doc.text(`${player.jerseyNumber || "-"}`, margin + 90, y + 2);
-    doc.text((player.jerseyName || "-").substring(0, 10), margin + 102, y + 2);
-    doc.text(player.tshirtSize || "-", margin + 128, y + 2);
+    doc.text(player.age != null ? `${player.age}` : "-", margin + COL.age, y + 2);
+    doc.text(player.phoneNumber || "-", margin + COL.phone, y + 2);
+    doc.text(`${player.jerseyNumber || "-"}`, margin + COL.jerseyNumber, y + 2);
+    doc.text((player.jerseyName || "-").substring(0, 16), margin + COL.jerseyName, y + 2);
+    doc.text(player.tshirtSize || "-", margin + COL.size, y + 2);
 
-    // Simplify hand display
+    // "Right-handed" / "Left-handed" → "Right" / "Left"
     const hand = !player.battingBowlingHand
       ? "-"
-      : player.battingBowlingHand.includes("Right") ? "R" : "L";
-    doc.text(hand, margin + 140, y + 2);
+      : player.battingBowlingHand.includes("Right") ? "Right" : "Left";
+    doc.text(hand, margin + COL.hand, y + 2);
 
     if (player.isCaptain && !player.soldPrice) {
       doc.setTextColor(120, 120, 120);
-      doc.text("-", margin + 153, y + 2);
+      doc.text("-", margin + COL.price, y + 2);
     } else {
       doc.setTextColor(34, 139, 34); // Green for price
-      doc.text(formatCurrencyFull(player.soldPrice || 0), margin + 153, y + 2);
+      doc.text(formatCurrencyFull(player.soldPrice || 0), margin + COL.price, y + 2);
     }
 
     y += 8;
