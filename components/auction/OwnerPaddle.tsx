@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useMutation } from 'convex/react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Gavel, Crown, Hourglass } from 'lucide-react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
@@ -260,20 +259,14 @@ export function OwnerPaddle({ auctionRoomId, paddle, biddingOpen, insights }: Ow
         </p>
       )}
 
-      <AnimatePresence>
-        {flash && (
-          <motion.div
-            key={flash.key}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
+      {flash && (
+          <div
             role="status"
             className={`absolute inset-x-3 -top-12 rounded-xl border px-3 py-2 text-center text-sm font-semibold ${flashClass}`}
           >
             {flash.text}
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+      )}
     </div>
   );
 }

@@ -83,6 +83,8 @@ export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
         players: pdfPlayers,
         tournamentName: tournament?.name,
         logoUrl: team.logoUrl,
+        organizationLogoUrl: tournament?.organizationLogoUrl,
+        sponsors: tournament?.sponsors,
       });
       toast.success('PDF downloaded successfully');
     } catch (error) {

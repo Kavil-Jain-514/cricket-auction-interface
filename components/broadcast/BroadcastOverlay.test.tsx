@@ -27,11 +27,14 @@ vi.mock("@/convex/_generated/api", () => ({
       getAuctionRoster: { _name: "getAuctionRoster" },
       getLatestSaleEvent: { _name: "getLatestSaleEvent" },
     },
+    tournaments: {
+      getBranding: { _name: "getBranding" },
+    },
   },
 }));
 
 import { BroadcastOverlay, stageFit } from "./BroadcastOverlay";
-import { OverlayStage, TeamsPanel, type OverlayView } from "./OverlayStage";
+import { OverlayStage, TeamsPanel, sponsorPage, type OverlayView } from "./OverlayStage";
 import { OverlayResult } from "./OverlayResult";
 
 const now = Date.now();
@@ -68,10 +71,18 @@ const roster = {
   stats: { total: 10, pending: 8, sold: 1, unsold: 0, inAuction: 1 },
 };
 
+const ORG_LOGO = "https://res.cloudinary.com/demo/image/upload/org.png";
+const branding = {
+  name: "Test Cup",
+  organizationLogoUrl: ORG_LOGO,
+  sponsors: [{ name: "Acme Paints", logoUrl: "https://res.cloudinary.com/demo/image/upload/acme.png" }, { name: "Sunrise Bakery" }],
+};
+
 function setData() {
   queryResults.set("getLiveAuction", live);
   queryResults.set("getAuctionRoster", roster);
   queryResults.set("getLatestSaleEvent", null);
+  queryResults.set("getBranding", branding);
 }
 
 describe("BroadcastOverlay — no session", () => {
@@ -91,6 +102,17 @@ describe("BroadcastOverlay — no session", () => {
     expect(html).toContain("Hosted by Sunrise CC");
     // Effects never run on the server, so the photo preload hasn't finished.
     expect(html).not.toContain("data-lower-third");
+  });
+
+  test("shows the organisation logo and sponsors from tournaments:getBranding", () => {
+    setData();
+    const html = renderToString(
+      <BroadcastOverlay roomId="room1" mode="lower-third" theme="dark" safe={false} />,
+    );
+    expect(html).toContain("data-org-logo");
+    expect(html).toContain("data-sponsor-strip");
+    expect(html).toContain("Acme Paints");
+    expect(html).toContain("Sunrise Bakery");
   });
 
   test("full mode keeps team purses behind the Teams button, not on screen", () => {
@@ -184,6 +206,20 @@ describe("OverlayStage — layouts", () => {
     expect(html).toContain(" / 15");
   });
 
+  test("no organisation logo or sponsors: neither shows", () => {
+    const html = renderToString(<OverlayStage {...stageView} />);
+    expect(html).not.toContain("data-org-logo");
+    expect(html).not.toContain("data-sponsor-strip");
+  });
+
+  test("sponsor without a logo shows its name in the tile", () => {
+    const html = renderToString(
+      <OverlayStage {...stageView} tournament={{ name: "Test Cup", sponsors: [{ name: "Sunrise Bakery" }] }} />,
+    );
+    expect(html).toContain("data-sponsor-strip");
+    expect(html).toContain("Sunrise Bakery");
+  });
+
   test("timer off hides the ring", () => {
     const html = renderToString(
       <OverlayStage {...stageView} countdown={{ ...stageView.countdown, enabled: false }} />,
@@ -252,5 +288,17 @@ describe("stageFit — fills the window with no gap", () => {
 
   test("zero-size window falls back to the base stage", () => {
     expect(stageFit(0, 0)).toEqual({ scale: 1, width: 1920, height: 1080 });
+  });
+});
+
+describe("sponsorPage — sponsors rotate in groups", () => {
+  const names = ["a", "b", "c", "d", "e", "f", "g", "h"];
+  test("a group per page, wrapping round", () => {
+    expect(sponsorPage(names, 0, 6)).toEqual(["a", "b", "c", "d", "e", "f"]);
+    expect(sponsorPage(names, 1, 6)).toEqual(["g", "h"]);
+    expect(sponsorPage(names, 2, 6)).toEqual(["a", "b", "c", "d", "e", "f"]);
+  });
+  test("fewer than a page: all of them, every page", () => {
+    expect(sponsorPage(["a", "b"], 3, 6)).toEqual(["a", "b"]);
   });
 });

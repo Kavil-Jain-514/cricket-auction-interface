@@ -11,7 +11,6 @@ import { Input } from '@/components/ui/input';
 import { AmountInput } from '@/components/ui/amount-input';
 import { formatCurrency, getErrorMessage, getRoleDisplay, getCaptainPlayerIds } from '@/lib/utils';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
 import { TeamLogo } from '@/components/ui/team-logo';
 // Props for the AdminPlayerManager component
 interface AdminPlayerManagerProps {
@@ -151,9 +150,7 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
 
     return (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
+            <div
                 className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full p-5 sm:p-6 my-auto"
                 onClick={(e) => e.stopPropagation()}
             >
@@ -313,12 +310,9 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                                     </div>
 
                                     {/* Edit panel */}
-                                    <AnimatePresence>
+                                    <>
                                         {isEditing && editState && (
-                                            <motion.div
-                                                initial={{ height: 0, opacity: 0 }}
-                                                animate={{ height: 'auto', opacity: 1 }}
-                                                exit={{ height: 0, opacity: 0 }}
+                                            <div
                                                 className="overflow-hidden"
                                             >
                                                 <div className="mt-3 pt-3 border-t border-slate-700 space-y-3">
@@ -503,9 +497,9 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                                                         </Button>
                                                     </div>
                                                 </div>
-                                            </motion.div>
+                                            </div>
                                         )}
-                                    </AnimatePresence>
+                                    </>
                                 </div>
                             );
                         })
@@ -518,7 +512,7 @@ export function AdminPlayerManager({ tournamentId, maxPlayersPerTeam, tournament
                         Close
                     </Button>
                 </div>
-            </motion.div>
+            </div>
         </div>
     );
 }

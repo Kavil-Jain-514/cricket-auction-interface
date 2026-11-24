@@ -33,8 +33,20 @@ export interface OverlayPlayer {
   battingBowlingHand?: string;
 }
 
+export interface OverlaySponsor {
+  name: string;
+  logoUrl?: string;
+}
+
 export interface OverlayView extends OverlayParams {
-  tournament: { name: string; logoUrl?: string; footerText?: string } | null;
+  tournament: {
+    name: string;
+    logoUrl?: string;
+    footerText?: string;
+    // From the registration form (tournaments:getBranding).
+    organizationLogoUrl?: string;
+    sponsors?: OverlaySponsor[];
+  } | null;
   status: string;
   player: OverlayPlayer | null;
   basePrice: number;
@@ -69,8 +81,10 @@ const THEMES = {
 const SAFE_PADDING = 'px-24 py-14';
 const DEFAULT_PADDING = 'px-12 py-8';
 
-// CSS opacity/transform only, never layout properties, so OBS keeps 60fps.
-const BID_POP = 'animate-in fade-in zoom-in-95 duration-300 motion-reduce:animate-none';
+/** Sponsors on screen at once; more than this rotate in groups. */
+const SPONSORS_PER_PAGE = 6;
+const SPONSOR_ROTATE_MS = 8000;
+
 
 /**
  * The broadcast stage (1920x1080, wider or taller to fill the window). Presentational apart from the teams panel
@@ -114,10 +128,15 @@ export function OverlayStage(view: OverlayView) {
       <div className="flex-1 min-h-0 flex flex-col justify-end">
         {view.mode === 'full' ? <FullLayout view={view} /> : <LowerThird view={view} />}
       </div>
-      {view.tournament?.footerText && (
-        <p className={`mt-3 self-end rounded-full px-4 py-1 text-lg font-medium ${t.panel}`}>
-          {view.tournament.footerText}
-        </p>
+      {(view.tournament?.footerText || (view.tournament?.sponsors?.length ?? 0) > 0) && (
+        <div className="mt-3 flex items-end justify-between gap-4">
+          <SponsorStrip view={view} />
+          {view.tournament?.footerText && (
+            <p className={`ml-auto rounded-full px-4 py-1 text-lg font-medium ${t.panel}`}>
+              {view.tournament.footerText}
+            </p>
+          )}
+        </div>
       )}
       {teamsOpen && <TeamsPanel view={view} onClose={() => setTeamsOpen(false)} />}
     </div>
@@ -137,11 +156,71 @@ function Branding({ view }: { view: OverlayView }) {
           fallback={<Trophy className="w-20 h-20 text-yellow-500" />}
         />
       </div>
+      {view.tournament.organizationLogoUrl && (
+        // White tile so dark and transparent logos both read on either theme.
+        <div className="rounded-2xl bg-white p-2 shadow-2xl" data-org-logo>
+          <ImgWithFallback
+            src={view.tournament.organizationLogoUrl}
+            alt="Organisation logo"
+            className="w-20 h-20 object-contain rounded-xl"
+            fallback={null}
+          />
+        </div>
+      )}
       {view.status === 'paused' && (
         <span className={`inline-flex items-center gap-2 rounded-full px-5 py-2 text-2xl font-bold ${t.panel}`}>
           <Pause className="w-6 h-6" /> Paused
         </span>
       )}
+    </div>
+  );
+}
+
+/** The `page`-th group of `perPage` items, wrapping round; all of them when they fit in one. */
+export function sponsorPage<T>(items: readonly T[], page: number, perPage: number): T[] {
+  if (items.length <= perPage) return [...items];
+  const pages = Math.ceil(items.length / perPage);
+  const start = (page % pages) * perPage;
+  return items.slice(start, start + perPage);
+}
+
+function useRotatingPage(count: number, perPage: number, ms: number): number {
+  const [page, setPage] = useState(0);
+  const rotates = count > perPage;
+  useEffect(() => {
+    if (!rotates) return;
+    const id = setInterval(() => setPage((p) => p + 1), ms);
+    return () => clearInterval(id);
+  }, [rotates, ms]);
+  return rotates ? page : 0;
+}
+
+/** "Supported by" and the sponsors' logos on white tiles, bottom-left of the stage. */
+function SponsorStrip({ view }: { view: OverlayView }) {
+  const t = THEMES[view.theme];
+  const sponsors = view.tournament?.sponsors ?? [];
+  const page = useRotatingPage(sponsors.length, SPONSORS_PER_PAGE, SPONSOR_ROTATE_MS);
+  if (sponsors.length === 0) return null;
+  const shown = sponsorPage(sponsors, page, SPONSORS_PER_PAGE);
+  return (
+    <div className={`flex items-center gap-4 rounded-2xl px-4 py-3 ${t.panel}`} data-sponsor-strip>
+      <span className={`text-sm font-semibold uppercase tracking-widest ${t.muted}`}>Supported by</span>
+      <ul className="flex items-center gap-3">
+        {shown.map((sponsor, i) => (
+          <li
+            key={`${i}-${sponsor.name}`}
+            title={sponsor.name}
+            className="flex h-16 w-36 items-center justify-center rounded-xl bg-white px-3 py-2"
+          >
+            <ImgWithFallback
+              src={sponsor.logoUrl}
+              alt={sponsor.name}
+              className="h-full w-full object-contain"
+              fallback={<span className="line-clamp-2 text-center text-base font-bold leading-tight text-slate-700">{sponsor.name}</span>}
+            />
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -163,7 +242,7 @@ function BidBlock({ view }: { view: OverlayView }) {
       <div className="text-lg font-semibold tracking-widest opacity-90">
         {view.isFirstBid ? 'STARTING PRICE' : 'CURRENT BID'}
       </div>
-      <div key={view.currentBid} className={`text-7xl font-extrabold leading-none tabular-nums ${BID_POP}`}>
+      <div className="text-7xl font-extrabold leading-none tabular-nums">
         {formatCurrency(view.currentBid)}
       </div>
     </div>

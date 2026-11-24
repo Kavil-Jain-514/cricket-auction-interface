@@ -1,6 +1,5 @@
 "use client";
 
-import { useReducedMotion } from 'framer-motion';
 import { Pause } from 'lucide-react';
 import type { BidCountdown } from '@/hooks/useBidCountdown';
 
@@ -32,18 +31,16 @@ interface BidTimerRingProps {
  * manually. Hidden when the timer is off or no player is up.
  */
 export function BidTimerRing({ countdown, size = 'md', className = '' }: BidTimerRingProps) {
-  const reduceMotion = useReducedMotion();
   if (!countdown.enabled) return null;
 
   const { box, stroke, text } = SIZES[size];
   const radius = (box - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const tone = countdown.paused ? 'normal' : countdown.tone;
-  const pulse = !reduceMotion && !countdown.paused && tone === 'red' && !countdown.expired;
 
   return (
     <div
-      className={`relative inline-flex items-center justify-center shrink-0 ${pulse ? 'animate-pulse' : ''} ${className}`}
+      className={`relative inline-flex items-center justify-center shrink-0 ${className}`}
       style={{ width: box, height: box }}
       role="timer"
       aria-label={countdown.paused ? `Bid timer paused at ${countdown.secondsLeft} seconds` : `${countdown.secondsLeft} seconds left`}
@@ -59,7 +56,7 @@ export function BidTimerRing({ countdown, size = 'md', className = '' }: BidTime
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={circumference * (1 - countdown.fraction)}
-          className={`${countdown.paused ? 'stroke-slate-400' : TONE_STROKE[tone]} ${reduceMotion ? '' : 'transition-[stroke-dashoffset] duration-300 ease-linear'}`}
+          className={`${countdown.paused ? 'stroke-slate-400' : TONE_STROKE[tone]}`}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">

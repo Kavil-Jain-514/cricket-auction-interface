@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from 'framer-motion';
 import { Users, Gavel } from 'lucide-react';
 import { TeamLogo } from '@/components/ui/team-logo';
 import { AmountInput } from '@/components/ui/amount-input';
@@ -106,7 +105,7 @@ export function AdminTeamsPanel({
           }
 
           return (
-            <motion.div
+            <div
               key={team._id}
               onClick={() => {
                 if (canBid) {
@@ -116,7 +115,7 @@ export function AdminTeamsPanel({
                 }
               }}
               className={`
-                relative rounded-xl p-2.5 sm:p-3 border-2 transition-all
+                relative rounded-xl p-2.5 sm:p-3 border-2
                 ${canBid ? 'cursor-pointer hover:border-blue-500 hover:bg-slate-700/50 active:scale-[0.98]' : 'cursor-not-allowed'}
                 ${
                   isCurrentBidder
@@ -148,7 +147,7 @@ export function AdminTeamsPanel({
                 </div>
 
                 {isCurrentBidder && (
-                  <Gavel className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 animate-pulse shrink-0" />
+                  <Gavel className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 shrink-0" />
                 )}
               </div>
 
@@ -190,7 +189,7 @@ export function AdminTeamsPanel({
                   )}
                 </div>
               )}
-            </motion.div>
+            </div>
           );
         })}
       </div>
