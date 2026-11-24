@@ -7,7 +7,6 @@ import type { OptimisticLocalStore } from 'convex/browser';
 import type { FunctionArgs } from 'convex/server';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
   Trophy,
   Users, Gavel, RotateCcw, RotateCw, Play, Pause, RefreshCcw,
@@ -24,7 +23,6 @@ import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { PlayerIntroFlash } from '@/components/auction/PlayerIntroFlash';
 import { ViewerActionBar, ViewerSheets, type ViewerSheetType } from '@/components/auction/ViewerPanels';
 import { AuctionLiveBids } from '@/components/auction/AuctionLiveBids';
 import { AdminTeamsPanel } from '@/components/auction/AdminTeamsPanel';
@@ -246,14 +244,12 @@ export default function AuctionPage({ params }: AuctionPageProps) {
   const [bidding, setBidding] = useState<Id<"teams"> | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [customBidAmounts, setCustomBidAmounts] = useState<Record<string, number>>({});
-  const [showPlayerIntro, setShowPlayerIntro] = useState(false);
   const [showPlayerManager, setShowPlayerManager] = useState(false);
   const [showUnsoldRoundBanner, setShowUnsoldRoundBanner] = useState(false);
   // "Now: Marquee set" (presentationOrder by_category): the set id announced.
   const [setBannerId, setSetBannerId] = useState<string | null>(null);
   const [resolvingStall, setResolvingStall] = useState(false);
   const lastPlayerIdRef = useRef<string | null>(null);
-  const introTimerRef = useRef<NodeJS.Timeout | null>(null);
   const loadingNextRef = useRef(false);
   const prevPhaseRef = useRef<string | null>(null);
   const unsoldBannerTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -399,14 +395,13 @@ export default function AuctionPage({ params }: AuctionPageProps) {
     if (showResult) resultShownAtRef.current = Date.now();
   }, [showResult]);
 
-  // Player intro flash effect - shows when a new player comes up
+  // When a new player comes up: reset custom bids and close the result popup.
   useEffect(() => {
     const newPlayerId = auctionData?.auctionRoom?.currentPlayerId;
     const player = auctionData?.currentPlayer;
 
-    // Check if this is a new player (different from last one we showed intro for)
+    // Only act once per new player.
     let rafClearBids = 0;
-    let rafIntro = 0;
 
     if (newPlayerId && player && newPlayerId !== lastPlayerIdRef.current) {
       lastPlayerIdRef.current = newPlayerId;
@@ -425,29 +420,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
           resultCloseTimerRef.current = setTimeout(() => setShowResult(false), remaining);
         }
       });
-
-      // Clear any existing timer
-      if (introTimerRef.current) {
-        clearTimeout(introTimerRef.current);
-      }
-
-      // Defer state update to next frame.
-      rafIntro = requestAnimationFrame(() => {
-        setShowPlayerIntro(true);
-
-        // Auto-hide after 2 seconds
-        introTimerRef.current = setTimeout(() => {
-          setShowPlayerIntro(false);
-        }, 2000);
-      });
     }
 
     return () => {
       if (rafClearBids) cancelAnimationFrame(rafClearBids);
-      if (rafIntro) cancelAnimationFrame(rafIntro);
-      if (introTimerRef.current) {
-        clearTimeout(introTimerRef.current);
-      }
     };
   }, [auctionData?.auctionRoom?.currentPlayerId, auctionData?.currentPlayer]);
 
@@ -858,18 +834,6 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         {/* Cricket pitch markings - subtle center line */}
         <div className="absolute left-1/2 bottom-0 w-px h-32 bg-linear-to-t from-green-700/20 to-transparent transform -translate-x-1/2" />
 
-        {/* Floating cricket ball decorations */}
-        <svg className="absolute top-20 left-8 w-8 h-8 opacity-10 animate-bounce" style={{ animationDuration: '4s' }} viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="45" fill="#DC2626" />
-          <path d="M20 50 Q35 30, 50 50 Q65 70, 80 50" fill="none" stroke="white" strokeWidth="4" />
-          <path d="M20 50 Q35 70, 50 50 Q65 30, 80 50" fill="none" stroke="white" strokeWidth="4" />
-        </svg>
-        <svg className="absolute bottom-32 right-12 w-6 h-6 opacity-10 animate-bounce" style={{ animationDuration: '3.5s', animationDelay: '1s' }} viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="45" fill="#DC2626" />
-          <path d="M20 50 Q35 30, 50 50 Q65 70, 80 50" fill="none" stroke="white" strokeWidth="4" />
-          <path d="M20 50 Q35 70, 50 50 Q65 30, 80 50" fill="none" stroke="white" strokeWidth="4" />
-        </svg>
-
         {/* Cricket stumps decoration */}
         <svg className="absolute bottom-8 left-10 w-8 h-16 opacity-10" viewBox="0 0 60 100">
           <rect x="8" y="10" width="6" height="80" fill="#D4A574" rx="1" />
@@ -900,7 +864,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   />
                 </div>
                 <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-slate-900">
-                  <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse" />
+                  <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full" />
                 </div>
               </div>
               <div className="hidden sm:block">
@@ -1222,13 +1186,8 @@ export default function AuctionPage({ params }: AuctionPageProps) {
       </header>
 
       {/* Viewer Status Flash Notification */}
-      <AnimatePresence>
         {!isConsole && statusFlash && (
-          <motion.div
-            initial={{ opacity: 0, y: -50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -50, scale: 0.9 }}
-            transition={{ type: "spring", damping: 20, stiffness: 300 }}
+          <div
             className="fixed top-20 left-1/2 -translate-x-1/2 z-50"
           >
             <div className={`
@@ -1241,10 +1200,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
               ${statusFlash.type === 'sold' ? 'bg-green-600/90 border-green-500 text-white' : ''}
               ${statusFlash.type === 'unsold' ? 'bg-red-500/90 border-red-400 text-white' : ''}
             `}>
-              <motion.div
-                initial={{ scale: 0.8 }}
-                animate={{ scale: [1, 1.1, 1] }}
-                transition={{ duration: 0.3 }}
+              <div
                 className="flex flex-col items-center gap-1"
               >
                 {/* Icon based on type */}
@@ -1278,11 +1234,10 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                     {statusFlash.teamName} • {formatCurrency(statusFlash.amount)}
                   </div>
                 )}
-              </motion.div>
+              </div>
             </div>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
 
       <main className={`w-full max-w-8xl mx-auto px-3 sm:px-4 lg:px-6 safe-bottom ${isConsole ? 'py-4 sm:py-6 lg:py-8 pb-20' : `flex-1 min-h-0 overflow-y-auto flex flex-col py-3 sm:py-4 ${paddle ? 'pb-80' : 'pb-28 sm:pb-32'}`}`}>
         <div className={isConsole ? 'grid gap-4 sm:gap-5 lg:gap-6 grid-cols-12' : 'w-full my-auto'}>
@@ -1329,13 +1284,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
             )}
 
             {/* Player Card */}
-            <AnimatePresence mode="wait">
               {currentPlayer ? (
-                <motion.div
+                <div
                   key={currentPlayer._id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
                   className={`bg-linear-to-br from-slate-800 to-slate-900 rounded-xl sm:rounded-2xl border border-slate-700 shadow-2xl ${isConsole ? 'p-4 sm:p-6 lg:p-8' : 'p-3 sm:p-4'}`}
                 >
                   {/* Viewer Mode: full-width hero — focus on the player */}
@@ -1384,28 +1335,23 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
                         {/* Current Bid — the focal number, with the advisory timer beside it */}
                         <div className="flex items-center gap-3 sm:gap-4">
-                        <motion.div
+                        <div
                           className="relative flex-1 min-w-0 bg-linear-to-r from-yellow-600 to-orange-600 rounded-2xl lg:rounded-3xl p-5 sm:p-6 lg:p-8 text-center shadow-xl shadow-orange-900/30"
-                          animate={{ scale: [1, 1.015, 1] }}
-                          transition={{ repeat: Infinity, duration: 2 }}
                         >
                           <div className="text-xs sm:text-sm lg:text-base font-semibold mb-1 lg:mb-2 opacity-90 tracking-widest">
                             {isFirstBid ? "STARTING PRICE" : "CURRENT BID"}
                           </div>
-                          <motion.div
+                          <div
                             className="text-5xl sm:text-6xl lg:text-7xl xl:text-8xl font-extrabold leading-none"
-                            key={currentBid}
-                            initial={{ scale: 1.2 }}
-                            animate={{ scale: 1 }}
                           >
                             {formatCurrency(currentBid)}
-                          </motion.div>
+                          </div>
                           {currentBidTeam && !isFirstBid && (
                             <div className="mt-2 lg:mt-3 text-sm sm:text-base lg:text-lg font-medium opacity-95">
                               by <span className="font-bold">{currentBidTeam.name}</span>
                             </div>
                           )}
-                        </motion.div>
+                        </div>
                         <BidTimerRing countdown={countdown} size="lg" />
                         </div>
 
@@ -1477,28 +1423,23 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
                   {/* Current Bid Display, with the advisory timer beside it */}
                   <div className="flex items-center gap-3 sm:gap-4">
-                  <motion.div
+                  <div
                     className="flex-1 min-w-0 bg-linear-to-r from-yellow-600 to-orange-600 rounded-xl p-4 sm:p-5 lg:p-6 text-center"
-                    animate={{ scale: [1, 1.02, 1] }}
-                    transition={{ repeat: Infinity, duration: 2 }}
                   >
                     <div className="text-xs sm:text-sm font-semibold mb-1 sm:mb-2 opacity-90">
                       {isFirstBid ? "STARTING PRICE" : "CURRENT BID"}
                     </div>
-                    <motion.div
+                    <div
                       className="text-3xl sm:text-4xl lg:text-6xl font-bold mb-1 sm:mb-2"
-                      key={currentBid}
-                      initial={{ scale: 1.2 }}
-                      animate={{ scale: 1 }}
                     >
                       {formatCurrency(currentBid)}
-                    </motion.div>
+                    </div>
                     {currentBidTeam && !isFirstBid && (
                       <div className="text-xs sm:text-sm opacity-90">
                         by {currentBidTeam.name}
                       </div>
                     )}
-                  </motion.div>
+                  </div>
                   <BidTimerRing countdown={countdown} size="md" />
                   </div>
 
@@ -1510,7 +1451,7 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                   />
                     </>
                   )}
-                </motion.div>
+                </div>
               ) : (
                 <div className="text-center py-12 sm:py-16 lg:py-20 text-slate-400">
                   <Trophy className="w-14 h-14 sm:w-16 sm:h-16 lg:w-20 lg:h-20 mx-auto mb-3 sm:mb-4 opacity-50" />
@@ -1526,14 +1467,13 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                         Waiting for next player...
                       </p>
                       <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                        <div className="w-2 h-2 bg-green-500 rounded-full" />
                         <span>Live auction in progress</span>
                       </div>
                     </div>
                   )}
                 </div>
               )}
-            </AnimatePresence>
           </div>
 
           {/* Live Feed - Side panel for admin */}
@@ -1573,70 +1513,43 @@ export default function AuctionPage({ params }: AuctionPageProps) {
         />
       )}
 
-      {/* Player Introduction Flash */}
-      {currentPlayer && (
-        <PlayerIntroFlash
-          show={showPlayerIntro}
-          player={currentPlayer}
-          tournamentBasePrice={auctionData.tournament?.settings.basePrice ?? 100000}
-        />
-      )}
-
       {/* "Now: <category> set" (presentationOrder by_category) */}
       <SetBanner
         category={categoryFor(setBannerId ?? undefined, auctionData.tournament?.settings.categories) ?? null}
         onDismiss={() => setSetBannerId(null)}
       />
 
-      {/* Unsold Round Transition Flash — big, flashy announcement */}
-      <AnimatePresence>
+      {/* Unsold Round announcement (static) */}
         {showUnsoldRoundBanner && (
-          <motion.div
+          <div
             className="fixed inset-0 z-70 flex items-center justify-center bg-slate-950/80 backdrop-blur-md px-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
             onClick={() => setShowUnsoldRoundBanner(false)}
           >
-            <motion.div
+            <div
               className="relative text-center"
-              initial={{ scale: 0.6, y: 30 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.8, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 260, damping: 18 }}
             >
-              <motion.div
-                className="absolute -inset-8 rounded-[2.5rem] bg-red-500/25 blur-3xl"
-                animate={{ opacity: [0.4, 0.9, 0.4] }}
-                transition={{ repeat: Infinity, duration: 1.4 }}
-              />
               <div className="relative rounded-3xl border border-red-500/50 bg-linear-to-br from-red-600/30 to-orange-600/20 px-8 py-8 sm:px-16 sm:py-12 shadow-2xl">
-                <motion.p
+                <p
                   className="text-xs sm:text-sm font-bold uppercase tracking-[0.3em] text-red-300 mb-3"
-                  animate={{ opacity: [0.6, 1, 0.6] }}
-                  transition={{ repeat: Infinity, duration: 1.2 }}
                 >
                   All players auctioned
-                </motion.p>
-                <motion.h2
-                  className="text-4xl sm:text-6xl lg:text-7xl font-extrabold text-white drop-shadow-[0_2px_20px_rgba(239,68,68,0.6)]"
-                  animate={{ scale: [1, 1.04, 1] }}
-                  transition={{ repeat: Infinity, duration: 1.1 }}
+                </p>
+                <h2
+                  className="text-4xl sm:text-6xl lg:text-7xl font-extrabold text-white"
                 >
                   UNSOLD PLAYERS
                   <br />
                   AUCTION
-                </motion.h2>
+                </h2>
                 {(auctionRoom.unsoldRoundTotal ?? 0) > 0 && (
                   <p className="mt-4 text-base sm:text-xl font-semibold text-orange-200">
                     {auctionRoom.unsoldRoundTotal} player{auctionRoom.unsoldRoundTotal === 1 ? '' : 's'} up for re-auction
                   </p>
                 )}
               </div>
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         )}
-      </AnimatePresence>
 
       {/* Viewer: fixed bottom action bar + history/teams sheets */}
       {!isConsole && (

@@ -43,6 +43,12 @@ export function BroadcastOverlay({ roomId, mode, theme, safe }: BroadcastOverlay
       : 'skip',
   );
   const latestSaleEvent = useQuery(api.auctions.getLatestSaleEvent, { auctionRoomId });
+  // Organisation logo and sponsors: identity-free and unchanged during an auction,
+  // so kept out of the roster query that re-sends on every player.
+  const branding = useQuery(
+    api.tournaments.getBranding,
+    liveData ? { tournamentId: liveData.auctionRoom.tournamentId } : 'skip',
+  );
 
   useTransparentPage();
   useWakeLock(true);
@@ -81,7 +87,13 @@ export function BroadcastOverlay({ roomId, mode, theme, safe }: BroadcastOverlay
             safe={safe}
             tournament={
               rosterData.tournament
-                ? { name: rosterData.tournament.name, logoUrl: rosterData.tournament.logoUrl, footerText: settings?.footerText }
+                ? {
+                    name: rosterData.tournament.name,
+                    logoUrl: rosterData.tournament.logoUrl,
+                    footerText: settings?.footerText,
+                    organizationLogoUrl: branding?.organizationLogoUrl,
+                    sponsors: branding?.sponsors,
+                  }
                 : null
             }
             status={liveData.auctionRoom.status}

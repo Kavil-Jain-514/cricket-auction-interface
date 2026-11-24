@@ -1,6 +1,5 @@
 "use client";
 
-import { motion, AnimatePresence } from 'framer-motion';
 import { TrendingUp } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
@@ -39,14 +38,10 @@ export function AuctionLiveBids({
             </p>
           </div>
         ) : (
-          <AnimatePresence>
-            {recentBids.slice(0, 5).map((bid, idx) => (
-              <motion.div
+          <>
+            {recentBids.slice(0, 5).map((bid) => (
+              <div
                 key={bid._id}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ delay: idx * 0.05 }}
                 className="bg-slate-800/70 backdrop-blur rounded-lg p-2.5 sm:p-3 border border-slate-700"
               >
                 <div className="flex justify-between items-center mb-1">
@@ -60,9 +55,9 @@ export function AuctionLiveBids({
                 <div className="text-base sm:text-lg font-bold text-yellow-400">
                   {formatCurrency(bid.amount)}
                 </div>
-              </motion.div>
+              </div>
             ))}
-          </AnimatePresence>
+          </>
         )}
       </div>
 

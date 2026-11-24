@@ -17,6 +17,11 @@ import { PlayerDetailsModal } from '@/components/players/PlayerDetailsModal';
 import { toast } from 'sonner';
 import { getErrorMessage, getRoles, getRoleDisplay } from '@/lib/utils';
 import jsPDF from 'jspdf';
+import { loadPdfImage, mapWithConcurrency, pdfImageFormat } from '@/lib/pdfImages';
+import { drawContainedImage, drawSponsorGrid, loadPdfBranding, sponsorGridHeight } from '@/lib/pdfBranding';
+
+const PDF_IMAGE_CONCURRENCY = 6;
+const PDF_SPONSOR_LAYOUT = { tileW: 34, tileH: 20, gap: 4 };
 
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 
@@ -118,50 +123,23 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       const imageCache: Record<string, string> = {};
       let tournamentLogoBase64: string | null = null;
 
-      // Force Cloudinary URLs to serve JPEG (jsPDF doesn't support WebP)
-      const forceJpegUrl = (url: string): string => {
-        if (url.includes('res.cloudinary.com') && url.includes('/upload/')) {
-          let modified = url.replace('/upload/', '/upload/f_jpg,q_80/');
-          if (url.includes('/upload/f_auto')) {
-            modified = url.replace('f_auto', 'f_jpg');
-          }
-          return modified;
-        }
-        return url;
-      };
+      // Load tournament logo, organisation logo and sponsors
+      const [logo, branding] = await Promise.all([
+        tournament?.logoUrl ? loadPdfImage(tournament.logoUrl, { format: "png" }) : Promise.resolve(null),
+        loadPdfBranding(tournament ?? {}),
+      ]);
+      tournamentLogoBase64 = logo;
 
-      const loadImage = async (url: string): Promise<string | null> => {
-        try {
-          const processedUrl = forceJpegUrl(url);
-          // Use server-side proxy to bypass CORS (Google Drive, Cloudinary, etc.)
-          const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(processedUrl)}`;
-          const response = await fetch(proxyUrl);
-          if (!response.ok) return null;
-          const data = await response.json();
-          return data.dataUrl ?? null;
-        } catch {
-          return null;
-        }
-      };
-
-      // Load tournament logo
-      if (tournament?.logoUrl) {
-        tournamentLogoBase64 = await loadImage(tournament.logoUrl);
-      }
-
-      // Load all player images in parallel
-      const imagePromises = playersToExport
-        .filter(p => p.photoUrl)
-        .map(async (p) => {
-          if (p.photoUrl) {
-            const dataUrl = await loadImage(p.photoUrl);
-            if (dataUrl) {
-              imageCache[p._id] = dataUrl;
-            }
-          }
-        });
-
-      await Promise.all(imagePromises);
+      // Load player photos a few at a time (Cloudinary direct, Drive via the proxy)
+      await mapWithConcurrency(
+        playersToExport.filter(p => p.photoUrl),
+        PDF_IMAGE_CONCURRENCY,
+        async (p) => {
+          const dataUrl = await loadPdfImage(p.photoUrl!);
+          if (dataUrl) imageCache[p._id] = dataUrl;
+        },
+      );
+      const missingPhotos = playersToExport.filter(p => p.photoUrl && !imageCache[p._id]).length;
 
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -226,7 +204,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
           if (tournamentLogoBase64) {
             try {
-              const logoFormat = tournamentLogoBase64.includes('image/png') ? 'PNG' : 'JPEG';
+              const logoFormat = pdfImageFormat(tournamentLogoBase64) ?? 'JPEG';
               pdf.addImage(tournamentLogoBase64, logoFormat, startX, 6, logoSize, logoSize);
               startX += logoSize + 4;
             } catch {
@@ -238,17 +216,26 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           pdf.text(tournament.name.toUpperCase(), startX + titleWidth / 2, 19, { align: 'center' });
         } else if (tournamentLogoBase64) {
           try {
-            const logoFormat = tournamentLogoBase64.includes('image/png') ? 'PNG' : 'JPEG';
+            const logoFormat = pdfImageFormat(tournamentLogoBase64) ?? 'JPEG';
             pdf.addImage(tournamentLogoBase64, logoFormat, (pageWidth - logoSize) / 2, 6, logoSize, logoSize);
           } catch {
             // Logo failed to load — continue without it
           }
         }
 
-        // Page number (right side of header)
+        // Organisation logo (right side of header, on a white tile)
+        const orgSize = 20;
+        if (branding.organizationLogo) {
+          const tileX = pageWidth - margin - orgSize;
+          pdf.setFillColor(255, 255, 255);
+          pdf.roundedRect(tileX, 5, orgSize, orgSize, 1.5, 1.5, 'F');
+          drawContainedImage(pdf, branding.organizationLogo, tileX + 1.5, 6.5, orgSize - 3, orgSize - 3);
+        }
+
+        // Page number (right side of header, under the organisation logo when there is one)
         pdf.setFontSize(7);
         pdf.setTextColor(100, 116, 139);
-        pdf.text(`Page ${page + 1} / ${totalPages}`, pageWidth - margin - 2, 12, { align: 'right' });
+        pdf.text(`Page ${page + 1} / ${totalPages}`, pageWidth - margin - 2, branding.organizationLogo ? 29.5 : 12, { align: 'right' });
       };
 
       // Helper to draw a player card
@@ -284,7 +271,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         if (imageCache[player._id]) {
           try {
             const imgData = imageCache[player._id];
-            const imgFormat = imgData.includes('image/png') ? 'PNG' : 'JPEG';
+            const imgFormat = pdfImageFormat(imgData) ?? 'JPEG';
             pdf.addImage(imgData, imgFormat, photoX, photoY, actualPhotoWidth, actualPhotoHeight);
 
             // Add border to photo
@@ -371,9 +358,16 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       };
 
       // Draw each page
-      const totalPages = Math.ceil(playersToExport.length / cardsPerPage);
+      const playerPages = Math.ceil(playersToExport.length / cardsPerPage);
 
-      for (let page = 0; page < totalPages; page++) {
+      // Sponsors go under the last page's cards if they fit, else on a page of their own.
+      const sponsorsHeight = sponsorGridHeight(branding.sponsors.length, contentWidth, PDF_SPONSOR_LAYOUT);
+      const lastPageRows = Math.ceil((playersToExport.length - (playerPages - 1) * cardsPerPage) / cols);
+      const lastPageBottom = headerHeight + lastPageRows * (cardHeight + rowGap);
+      const sponsorsOnLastPage = sponsorsHeight > 0 && lastPageBottom + 4 + sponsorsHeight <= pageHeight - margin;
+      const totalPages = playerPages + (sponsorsHeight > 0 && !sponsorsOnLastPage ? 1 : 0);
+
+      for (let page = 0; page < playerPages; page++) {
         if (page > 0) {
           pdf.addPage();
         }
@@ -397,11 +391,24 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         }
       }
 
+      if (sponsorsHeight > 0) {
+        let sponsorsY = lastPageBottom + 4;
+        if (!sponsorsOnLastPage) {
+          pdf.addPage();
+          drawHeader(totalPages - 1, totalPages);
+          sponsorsY = headerHeight + 6;
+        }
+        drawSponsorGrid(pdf, branding.sponsors, margin, sponsorsY, contentWidth, PDF_SPONSOR_LAYOUT, 'dark');
+      }
+
       // Save the PDF
       const captainSuffix = includeCaptains ? 'All_Players' : 'Players_No_Captains';
       const fileName = `${tournament?.name?.replace(/\s+/g, '_') || 'Tournament'}_${captainSuffix}.pdf`;
       pdf.save(fileName);
       toast.success(`Downloaded ${playersToExport.length} players as PDF`);
+      if (missingPhotos > 0) {
+        toast.warning(`${missingPhotos} player photo${missingPhotos === 1 ? '' : 's'} could not be loaded. Check that their links are public.`);
+      }
     } catch {
       toast.error('Failed to generate PDF');
     } finally {

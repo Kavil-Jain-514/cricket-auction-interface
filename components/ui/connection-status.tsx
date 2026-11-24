@@ -35,7 +35,7 @@ export function ConnectionStatus({ showLive = false }: { showLive?: boolean }) {
       aria-live="polite"
       className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 rounded-full border border-amber-400/60 bg-amber-500/95 px-4 py-2 text-sm font-semibold text-amber-950 shadow-2xl backdrop-blur"
     >
-      <WifiOff className="h-4 w-4 animate-pulse" />
+      <WifiOff className="h-4 w-4" />
       Reconnecting… · last update {view.secondsStale}s ago
       {view.offerReload && (
         <button

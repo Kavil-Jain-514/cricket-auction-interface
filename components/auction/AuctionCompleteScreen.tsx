@@ -1,9 +1,6 @@
 "use client";
 
-import { motion } from 'framer-motion';
 import { Trophy, Crown, Star, Medal, TrendingUp } from 'lucide-react';
-import confetti from 'canvas-confetti';
-import { useEffect, useState } from 'react';
 import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { formatCurrency, getRoleDisplay } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -56,76 +53,32 @@ export function AuctionCompleteScreen({
   stats,
   isAdmin = false,
 }: AuctionCompleteScreenProps) {
-  const [showSummary, setShowSummary] = useState(false);
-
   // Get top 10 buys sorted by price
   const top10Buys = [...soldPlayers]
     .sort((a, b) => b.soldPrice - a.soldPrice)
     .slice(0, 10);
 
   const getTeamById = (teamId: string) => teams.find(t => t._id === teamId);
-  useEffect(() => {
-    const duration = 5000;
-    const end = Date.now() + duration;
 
-    const colors = ['#FFD700', '#FFA500', '#FF6347', '#00CED1', '#9370DB'];
-
-    const frame = () => {
-      confetti({
-        particleCount: 5,
-        angle: 60,
-        spread: 80,
-        origin: { x: 0, y: 0.6 },
-        colors,
-      });
-      confetti({
-        particleCount: 5,
-        angle: 120,
-        spread: 80,
-        origin: { x: 1, y: 0.6 },
-        colors,
-      });
-
-      if (Date.now() < end) {
-        requestAnimationFrame(frame);
-      }
-    };
-
-    frame();
-
-    // Show summary after initial celebration
-    const timer = setTimeout(() => setShowSummary(true), 2000);
-    return () => clearTimeout(timer);
-  }, []);
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-purple-950 to-slate-950 text-white overflow-auto">
       {/* Celebration Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -50 }}
-        animate={{ opacity: 1, y: 0 }}
+      <div
         className="text-center py-12 relative"
       >
-        <motion.div
-          animate={{ rotate: [0, 10, -10, 0], scale: [1, 1.1, 1] }}
-          transition={{ duration: 2, repeat: Infinity }}
+        <div
           className="inline-block mb-6"
         >
           <Trophy className="w-32 h-32 text-yellow-500 mx-auto" />
-        </motion.div>
+        </div>
 
-        <motion.h1
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ type: 'spring', stiffness: 200, delay: 0.3 }}
+        <h1
           className="text-6xl md:text-8xl font-bold mb-4 text-transparent bg-clip-text bg-linear-to-r from-yellow-400 via-orange-500 to-red-500"
         >
           AUCTION COMPLETE!
-        </motion.h1>
+        </h1>
 
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
+        <div
           className="flex items-center justify-center gap-4"
         >
           <ImgWithFallback
@@ -141,13 +94,10 @@ export function AuctionCompleteScreen({
           <p className="text-2xl md:text-3xl text-slate-300 font-semibold">
             {tournamentName}
           </p>
-        </motion.div>
+        </div>
 
         {/* Quick Stats */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
+        <div
           className="flex justify-center gap-8 mt-8"
         >
           <div className="text-center">
@@ -162,22 +112,16 @@ export function AuctionCompleteScreen({
             <div className="text-4xl font-bold text-blue-400">{stats.total}</div>
             <div className="text-sm text-slate-400">Total Players</div>
           </div>
-        </motion.div>
-      </motion.div>
+        </div>
+      </div>
 
       {/* Summary Section */}
-      {showSummary && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
+        <div
           className="max-w-6xl mx-auto px-6 pb-12"
         >
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Top 10 Buys */}
-            <motion.div
-              initial={{ x: -50, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
+            <div
               className="bg-slate-900/80 backdrop-blur rounded-2xl p-6 border border-slate-700"
             >
               <div className="flex items-center gap-3 mb-6">
@@ -189,11 +133,8 @@ export function AuctionCompleteScreen({
                 {top10Buys.map((player, index) => {
                   const team = getTeamById(player.teamId);
                   return (
-                    <motion.div
+                    <div
                       key={player._id}
-                      initial={{ x: -20, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      transition={{ delay: 0.3 + index * 0.1 }}
                       className="flex items-center gap-4 p-3 bg-slate-800/50 rounded-xl"
                     >
                       <div className={`
@@ -228,7 +169,7 @@ export function AuctionCompleteScreen({
                           {team?.name || 'Unknown'}
                         </p>
                       </div>
-                    </motion.div>
+                    </div>
                   );
                 })}
 
@@ -236,13 +177,10 @@ export function AuctionCompleteScreen({
                   <p className="text-center text-slate-400 py-8">No players were sold</p>
                 )}
               </div>
-            </motion.div>
+            </div>
 
             {/* Team Summary */}
-            <motion.div
-              initial={{ x: 50, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
+            <div
               className="bg-slate-900/80 backdrop-blur rounded-2xl p-6 border border-slate-700"
             >
               <div className="flex items-center gap-3 mb-6">
@@ -256,11 +194,8 @@ export function AuctionCompleteScreen({
                   .map((team, index) => {
                     const playersCount = soldPlayers.filter(p => p.teamId === team._id).length;
                     return (
-                      <motion.div
+                      <div
                         key={team._id}
-                        initial={{ x: 20, opacity: 0 }}
-                        animate={{ x: 0, opacity: 1 }}
-                        transition={{ delay: 0.3 + index * 0.1 }}
                         className="p-3 bg-slate-800/50 rounded-xl"
                       >
                         <div className="flex items-center gap-3 mb-2">
@@ -295,25 +230,22 @@ export function AuctionCompleteScreen({
                         {/* Spending bar */}
                         <div className="w-full bg-slate-700 rounded-full h-2 mt-2">
                           <div
-                            className="h-2 rounded-full transition-all"
+                            className="h-2 rounded-full"
                             style={{
                               width: `${(team.purseSpent / (team.purseSpent + team.purseRemaining)) * 100}%`,
                               backgroundColor: team.colorPrimary,
                             }}
                           />
                         </div>
-                      </motion.div>
+                      </div>
                     );
                   })}
               </div>
-            </motion.div>
+            </div>
           </div>
 
           {/* Action Buttons */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 1 }}
+          <div
             className="flex flex-wrap justify-center gap-4 mt-8"
           >
             {tournamentId && (
@@ -337,9 +269,8 @@ export function AuctionCompleteScreen({
                 Dashboard
               </Button>
             </Link>
-          </motion.div>
-        </motion.div>
-      )}
+          </div>
+        </div>
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import { jsPDF } from "jspdf";
 import { formatCurrencyFull } from "@/lib/utils";
 import type { PdfPlayer } from "@/lib/teamPdfPlayers";
+import { loadPdfImage, pdfImageFormat } from "@/lib/pdfImages";
+import { drawContainedImage, drawSponsorGrid, loadPdfBranding, sponsorGridHeight } from "@/lib/pdfBranding";
 
 interface TeamData {
   name: string;
@@ -14,7 +16,12 @@ interface TeamData {
   tournamentName?: string;
   logoUrl?: string;
   groupLabel?: string; // e.g. "Group A (A1)" — only set once the draw is locked
+  // From the registration form: organisation logo in the header, sponsors under the squad.
+  organizationLogoUrl?: string;
+  sponsors?: Array<{ name: string; logoUrl?: string }>;
 }
+
+const SPONSOR_LAYOUT = { tileW: 30, tileH: 18, gap: 4 };
 
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -58,22 +65,6 @@ function drawTableHeader(doc: jsPDF, margin: number, y: number): void {
   doc.text("Price", margin + COL.price, textY);
 }
 
-// Helper function to load image as base64
-async function loadImageAsBase64(url: string): Promise<string | null> {
-  try {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
-}
-
 export async function generateTeamPdf(team: TeamData): Promise<void> {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -81,6 +72,7 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
   let y = 20;
 
   const primaryColor = hexToRgb(team.colorPrimary);
+  const branding = await loadPdfBranding(team);
 
   // Header background
   doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
@@ -90,9 +82,9 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
   let textStartX = margin;
   if (team.logoUrl) {
     try {
-      const logoBase64 = await loadImageAsBase64(team.logoUrl);
+      const logoBase64 = await loadPdfImage(team.logoUrl, { format: "png" });
       if (logoBase64) {
-        doc.addImage(logoBase64, "PNG", margin, 5, 35, 35);
+        doc.addImage(logoBase64, pdfImageFormat(logoBase64) ?? "PNG", margin, 5, 35, 35);
         textStartX = margin + 42; // Shift text to the right of logo
       }
     } catch {
@@ -129,6 +121,16 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
     doc.roundedRect(badgeX, 8, badgeW, 9, 2, 2, "F");
     doc.setTextColor(primaryColor.r, primaryColor.g, primaryColor.b);
     doc.text(team.groupLabel, badgeX + 5, 14.5);
+  }
+
+  // Organisation logo (top-right, on a white tile; under the group badge when there is one)
+  if (branding.organizationLogo) {
+    const size = team.groupLabel ? 24 : 32;
+    const tileX = pageWidth - margin - size;
+    const tileY = team.groupLabel ? 19 : 6.5;
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(tileX, tileY, size, size, 2, 2, "F");
+    drawContainedImage(doc, branding.organizationLogo, tileX + 1.5, tileY + 1.5, size - 3, size - 3);
   }
 
   y = 55;
@@ -254,6 +256,18 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
 
     y += 8;
   });
+
+  // Sponsors under the squad (on a new page if they don't fit above the footer)
+  const contentWidth = pageWidth - margin * 2;
+  const sponsorsHeight = sponsorGridHeight(branding.sponsors.length, contentWidth, SPONSOR_LAYOUT);
+  if (sponsorsHeight > 0) {
+    y += 4;
+    if (y + sponsorsHeight > 265) {
+      doc.addPage();
+      y = 20;
+    }
+    y += drawSponsorGrid(doc, branding.sponsors, margin, y, contentWidth, SPONSOR_LAYOUT, "light");
+  }
 
   // Footer
   y = Math.max(y + 10, 270);

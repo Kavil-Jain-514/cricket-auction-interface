@@ -1,6 +1,5 @@
 "use client";
 
-import { AnimatePresence, motion } from 'framer-motion';
 import type { PlayerCategory } from '@/convex/bidRules';
 
 interface SetBannerProps {
@@ -14,24 +13,16 @@ interface SetBannerProps {
  * next category. Same full-screen pattern as the unsold-round banner.
  */
 export function SetBanner({ category, onDismiss }: SetBannerProps) {
+  if (!category) return null;
   return (
-    <AnimatePresence>
-      {category && (
-        <motion.div
+        <div
           className="fixed inset-0 z-70 flex items-center justify-center bg-slate-950/80 backdrop-blur-md px-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
           onClick={onDismiss}
           role="status"
           aria-live="assertive"
         >
-          <motion.div
+          <div
             className="relative text-center"
-            initial={{ scale: 0.6, y: 30 }}
-            animate={{ scale: 1, y: 0 }}
-            exit={{ scale: 0.8, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 260, damping: 18 }}
           >
             <div
               className="absolute -inset-8 rounded-[2.5rem] blur-3xl opacity-40"
@@ -47,9 +38,7 @@ export function SetBanner({ category, onDismiss }: SetBannerProps) {
                 <span className="block text-2xl sm:text-4xl mt-2" style={{ color: category.colour }}>set</span>
               </h2>
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          </div>
+        </div>
   );
 }

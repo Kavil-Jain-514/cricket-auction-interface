@@ -173,6 +173,26 @@ export const getById = query({
 });
 
 /**
+ * Name, tournament logo, organisation logo and sponsors, for the broadcast
+ * overlay (no sign-in) and the player/team PDFs. Identity-free so every viewer
+ * shares one cached result; kept out of auctions:getAuctionRoster because it
+ * never changes during an auction. Null for a missing or deactivated tournament.
+ */
+export const getBranding = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament || tournament.isActive === false) return null;
+    return {
+      name: tournament.name,
+      logoUrl: tournament.logoUrl,
+      organizationLogoUrl: tournament.organizationLogoUrl,
+      sponsors: tournament.sponsors ?? [],
+    };
+  },
+});
+
+/**
  * What the team sign-up page (/tournament/<id>/join-team) shows before
  * anyone registers: name, logo, and whether teams can still be added.
  * Identity-free; null for a deactivated or missing tournament.
