@@ -40,7 +40,6 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
     basePrice: 'basePriceOverride' in player ? player.basePriceOverride : player.basePrice,
     categoryId: player.categoryId,
     photoUrl: player.photoUrl || '',
-    ranking: player.ranking !== undefined ? String(player.ranking) : '',
     gender: player.gender ?? '',
     partner: player.partner ? entryToMember(player.partner) : null,
   });
@@ -77,7 +76,6 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
         // Couple tournaments: null removes the partner or the gender.
         ...(couple
           ? {
-              ranking: formData.ranking?.trim() ? Number(formData.ranking) : undefined,
               gender: formData.partner ? null : formData.gender || null,
               partner: formData.partner ? memberToEntry(formData.partner) : null,
             }

@@ -26,7 +26,6 @@ export const GENDER_LABEL = { male: 'Male', female: 'Female' } as const;
 /** The couple-format fields of a registration or player. */
 export interface CoupleFields {
   gender?: 'male' | 'female';
-  ranking?: number;
   partner?: Partner;
 }
 
@@ -40,14 +39,12 @@ export function entryKind(entry: CoupleFields): string {
 export function coupleColumns(withPhone: boolean): string[] {
   return [
     'Entry',
-    'Ranking',
     ...(withPhone ? ['Female mobile'] : []),
     'Female age',
     'Female type',
     'Female hand',
     'Female jersey no.',
     'Female jersey size',
-    'Female ranking',
   ];
 }
 
@@ -56,13 +53,11 @@ export function coupleCells(entry: CoupleFields, withPhone: boolean): Array<stri
   const p = entry.partner;
   return [
     entryKind(entry),
-    entry.ranking ?? '',
     ...(withPhone ? [p?.phoneNumber ?? ''] : []),
     p?.age ?? '',
     p ? coupleTypeLabel(p.role) : '',
     p?.battingBowlingHand ?? '',
     p?.jerseyNumber ?? '',
     p?.tshirtSize ?? '',
-    p?.ranking ?? '',
   ];
 }

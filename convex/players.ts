@@ -55,7 +55,6 @@ export type NewPlayerFields = {
   consentWhatsApp?: boolean;
   // Couple tournaments only (validateEntryFormat).
   gender?: "male" | "female";
-  ranking?: number;
   partner?: Partner;
 };
 
@@ -101,7 +100,6 @@ export async function insertValidatedPlayer(
     tshirtSize: fields.tshirtSize,
     consentWhatsApp: fields.consentWhatsApp,
     gender: fields.gender,
-    ranking: fields.ranking,
     partner: format.partner,
     auctionStatus: "pending",
     createdAt: Date.now(),
@@ -143,7 +141,6 @@ export const create = mutation({
     phoneNumber: v.optional(v.string()),
     tshirtSize: tshirtSizeValidator,
     gender: genderValidator,
-    ranking: v.optional(v.number()),
     partner: v.optional(partnerValidator),
   },
   handler: async (ctx, args) => {
@@ -385,7 +382,6 @@ export const update = mutation({
     // Couple tournaments only. null removes the partner (a solo entry then
     // needs a gender) or the gender.
     gender: v.optional(v.union(v.literal("male"), v.literal("female"), v.null())),
-    ranking: v.optional(v.number()),
     partner: v.optional(v.union(partnerValidator, v.null())),
   },
   handler: async (ctx, args) => {
@@ -427,13 +423,12 @@ export const update = mutation({
     // Checked only when it touches the format fields: unrelated edits keep
     // working on rows from before (e.g. a CSV import).
     let partner: Partner | undefined = undefined;
-    const touchesFormat = args.gender !== undefined || args.ranking !== undefined || args.partner !== undefined;
+    const touchesFormat = args.gender !== undefined || args.partner !== undefined;
     if (touchesFormat) {
       const pick = <T,>(next: T | null | undefined, stored: T | undefined) => (next === undefined ? stored : (next ?? undefined));
       const role = args.role ?? player.role;
       const format = validateEntryFormat(tournament, {
         gender: pick(args.gender, player.gender),
-        ranking: args.ranking ?? player.ranking,
         partner: pick(args.partner, player.partner),
         role: Array.isArray(role) ? role : [role],
         phoneNumber: args.phoneNumber ?? player.phoneNumber,
