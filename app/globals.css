@@ -318,9 +318,9 @@
   }
 
   /* Marketing header: account links for the visitor's session (see
-     MarketingHeader's SESSION_SCRIPT, which sets data-session). */
-  header[data-session] [data-signed-out],
-  header:not([data-session]) [data-signed-in] {
+     SESSION_SCRIPT in app/layout.tsx, which sets html[data-session]). */
+  html[data-session] [data-signed-out],
+  html:not([data-session]) [data-signed-in] {
     display: none !important;
   }
 

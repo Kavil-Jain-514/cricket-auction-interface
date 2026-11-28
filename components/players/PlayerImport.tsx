@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { formatCurrency, getErrorMessage, PLAYER_ROLES } from '@/lib/utils';
 import type { PlayerCategory } from '@/convex/bidRules';
+import { FACE_POSITION } from '@/lib/playerPhoto';
 
 interface PlayerImportProps {
   tournamentId: Id<"tournaments">;
@@ -487,7 +488,7 @@ export function PlayerImport({ tournamentId, onComplete }: PlayerImportProps) {
                             <img
                               src={player.photoUrl}
                               alt={player.name}
-                              className="w-10 h-10 rounded-full object-cover border border-slate-600"
+                              className={`w-10 h-10 rounded-full object-cover ${FACE_POSITION} border border-slate-600`}
                               referrerPolicy="no-referrer"
                               crossOrigin="anonymous"
                               onError={(e) => {
