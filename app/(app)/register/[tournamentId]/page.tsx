@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useAction, useMutation, useQuery } from 'convex/react';
 import { Activity, Check, CheckCircle2, ClipboardList, ImageUp, QrCode, Tag, Upload, UserRound, Users, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,6 +25,7 @@ import { CoupleMemberFields, EMPTY_MEMBER, memberToEntry, type MemberValues } fr
 import { CustomQuestions, answersToSubmit, type AnswerMap } from '@/components/registration/CustomQuestions';
 import { SponsorBand } from '@/components/registration/SponsorBand';
 import { RegistrationHeader } from '@/components/registration/RegistrationHeader';
+import { Logo } from '@/components/ds/logo';
 
 // Same limits as /api/upload.
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -303,6 +305,9 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   // Older deployments return no categories or sponsors.
   const categories = info?.categories ?? [];
   const required = info?.requiredFields ?? DEFAULT_REQUIRED_FIELDS;
+  // Standard details the organiser removed from the form (the server drops them too).
+  const hidden = info?.hiddenFields ?? [];
+  const asks = (field: StandardField) => !hidden.includes(field);
   /** "Age *" when the organiser requires it, plain "Age" otherwise. */
   const label = (text: string, field: StandardField) => (required[field] ? `${text} *` : text);
   const sponsors = info?.sponsors ?? [];
@@ -318,6 +323,12 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   const shell = (children: React.ReactNode) => (
     <main className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
       <div className="mx-auto max-w-2xl px-4 py-6 sm:py-10 space-y-5">
+        {/* Bid11Pro brand, top left; data-theme supplies the logo's colour tokens. */}
+        <div data-theme="dark" className="flex">
+          <Link href="/" aria-label="Bid11Pro home" className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">
+            <Logo size="sm" />
+          </Link>
+        </div>
         <header className="overflow-hidden rounded-2xl border border-slate-800 bg-linear-to-br from-blue-600/25 via-slate-900 to-purple-600/15">
           <RegistrationHeader
             name={info?.name ?? 'Tournament'}
@@ -412,7 +423,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   }
 
   const isLeft = form.battingBowlingHand === 'Left-handed';
-  const categoryPicker = categories.length > 0 && (
+  const categoryPicker = categories.length > 0 && asks('category') && (
           <fieldset>
             <legend className="text-sm font-medium text-slate-300">{label('Your category', 'category')}</legend>
             <p className="text-xs text-slate-500">Pick the group you belong to. The organiser can change it.</p>
@@ -440,6 +451,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   );
   // The organiser's toggles, for each couple member (photo and category are shared).
   const memberRequired = { age: required.age, role: required.role, tshirtSize: required.tshirtSize, jerseyNumber: required.jerseyNumber };
+  const memberHidden = { age: !asks('age'), role: !asks('role'), tshirtSize: !asks('tshirtSize'), jerseyNumber: !asks('jerseyNumber') };
 
   return shell(
     <form onSubmit={handleSubmit} className="space-y-5 rounded-2xl border border-slate-800 bg-slate-900 p-5">
@@ -472,7 +484,8 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
 
       <section>
         <SectionHeading icon={coupleEntry ? Users : UserRound} title={coupleEntry ? 'The couple' : 'About you'} />
-        <div className="grid grid-cols-[6.5rem_1fr] gap-4 sm:grid-cols-[8rem_1fr]">
+        <div className={cn('grid gap-4', asks('photo') && 'grid-cols-[6.5rem_1fr] sm:grid-cols-[8rem_1fr]')}>
+          {asks('photo') && (
           <div>
             <span className="text-sm font-medium text-slate-300">{label(coupleEntry ? 'Couple photo' : 'Photo', 'photo')}</span>
             <label className="mt-1.5 flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border-2 border-dashed border-slate-600 text-center text-xs text-slate-400 hover:border-blue-500">
@@ -487,6 +500,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
               <input type="file" accept={PHOTO_TYPES.join(',')} className="sr-only" disabled={uploading !== null} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void uploadPhoto(file); }} />
             </label>
           </div>
+          )}
           <div className="grid grid-cols-2 content-start gap-3">
             <Field label={coupleEntry ? 'Couple name *' : 'Full name *'} htmlFor="reg-name" className="col-span-2">
               <Input id="reg-name" required value={form.name} onChange={(e) => patch({ name: e.target.value })} className={formInputCls} autoComplete={coupleEntry ? 'off' : 'name'} />
@@ -496,9 +510,11 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
                 <Field label="Phone Number (CricHeroes) *" htmlFor="reg-phone">
                   <Input id="reg-phone" required inputMode="tel" value={form.phoneNumber} onChange={(e) => patch({ phoneNumber: e.target.value })} placeholder="98765 43210" className={formInputCls} autoComplete="tel" />
                 </Field>
-                <Field label={label('Age', 'age')} htmlFor="reg-age">
-                  <Input id="reg-age" required={required.age} type="number" min="5" max="80" value={form.age} onChange={(e) => patch({ age: e.target.value })} className={formInputCls} />
-                </Field>
+                {asks('age') && (
+                  <Field label={label('Age', 'age')} htmlFor="reg-age">
+                    <Input id="reg-age" required={required.age} type="number" min="5" max="80" value={form.age} onChange={(e) => patch({ age: e.target.value })} className={formInputCls} />
+                  </Field>
+                )}
               </>
             )}
             {coupleFormat && !coupleEntry && (
@@ -528,14 +544,15 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
         <section className="space-y-4">
           <SectionHeading icon={Activity} title="Members" />
           <div className="grid gap-3 md:grid-cols-2">
-            <CoupleMemberFields title="Male" idPrefix="reg-male" value={male} onChange={(p) => setMale((m) => ({ ...m, ...p }))} required={memberRequired} />
-            <CoupleMemberFields title="Female" idPrefix="reg-female" value={female} onChange={(p) => setFemale((m) => ({ ...m, ...p }))} required={memberRequired} />
+            <CoupleMemberFields title="Male" idPrefix="reg-male" value={male} onChange={(p) => setMale((m) => ({ ...m, ...p }))} required={memberRequired} hidden={memberHidden} />
+            <CoupleMemberFields title="Female" idPrefix="reg-female" value={female} onChange={(p) => setFemale((m) => ({ ...m, ...p }))} required={memberRequired} hidden={memberHidden} />
           </div>
           {categoryPicker}
         </section>
       ) : (
       <section className="space-y-4">
         <SectionHeading icon={Activity} title="Playing style" />
+        {asks('role') && (
         <fieldset>
           <legend className="text-sm font-medium text-slate-300">{label('Role', 'role')}</legend>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -559,6 +576,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
             })}
           </div>
         </fieldset>
+        )}
 
         {categoryPicker}
 
@@ -581,20 +599,28 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
           </div>
         </div>
 
+        {(asks('tshirtSize') || asks('jerseyNumber') || asks('jerseyName')) && (
         <div className="grid grid-cols-3 gap-3">
+          {asks('tshirtSize') && (
           <Field label={label('T-shirt size', 'tshirtSize')} htmlFor="reg-size">
             <NativeSelect id="reg-size" required={required.tshirtSize} value={form.tshirtSize} onChange={(e) => patch({ tshirtSize: e.target.value as typeof form.tshirtSize })} className={formInputCls}>
               <option value="">—</option>
               {TSHIRT_SIZES.map((s) => <option key={s}>{s}</option>)}
             </NativeSelect>
           </Field>
+          )}
+          {asks('jerseyNumber') && (
           <Field label={label('Jersey #', 'jerseyNumber')} htmlFor="reg-jersey">
             <Input id="reg-jersey" required={required.jerseyNumber} type="number" min="1" max="99" value={form.jerseyNumber} onChange={(e) => patch({ jerseyNumber: e.target.value })} className={formInputCls} />
           </Field>
+          )}
+          {asks('jerseyName') && (
           <Field label={label('Name on jersey', 'jerseyName')} htmlFor="reg-jname">
             <Input id="reg-jname" required={required.jerseyName} value={form.jerseyName} onChange={(e) => patch({ jerseyName: e.target.value })} className={cn(formInputCls, 'uppercase')} />
           </Field>
+          )}
         </div>
+        )}
       </section>
       )}
 

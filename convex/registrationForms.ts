@@ -9,7 +9,9 @@ import { getTournamentRole, logAdminAction, OWNER_ONLY, REVIEW_REGISTRATIONS, re
 import {
   normalizeQuestions,
   questionValidator,
+  hiddenFieldsValidator,
   requiredFieldsValidator,
+  resolveHiddenFields,
   resolveRequiredFields,
   validateFormQuestions,
   type Question,
@@ -107,6 +109,7 @@ export const get = query({
       version: latest?.version ?? 0,
       questions: latest?.questions ?? [],
       requiredFields: resolveRequiredFields(latest?.requiredFields),
+      hiddenFields: resolveHiddenFields(latest?.hiddenFields),
       answerCounts: await answerCounts(ctx, args.tournamentId),
       labels,
     };
@@ -115,7 +118,8 @@ export const get = query({
 
 /**
  * Save the questions and which standard details are required as a new
- * version. Owners only. Without `requiredFields` the previous rules are kept. `expectedVersion` is the
+ * version. Owners only. Without `requiredFields` / `hiddenFields` (standard details removed from the
+ * form) the previous ones are kept. `expectedVersion` is the
  * version the editor loaded; if someone saved since, nothing is overwritten.
  */
 export const save = mutation({
@@ -123,6 +127,7 @@ export const save = mutation({
     tournamentId: v.id("tournaments"),
     questions: v.array(questionValidator),
     requiredFields: v.optional(requiredFieldsValidator),
+    hiddenFields: v.optional(hiddenFieldsValidator),
     expectedVersion: v.number(),
   },
   handler: async (ctx, args) => {
@@ -141,11 +146,14 @@ export const save = mutation({
     }
     const previousRules = resolveRequiredFields(latest?.requiredFields);
     const requiredFields = args.requiredFields ? resolveRequiredFields(args.requiredFields) : previousRules;
+    const previousHidden = resolveHiddenFields(latest?.hiddenFields);
+    const hiddenFields = args.hiddenFields ? resolveHiddenFields(args.hiddenFields) : previousHidden;
     // Stored objects can come back with keys reordered: compare normalised.
     if (
       latest &&
       JSON.stringify(normalizeQuestions(latest.questions)) === JSON.stringify(questions) &&
-      JSON.stringify(previousRules) === JSON.stringify(requiredFields)
+      JSON.stringify(previousRules) === JSON.stringify(requiredFields) &&
+      JSON.stringify(previousHidden) === JSON.stringify(hiddenFields)
     ) {
       return { version: current };
     }
@@ -164,6 +172,7 @@ export const save = mutation({
       version,
       questions,
       requiredFields,
+      hiddenFields,
       createdBy: owner._id,
       createdAt: Date.now(),
     });
@@ -173,8 +182,8 @@ export const save = mutation({
       action: "save_registration_form",
       targetType: "tournament",
       targetId: args.tournamentId,
-      previousData: { version: current, requiredFields: previousRules },
-      newData: { version, questions: questions.length, requiredFields },
+      previousData: { version: current, requiredFields: previousRules, hiddenFields: previousHidden },
+      newData: { version, questions: questions.length, requiredFields, hiddenFields },
       tournamentId: args.tournamentId,
     });
     return { version };

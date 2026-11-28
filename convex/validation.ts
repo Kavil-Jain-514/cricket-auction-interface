@@ -147,24 +147,31 @@ export function normalizePaymentQrUrl(
 }
 
 export const MAX_SPONSORS = 12;
+export const MAX_SPONSOR_TYPE = 40;
 
-/** Trimmed sponsors for the registration form, or an error. */
+type Sponsor = { name: string; type?: string; logoUrl?: string };
+
+/** Trimmed sponsors for the registration form, or an error. A blank type is dropped. */
 export function normalizeSponsors(
-  sponsors: Array<{ name: string; logoUrl?: string }>,
+  sponsors: Sponsor[],
   previousLogoUrls?: ReadonlySet<string>,
-): { ok: true; sponsors: Array<{ name: string; logoUrl?: string }> } | { ok: false; error: string } {
+): { ok: true; sponsors: Sponsor[] } | { ok: false; error: string } {
   if (sponsors.length > MAX_SPONSORS) {
     return { ok: false, error: `Add at most ${MAX_SPONSORS} sponsors` };
   }
-  const out: Array<{ name: string; logoUrl?: string }> = [];
+  const out: Sponsor[] = [];
   for (const sponsor of sponsors) {
     const error = lengthError("Sponsor name", sponsor.name, 1, 60);
     if (error) return { ok: false, error };
+    const type = sponsor.type?.trim() || undefined;
+    if (type && type.length > MAX_SPONSOR_TYPE) {
+      return { ok: false, error: `Sponsor type must be at most ${MAX_SPONSOR_TYPE} characters` };
+    }
     const logoUrl = sponsor.logoUrl?.trim() || undefined;
     if (logoUrl && !isAcceptedImage(logoUrl, previousLogoUrls)) {
       return { ok: false, error: `Upload ${sponsor.name.trim()}'s logo as an image` };
     }
-    out.push(logoUrl ? { name: sponsor.name.trim(), logoUrl } : { name: sponsor.name.trim() });
+    out.push({ name: sponsor.name.trim(), ...(type ? { type } : {}), ...(logoUrl ? { logoUrl } : {}) });
   }
   return { ok: true, sponsors: out };
 }

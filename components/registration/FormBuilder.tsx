@@ -17,7 +17,16 @@ import {
   type Question,
   type QuestionType,
   type RequiredFields,
+  type StandardField,
 } from '@/convex/registrationForm';
+
+/** Each standard detail is required, optional, or left off the form. */
+type FieldMode = 'required' | 'optional' | 'hidden';
+const FIELD_MODES: Array<{ value: FieldMode; label: string }> = [
+  { value: 'required', label: 'Required' },
+  { value: 'optional', label: 'Optional' },
+  { value: 'hidden', label: 'Not asked' },
+];
 
 export const TYPE_LABELS: Record<QuestionType, string> = {
   short_text: 'Short answer',
@@ -62,12 +71,17 @@ export function FormBuilder({
   onChange,
   requiredFields,
   onRequiredFieldsChange,
+  hiddenFields,
+  onHiddenFieldsChange,
   answerCounts,
 }: {
   questions: Question[];
   onChange: (questions: Question[]) => void;
   requiredFields: RequiredFields;
   onRequiredFieldsChange: (next: RequiredFields) => void;
+  /** Standard details removed from the form. */
+  hiddenFields: StandardField[];
+  onHiddenFieldsChange: (next: StandardField[]) => void;
   answerCounts: Record<string, number>;
 }) {
   const confirm = useConfirm();
@@ -92,6 +106,15 @@ export function FormBuilder({
     requestAnimationFrame(() => document.getElementById(`q-card-${item.id}`)?.focus());
   };
 
+  const modeOf = (field: StandardField): FieldMode =>
+    hiddenFields.includes(field) ? 'hidden' : requiredFields[field] ? 'required' : 'optional';
+  const setMode = (field: StandardField, mode: FieldMode) => {
+    const others = hiddenFields.filter((f) => f !== field);
+    onHiddenFieldsChange(mode === 'hidden' ? [...others, field] : others);
+    // A removed field keeps its required setting for when it comes back.
+    if (mode !== 'hidden') onRequiredFieldsChange({ ...requiredFields, [field]: mode === 'required' });
+  };
+
   const remove = async (i: number) => {
     const q = active[i];
     const answers = answerCounts[q.id] ?? 0;
@@ -114,7 +137,7 @@ export function FormBuilder({
           <Lock className="h-4 w-4" aria-hidden /> Standard details
         </h2>
         <p className="mt-1 text-sm text-slate-400">
-          Always on the form, first. Choose which ones players must fill in; the rest they can leave blank.
+          First on the form. Choose which ones players must fill in, which they can leave blank, and which to leave off the form.
         </p>
         <ul className="mt-3 flex flex-wrap gap-2" aria-label="Always required">
           {LOCKED_FIELDS.map((f) => (
@@ -123,29 +146,45 @@ export function FormBuilder({
             </li>
           ))}
         </ul>
-        <fieldset className="mt-3">
-          <legend className="sr-only">Required standard details</legend>
-          <div className="grid gap-x-4 sm:grid-cols-2">
-            {STANDARD_FIELDS.map((field) => (
-              <label key={field} className="flex min-h-11 cursor-pointer items-center justify-between gap-3 border-b border-slate-800 py-2 text-sm text-slate-200">
-                <span>
+        <div className="mt-3">
+          {STANDARD_FIELDS.map((field) => {
+            const mode = modeOf(field);
+            return (
+              <div
+                key={field}
+                role="radiogroup"
+                aria-label={STANDARD_FIELD_LABELS[field]}
+                className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-slate-800 py-2 text-sm text-slate-200"
+              >
+                <span className={cn(mode === 'hidden' && 'text-slate-500 line-through')}>
                   {STANDARD_FIELD_LABELS[field]}
-                  {FIELD_NOTES[field] && <span className="block text-xs text-slate-500">{FIELD_NOTES[field]}</span>}
+                  {FIELD_NOTES[field] && <span className="block text-xs text-slate-500 no-underline">{FIELD_NOTES[field]}</span>}
                 </span>
-                <span className="inline-flex items-center gap-2 text-xs text-slate-400">
-                  {requiredFields[field] ? 'Required' : 'Optional'}
-                  <input
-                    type="checkbox"
-                    aria-label={`${STANDARD_FIELD_LABELS[field]} required`}
-                    checked={requiredFields[field]}
-                    onChange={(e) => onRequiredFieldsChange({ ...requiredFields, [field]: e.target.checked })}
-                    className="h-4 w-4 accent-blue-600"
-                  />
+                <span className="inline-grid grid-cols-3 gap-1 rounded-lg border border-slate-700 bg-slate-800/60 p-1">
+                  {FIELD_MODES.map((m) => (
+                    <button
+                      key={m.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={mode === m.value}
+                      onClick={() => setMode(field, m.value)}
+                      className={cn(
+                        'min-h-9 rounded-md px-2.5 text-xs font-medium transition',
+                        mode === m.value
+                          ? m.value === 'hidden'
+                            ? 'bg-slate-600 text-white shadow'
+                            : 'bg-blue-600 text-white shadow'
+                          : 'text-slate-300 hover:text-white',
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
                 </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       <section aria-labelledby="your-questions" className="space-y-3">

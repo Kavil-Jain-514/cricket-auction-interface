@@ -421,6 +421,47 @@ describe("registrationForms (server)", () => {
       expect((await t.query(api.registrations.getPublicInfo, { tournamentId }))?.requiredFields.photo).toBe(true);
     });
 
+    test("the owner can remove fields: not asked, never required, and any value sent is dropped", async () => {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      const asOwner = t.withIdentity(OWNER);
+      await asOwner.mutation(api.registrationForms.save, {
+        tournamentId,
+        questions: [],
+        requiredFields: { age: true, jerseyName: true },
+        hiddenFields: ["jerseyName", "age", "tshirtSize"],
+        expectedVersion: 0,
+      });
+      const info = await t.query(api.registrations.getPublicInfo, { tournamentId });
+      // In the form's order, and a removed field is never required.
+      expect(info?.hiddenFields).toEqual(["age", "tshirtSize", "jerseyName"]);
+      expect(info?.requiredFields).toMatchObject({ age: false, tshirtSize: false, jerseyName: false, role: true });
+      expect((await asOwner.query(api.registrationForms.get, { tournamentId })).hiddenFields).toEqual(["age", "tshirtSize", "jerseyName"]);
+
+      await t.mutation(api.registrations.submit, entry(tournamentId, { age: undefined }));
+      // An out-of-date form still sending them: kept off the registration.
+      const res = await t.mutation(api.registrations.submit, entry(tournamentId, { name: "Asha", age: 30, tshirtSize: "M", jerseyName: "ASHA", jerseyNumber: 9 }));
+      const reg = await t.run((ctx) => ctx.db.get(res.registrationId as never));
+      expect(reg).toMatchObject({ name: "Asha", jerseyNumber: 9 });
+      expect(reg).not.toHaveProperty("age");
+      expect(reg).not.toHaveProperty("tshirtSize");
+      expect(reg).not.toHaveProperty("jerseyName");
+    });
+
+    test("removing a field is a new version; a save without hiddenFields keeps them; [] brings them back", async () => {
+      const t = convexTest(schema, modules);
+      const { tournamentId } = await setup(t);
+      const asOwner = t.withIdentity(OWNER);
+      const save = (version: number, extra: Record<string, unknown> = {}) =>
+        asOwner.mutation(api.registrationForms.save, { tournamentId, questions: [], expectedVersion: version, ...extra });
+      expect(await save(0, { hiddenFields: ["photo"] })).toEqual({ version: 1 });
+      expect(await save(1, { hiddenFields: ["photo", "photo"] })).toEqual({ version: 1 });
+      expect(await save(1)).toEqual({ version: 1 });
+      expect((await t.query(api.registrations.getPublicInfo, { tournamentId }))?.hiddenFields).toEqual(["photo"]);
+      expect(await save(1, { hiddenFields: [] })).toEqual({ version: 2 });
+      expect((await t.query(api.registrations.getPublicInfo, { tournamentId }))?.hiddenFields).toEqual([]);
+    });
+
     test("only the owner changes the rules", async () => {
       const t = convexTest(schema, modules);
       const { tournamentId } = await setup(t);

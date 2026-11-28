@@ -46,7 +46,7 @@ interface TournamentSettingsModalProps {
     name: string;
     description?: string;
     logoUrl?: string;
-    sponsors?: Array<{ name: string; logoUrl?: string }>;
+    sponsors?: Array<{ name: string; type?: string; logoUrl?: string }>;
     settings: {
       basePurse: number;
       minBidIncrement: number;
@@ -70,6 +70,9 @@ interface TournamentSettingsModalProps {
   onClose: () => void;
 }
 
+/** Offered while typing a sponsor's type; any other text is fine too. */
+const SPONSOR_TYPE_SUGGESTIONS = ['Title Sponsor', 'Co-Sponsor', 'Powered By', 'Associate Sponsor', 'Kit Sponsor', 'Media Partner'];
+
 export function TournamentSettingsModal({
   tournamentId,
   currentSettings,
@@ -80,7 +83,9 @@ export function TournamentSettingsModal({
   const formatLocked = useQuery(api.tournaments.formatLocked, { tournamentId });
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<Tab>('general');
-  const [sponsors, setSponsors] = useState(() => (currentSettings.sponsors ?? []).map((sp) => ({ name: sp.name, logoUrl: sp.logoUrl ?? '' })));
+  const [sponsors, setSponsors] = useState(() =>
+    (currentSettings.sponsors ?? []).map((sp) => ({ name: sp.name, type: sp.type ?? '', logoUrl: sp.logoUrl ?? '' })),
+  );
   const [rules, setRules] = useState<RulesFormValues>(() => rulesFormFromSettings(currentSettings.settings));
 
   // Numeric fields are kept as the raw input strings so an empty or partial
@@ -150,7 +155,9 @@ export function TournamentSettingsModal({
     ? 'Add at most 12 sponsors'
     : sponsors.some((sp) => sp.name.trim() === '' || sp.name.trim().length > 60)
       ? 'Every sponsor needs a name (up to 60 characters)'
-      : null;
+      : sponsors.some((sp) => sp.type.trim().length > 40)
+        ? 'Keep each sponsor type to 40 characters'
+        : null;
   const nextCategories = categoriesFromForm(rules.categories);
   const nextSlabs = slabsFromForm(rules.slabs);
   // Same validators the server runs (convex/validation.ts).
@@ -199,7 +206,11 @@ export function TournamentSettingsModal({
       formData.paymentQrUrl !== (current.paymentQrUrl ?? '');
     const formatChanged = formData.format !== (current.format ?? 'standard');
     // Sponsors aren't settings: sent on their own, only when they changed.
-    const nextSponsors = sponsors.map((sp) => (sp.logoUrl ? { name: sp.name.trim(), logoUrl: sp.logoUrl } : { name: sp.name.trim() }));
+    const nextSponsors = sponsors.map((sp) => ({
+      name: sp.name.trim(),
+      ...(sp.type.trim() ? { type: sp.type.trim() } : {}),
+      ...(sp.logoUrl ? { logoUrl: sp.logoUrl } : {}),
+    }));
     const sponsorsChanged = JSON.stringify(nextSponsors) !== JSON.stringify(currentSettings.sponsors ?? []);
 
     try {
@@ -402,7 +413,7 @@ export function TournamentSettingsModal({
                 size="sm"
                 variant="outline"
                 disabled={sponsors.length >= 12}
-                onClick={() => setSponsors((prev) => [...prev, { name: '', logoUrl: '' }])}
+                onClick={() => setSponsors((prev) => [...prev, { name: '', type: '', logoUrl: '' }])}
                 className="-mt-3 border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white"
               >
                 <Plus className="h-4 w-4" /> Add
@@ -415,7 +426,10 @@ export function TournamentSettingsModal({
                 {sponsors.map((sp, i) => (
                   <li key={i} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/40 p-2">
                     <ImageUpload value={sp.logoUrl || undefined} onChange={(url) => patchSponsor(i, { logoUrl: url || '' })} folder="tournaments" aspectRatio="square" className="w-14 shrink-0 [&_p]:hidden [&_svg]:mb-0 [&_svg]:h-5 [&_svg]:w-5" />
-                    <Input value={sp.name} onChange={(e) => patchSponsor(i, { name: e.target.value })} placeholder="Sponsor name" maxLength={60} aria-label={`Sponsor ${i + 1} name`} className={formInputCls} />
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <Input value={sp.type} onChange={(e) => patchSponsor(i, { type: e.target.value })} list="sponsor-types" placeholder="Type, e.g. Title Sponsor" maxLength={40} aria-label={`Sponsor ${i + 1} type`} className={formInputCls} />
+                      <Input value={sp.name} onChange={(e) => patchSponsor(i, { name: e.target.value })} placeholder="Sponsor name" maxLength={60} aria-label={`Sponsor ${i + 1} name`} className={formInputCls} />
+                    </div>
                     <button type="button" onClick={() => setSponsors((prev) => prev.filter((_, j) => j !== i))} aria-label={`Remove sponsor ${i + 1}`} className="p-1.5 text-slate-400 hover:text-red-400">
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -423,6 +437,9 @@ export function TournamentSettingsModal({
                 ))}
               </ul>
             )}
+            <datalist id="sponsor-types">
+              {SPONSOR_TYPE_SUGGESTIONS.map((t) => <option key={t} value={t} />)}
+            </datalist>
             {sponsorsError && <p className="mt-2 text-xs text-red-400">{sponsorsError}</p>}
           </section>
         </div>
