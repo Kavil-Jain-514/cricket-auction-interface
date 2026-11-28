@@ -1,4 +1,5 @@
 // Cloudinary configuration and utilities
+import { faceCrop } from "@/lib/playerPhoto";
 
 // Upload folders for organization
 export const UPLOAD_FOLDERS = {
@@ -18,6 +19,11 @@ export type UploadFolder = keyof typeof UPLOAD_FOLDERS;
  */
 export function cloudinaryLoader({ src, width }: { src: string; width: number }): string {
   return src.replace("/upload/", `/upload/f_auto,q_auto,w_${width}/`);
+}
+
+/** cloudinaryLoader with a square crop around the face(s), for player photos. */
+export function cloudinaryFaceLoader({ src, width }: { src: string; width: number }): string {
+  return src.replace("/upload/", `/upload/${faceCrop("1:1", width)}/f_auto,q_auto/`);
 }
 
 export function isCloudinaryUrl(url: string): boolean {

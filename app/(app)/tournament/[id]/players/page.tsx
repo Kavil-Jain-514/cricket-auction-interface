@@ -130,16 +130,6 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       ]);
       tournamentLogoBase64 = logo;
 
-      // Load player photos a few at a time (Cloudinary direct, Drive via the proxy)
-      await mapWithConcurrency(
-        playersToExport.filter(p => p.photoUrl),
-        PDF_IMAGE_CONCURRENCY,
-        async (p) => {
-          const dataUrl = await loadPdfImage(p.photoUrl!);
-          if (dataUrl) imageCache[p._id] = dataUrl;
-        },
-      );
-      const missingPhotos = playersToExport.filter(p => p.photoUrl && !imageCache[p._id]).length;
 
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -164,11 +154,23 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
       const cardHeight = (gridHeight - (rows - 1) * rowGap) / rows;
       const photoWidth = 25; // Photo width in mm
 
+      // Load player photos a few at a time (Cloudinary direct, Drive via the
+      // proxy), cropped around the face to the photo box's shape.
+      await mapWithConcurrency(
+        playersToExport.filter(p => p.photoUrl),
+        PDF_IMAGE_CONCURRENCY,
+        async (p) => {
+          const dataUrl = await loadPdfImage(p.photoUrl!, { aspect: photoWidth / cardHeight });
+          if (dataUrl) imageCache[p._id] = dataUrl;
+        },
+      );
+      const missingPhotos = playersToExport.filter(p => p.photoUrl && !imageCache[p._id]).length;
+
 
       // Helper to draw tournament header
       const drawHeader = (page: number, totalPages: number) => {
-        // Page background
-        pdf.setFillColor(15, 23, 42); // slate-900
+        // Page background: white, so the sheet prints clearly.
+        pdf.setFillColor(255, 255, 255);
         pdf.rect(0, 0, pageWidth, pageHeight, 'F');
 
         // Header accent bar
@@ -186,7 +188,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         // Subtitle
         pdf.setFontSize(5);
         pdf.setFont("helvetica", "normal");
-        pdf.setTextColor(148, 163, 184); // slate-400
+        pdf.setTextColor(100, 116, 139); // slate-500
         pdf.text("Cricket Auction Platform", margin + 20, 17.5);
 
         // Center Tournament Logo and Name
@@ -212,7 +214,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             }
           }
 
-          pdf.setTextColor(255, 255, 255);
+          pdf.setTextColor(15, 23, 42); // slate-900
           pdf.text(tournament.name.toUpperCase(), startX + titleWidth / 2, 19, { align: 'center' });
         } else if (tournamentLogoBase64) {
           try {
@@ -228,7 +230,9 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         if (branding.organizationLogo) {
           const tileX = pageWidth - margin - orgSize;
           pdf.setFillColor(255, 255, 255);
-          pdf.roundedRect(tileX, 5, orgSize, orgSize, 1.5, 1.5, 'F');
+          pdf.setDrawColor(226, 232, 240); // slate-200
+          pdf.setLineWidth(0.3);
+          pdf.roundedRect(tileX, 5, orgSize, orgSize, 1.5, 1.5, 'FD');
           drawContainedImage(pdf, branding.organizationLogo, tileX + 1.5, 6.5, orgSize - 3, orgSize - 3);
         }
 
@@ -251,11 +255,11 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         // Card background and border
         pdf.setDrawColor(roleColor[0], roleColor[1], roleColor[2]);
         pdf.setLineWidth(0.6);
-        pdf.setFillColor(30, 41, 59); // slate-800
+        pdf.setFillColor(255, 255, 255);
         pdf.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'FD');
 
-        // Watermark (Bid11Pro)
-        pdf.setTextColor(220, 38, 38, 0.08); // red-600 with lower opacity for lighter watermark
+        // Watermark (Bid11Pro): pale enough that the details print over it
+        pdf.setTextColor(254, 226, 226); // red-100
         pdf.setFontSize(14);
         pdf.setFont("helvetica", "bold");
         pdf.text("Bid11Pro", x + cardWidth / 2 + 6, y + cardHeight / 2 + 2, { align: "center", angle: 30 });
@@ -275,7 +279,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
             pdf.addImage(imgData, imgFormat, photoX, photoY, actualPhotoWidth, actualPhotoHeight);
 
             // Add border to photo
-            pdf.setDrawColor(100, 116, 139); // slate-500
+            pdf.setDrawColor(203, 213, 225); // slate-300
             pdf.setLineWidth(0.4);
             pdf.rect(photoX, photoY, actualPhotoWidth, actualPhotoHeight, 'S');
           } catch {
@@ -286,15 +290,15 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         // Player number overlapping photo and card border (top-left badge)
         if (player.playerNumber) {
           const numberText = `${player.playerNumber}`;
-          pdf.setFontSize(6.5);
+          pdf.setFontSize(11);
           pdf.setFont('helvetica', 'bold');
           const numWidth = pdf.getTextWidth(numberText) + 3;
-          const numHeight = 4.5;
-          // Dark badge background
+          const numHeight = 6;
+          // Dark badge, white figures: the most legible pair on paper
           pdf.setFillColor(15, 23, 42); // slate-900
           pdf.roundedRect(photoX, photoY, numWidth, numHeight, 1.5, 1.5, 'F');
-          pdf.setTextColor(roleColor[0], roleColor[1], roleColor[2]);
-          pdf.text(numberText, photoX + 1.5, photoY + 3.3);
+          pdf.setTextColor(255, 255, 255);
+          pdf.text(numberText, photoX + 1.5, photoY + 4.6);
         }
 
         // Captain badge - top-right of photo ("C" tag)
@@ -315,7 +319,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         const textX = photoX + actualPhotoWidth + 2.5;
         const textMaxWidth = cardWidth - actualPhotoWidth;
         // Player name - big bold font wrapped
-        pdf.setTextColor(255, 255, 255);
+        pdf.setTextColor(15, 23, 42); // slate-900
         pdf.setFontSize(7.5);
         pdf.setFont('helvetica', 'bold');
 
@@ -331,7 +335,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
         // Age & Phone number side by side, below name
         pdf.setFontSize(6);
         pdf.setFont('helvetica', 'normal');
-        pdf.setTextColor(148, 163, 184); // slate-400
+        pdf.setTextColor(51, 65, 85); // slate-700
         const ageText = player.age ? `${player.age} yrs` : '';
         const phoneText = player.phoneNumber || '';
         const separator = ageText && phoneText ? '  |  ' : '';
@@ -352,7 +356,8 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
 
         // Player Batting/Bowling Hand
         pdf.setFontSize(6);
-        pdf.setTextColor(148, 163, 184); // slate-400
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(51, 65, 85); // slate-700
         pdf.text(`${player.battingBowlingHand}`, textX, y + 18.5 + linesOffset);
 
       };
@@ -398,7 +403,7 @@ export default function PlayersPage({ params }: { params: Promise<{ id: string }
           drawHeader(totalPages - 1, totalPages);
           sponsorsY = headerHeight + 6;
         }
-        drawSponsorGrid(pdf, branding.sponsors, margin, sponsorsY, contentWidth, PDF_SPONSOR_LAYOUT, 'dark');
+        drawSponsorGrid(pdf, branding.sponsors, margin, sponsorsY, contentWidth, PDF_SPONSOR_LAYOUT, 'light');
       }
 
       // Save the PDF
