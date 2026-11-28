@@ -53,3 +53,39 @@ describe("buildTeamPdfPlayers", () => {
     expect(buildTeamPdfPlayers({ ...team, captainName: "   " }, [])).toEqual([]);
   });
 });
+
+describe("buildTeamPdfPlayers — couple tournaments", () => {
+  const partner = { phoneNumber: "9123456780", age: 30, role: ["Bowler"], battingBowlingHand: "Left-handed" as const, jerseyNumber: 9, tshirtSize: "M" as const, ranking: 4 };
+  const couple: PdfSourcePlayer = { ...sold, _id: "c", name: "Rohit & Ritika", ranking: 1, partner };
+  const solo: PdfSourcePlayer = { ...sold, _id: "s", name: "Smriti", gender: "female", ranking: 2 };
+
+  test("rows carry gender, ranking and the female member", () => {
+    const rows = buildTeamPdfPlayers(team, [couple, solo], { couple: true });
+    expect(rows[0]).toMatchObject({
+      name: "Rohit & Ritika",
+      gender: "Male",
+      ranking: 1,
+      partner: { age: 30, phoneNumber: "9123456780", jerseyNumber: 9, tshirtSize: "M", battingBowlingHand: "Left-handed", gender: "Female", ranking: 4 },
+    });
+    expect(rows[1]).toMatchObject({ gender: "Female", ranking: 2 });
+    expect(rows[1]).not.toHaveProperty("partner");
+  });
+
+  test("standard tournaments get exactly the old rows", () => {
+    const rows = buildTeamPdfPlayers(team, [couple]);
+    expect(rows).toStrictEqual([
+      {
+        name: "Rohit & Ritika",
+        age: 37,
+        role: "Batter",
+        soldPrice: 250_000,
+        jerseyNumber: undefined,
+        jerseyName: undefined,
+        battingBowlingHand: "Right-handed",
+        phoneNumber: "9876543210",
+        tshirtSize: undefined,
+        isCaptain: false,
+      },
+    ]);
+  });
+});

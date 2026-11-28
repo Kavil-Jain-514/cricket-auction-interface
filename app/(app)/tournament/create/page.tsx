@@ -11,6 +11,7 @@ import { AmountInput } from '@/components/ui/amount-input';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { NativeSelect } from '@/components/ui/native-select';
+import type { TournamentFormat } from '@/lib/couple';
 import { Field, FormDivider, FormShell, SectionHeading, formInputCls } from '@/components/ui/form-modal';
 import { cn, formatCurrency } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -40,6 +41,7 @@ export default function CreateTournamentPage() {
     maxPlayersPerTeam: 15,
     basePrice: 100000,
     bidTimerSeconds: DEFAULT_BID_TIMER_SECONDS,
+    format: 'standard' as TournamentFormat,
   });
 
   const [loading, setLoading] = useState(false);
@@ -107,6 +109,7 @@ export default function CreateTournamentPage() {
           maxPlayersPerTeam: formData.maxPlayersPerTeam,
           basePrice: formData.basePrice,
           bidTimerSeconds: formData.bidTimerSeconds,
+          format: formData.format,
         },
       });
 
@@ -188,6 +191,21 @@ export default function CreateTournamentPage() {
                       rows={2}
                       className="min-h-16 resize-none"
                     />
+                  </Field>
+                  <Field
+                    label="Tournament type"
+                    htmlFor="format"
+                    hint="Couple: pairs register together and are auctioned as one player. Can't change once anyone registers."
+                  >
+                    <NativeSelect
+                      id="format"
+                      value={formData.format}
+                      onChange={(e) => patch({ format: e.target.value as TournamentFormat })}
+                      className={formInputCls}
+                    >
+                      <option value="standard">Standard</option>
+                      <option value="couple">Couple</option>
+                    </NativeSelect>
                   </Field>
                 </div>
               </div>

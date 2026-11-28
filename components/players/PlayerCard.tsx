@@ -14,6 +14,7 @@ import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { CategoryChip } from './CategoryChip';
 import type { PlayerCategory } from '@/convex/bidRules';
+import { CoupleDetails } from '@/components/players/CoupleDetails';
 
 interface PlayerCardProps {
   /** From players:listByTournament (basePrice resolved, plus the raw override). */
@@ -108,6 +109,8 @@ export function PlayerCard({ player, onClick, isCaptain, categories }: PlayerCar
             </div>
           </div>
         </div>
+
+        <CoupleDetails player={player} compact className="mb-3" />
 
         {/* Player Details */}
         <div className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm">

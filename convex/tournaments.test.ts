@@ -366,3 +366,95 @@ describe("tournaments.update — audit log", () => {
     expect(await t.run((ctx) => ctx.db.query("auditLogs").collect())).toHaveLength(0);
   });
 });
+
+describe("tournament format (standard / couple)", () => {
+  test("create takes a format; absent means standard", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    await setup(t);
+    const couple = await asAdmin.mutation(api.tournaments.create, { name: "Couple Cup", settings: { ...SETTINGS, format: "couple" } });
+    const standard = await asAdmin.mutation(api.tournaments.create, { name: "Plain Cup", settings: SETTINGS });
+    expect((await t.run((ctx) => ctx.db.get(couple)))?.settings.format).toBe("couple");
+    expect((await t.run((ctx) => ctx.db.get(standard)))?.settings.format).toBeUndefined();
+  });
+
+  test("the format can change until a player or registration exists", async () => {
+    const t = convexTest(schema, modules);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const { tournamentId } = await setup(t);
+    const format = async () => (await t.run((ctx) => ctx.db.get(tournamentId)))?.settings.format;
+
+    expect(await asAdmin.query(api.tournaments.formatLocked, { tournamentId })).toBe(false);
+    await asAdmin.mutation(api.tournaments.update, { id: tournamentId, settings: { ...SETTINGS, format: "couple" } });
+    expect(await format()).toBe("couple");
+    // Omitted keeps the stored format.
+    await asAdmin.mutation(api.tournaments.update, { id: tournamentId, settings: SETTINGS });
+    expect(await format()).toBe("couple");
+
+    const registrationId = await t.run((ctx) =>
+      ctx.db.insert("registrations", {
+        tournamentId,
+        name: "Ravi & Priya",
+        role: [],
+        battingBowlingHand: "Right-handed",
+        phoneNumber: "9876543210",
+        consentWhatsApp: false,
+        status: "paid",
+        fee: 0,
+        createdAt: Date.now(),
+      }),
+    );
+    expect(await asAdmin.query(api.tournaments.formatLocked, { tournamentId })).toBe(true);
+    await expect(
+      asAdmin.mutation(api.tournaments.update, { id: tournamentId, settings: { ...SETTINGS, format: "standard" } }),
+    ).rejects.toThrow("Tournament type can't change after players or registrations exist");
+    // Sending the current format is not a change.
+    await asAdmin.mutation(api.tournaments.update, { id: tournamentId, settings: { ...SETTINGS, format: "couple" } });
+
+    await t.run(async (ctx) => {
+      await ctx.db.delete(registrationId);
+      await ctx.db.insert("players", {
+        tournamentId,
+        name: "Solo",
+        role: ["Batter"],
+        battingBowlingHand: "Right-handed",
+        auctionStatus: "pending",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      asAdmin.mutation(api.tournaments.update, { id: tournamentId, settings: { ...SETTINGS, format: "standard" } }),
+    ).rejects.toThrow(/can't change/);
+    expect(await format()).toBe("couple");
+  });
+
+  test("formatLocked is for the tournament's owners", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    await t.run((ctx) => ctx.db.insert("users", { email: "x@test.com", createdAt: Date.now() }));
+    await expect(
+      t.withIdentity({ email: "x@test.com", subject: "x|1" }).query(api.tournaments.formatLocked, { tournamentId }),
+    ).rejects.toThrow();
+  });
+});
+
+describe("dashboard cards show the tournament type", () => {
+  test("listPublic cards carry the format (standard when absent)", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId, adminId } = await setup(t);
+    await t.run((ctx) =>
+      ctx.db.insert("tournaments", {
+        name: "Couple Cup",
+        createdBy: adminId,
+        status: "setup",
+        settings: { ...SETTINGS, format: "couple" },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    const { page } = await t.query(api.tournaments.listPublic, { paginationOpts: { numItems: 10, cursor: null } });
+    expect(page.find((c) => c._id === tournamentId)?.format).toBe("standard");
+    expect(page.find((c) => c.name === "Couple Cup")?.format).toBe("couple");
+  });
+});

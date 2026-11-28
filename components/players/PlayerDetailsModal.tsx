@@ -7,6 +7,7 @@ import { formatAnswer } from '@/lib/registrationsWorkbook';
 import { formatCurrency } from '@/lib/utils';
 import { IndianRupee, Trophy, ClipboardList } from 'lucide-react';
 import { PlayerProfileShell } from '@/components/players/PlayerProfileShell';
+import { CoupleDetails } from '@/components/players/CoupleDetails';
 
 interface PlayerDetailsModalProps {
   player: Doc<"players">;
@@ -36,6 +37,14 @@ export function PlayerDetailsModal({
       badge={{ label: statusStyle.label, className: `${statusStyle.bg} ${statusStyle.text}` }}
       onClose={onClose}
     >
+      {player.partner && (
+        <div className="bg-slate-800/50 rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-slate-400 mb-3">Couple</h3>
+          {/* Phones are only on the player for the tournament's staff. */}
+          <CoupleDetails player={player} showPhones />
+        </div>
+      )}
+
       {/* Auction Details */}
       <div className="bg-slate-800/50 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-slate-400 mb-3 flex items-center gap-2">

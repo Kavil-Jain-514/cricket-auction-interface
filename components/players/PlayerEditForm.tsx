@@ -13,6 +13,7 @@ import {
   type PlayerFormValues,
   type TshirtSize,
 } from './PlayerFormFields';
+import { entryToMember, memberToEntry } from '@/components/registration/CoupleMemberFields';
 
 interface PlayerEditFormProps {
   /** From players:listByTournament, whose basePrice is the resolved price. */
@@ -39,7 +40,11 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
     basePrice: 'basePriceOverride' in player ? player.basePriceOverride : player.basePrice,
     categoryId: player.categoryId,
     photoUrl: player.photoUrl || '',
+    ranking: player.ranking !== undefined ? String(player.ranking) : '',
+    gender: player.gender ?? '',
+    partner: player.partner ? entryToMember(player.partner) : null,
   });
+  const couple = tournament?.settings.format === 'couple';
 
   const patchForm = (patch: Partial<PlayerFormValues>) =>
     setFormData((prev) => ({ ...prev, ...patch }));
@@ -69,6 +74,14 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
         basePrice: formData.basePrice ?? null,
         categoryId: formData.categoryId ?? null,
         photoUrl: formData.photoUrl || undefined,
+        // Couple tournaments: null removes the partner or the gender.
+        ...(couple
+          ? {
+              ranking: formData.ranking?.trim() ? Number(formData.ranking) : undefined,
+              gender: formData.partner ? null : formData.gender || null,
+              partner: formData.partner ? memberToEntry(formData.partner) : null,
+            }
+          : {}),
       });
 
       toast.success('Player updated successfully!');
@@ -97,6 +110,7 @@ export function PlayerEditForm({ player, onClose, onSuccess }: PlayerEditFormPro
         values={formData}
         onChange={patchForm}
         categories={tournament?.settings.categories}
+        couple={couple}
         basePricePlaceholder={inheritedPlaceholder(formData.categoryId, tournament?.settings)}
         basePriceHint={
           formData.basePrice

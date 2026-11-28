@@ -75,3 +75,36 @@ describe("buildResultsSheets — purse adjustments", () => {
     expect(sheets["Team summary"][1].slice(0, 4)).toEqual(["Team B", 950_000, 200_000, 750_000]);
   });
 });
+
+describe("buildResultsSheets — couple tournaments", () => {
+  const partner = { phoneNumber: "9123456780", age: 22, role: ["All-Rounder"], battingBowlingHand: "Left-handed" as const, ranking: 3 };
+  const coupleData: ResultsExportData = {
+    ...data,
+    tournament: { ...data.tournament, format: "couple" },
+    players: data.players.map((p) => (p._id === "v" ? { ...p, name: "Virat & Anu", ranking: 1, partner } : p._id === "u" ? { ...p, gender: "male" as const, ranking: 9 } : p)),
+    contacts: [{ name: "Virat & Anu", phoneNumber: "9876543210", partnerPhoneNumber: "9123456780", teamName: "Team A", auctionStatus: "sold" }],
+  };
+
+  test("squads and unsold get the entry and female columns; contacts get the female phone", () => {
+    const sheets = buildResultsSheets(coupleData);
+    const extraHeader = ["Entry", "Ranking", "Female age", "Female type", "Female hand", "Female jersey no.", "Female jersey size", "Female ranking"];
+    expect(sheets["Squads"][0]).toEqual(["Team", "Player", "Role", "Category", "Price (₹)", "Captain", ...extraHeader]);
+    expect(sheets["Squads"]).toContainEqual(["Team A", "Virat & Anu", "Batter", "Marquee", 400_000, "", "Couple", 1, 22, "Allrounder", "Left-handed", "", "", 3]);
+    expect(sheets["Unsold"]).toContainEqual(["Unsold Joe", "Bowler", "", 150_000, "Unsold", "Male", 9, "", "", "", "", "", ""]);
+    expect(sheets["Contacts"]).toEqual([
+      ["Player", "Phone", "Team", "Status", "Female phone"],
+      ["Virat & Anu", "9876543210", "Team A", "Sold", "9123456780"],
+    ]);
+    // The female phone never appears outside the contacts sheet.
+    const { Contacts: _contacts, ...rest } = sheets;
+    expect(JSON.stringify(rest)).not.toContain("9123456780");
+  });
+
+  test("standard tournaments: the sheets are exactly as before", () => {
+    const standard = { ...coupleData, tournament: { ...data.tournament, format: "standard" as const } };
+    const plain = { ...data, contacts: [{ name: "Virat & Anu", phoneNumber: "9876543210", teamName: "Team A", auctionStatus: "sold" as const }] };
+    const withoutCoupleFields = { ...plain, players: coupleData.players.map(({ gender: _g, ranking: _r, partner: _p, ...p }) => p) };
+    expect(buildResultsSheets(standard)).toEqual(buildResultsSheets(withoutCoupleFields));
+    expect(buildResultsSheets(data)["Squads"][0]).toHaveLength(6);
+  });
+});

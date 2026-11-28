@@ -28,7 +28,8 @@ const LEGACY_ROLES: Record<string, string> = {
   "Wicket-Keeper": "Wicket Keeper",
 };
 
-type RulePlayer = { role: string | string[]; categoryId?: string };
+// A couple (one player row) brings its female member's role too.
+type RulePlayer = { role: string | string[]; categoryId?: string; partner?: { role: string[] } };
 
 /** Player roles with legacy spellings mapped to the canonical ones. */
 export function normaliseRoles(role: string | string[]): string[] {
@@ -37,7 +38,8 @@ export function normaliseRoles(role: string | string[]): string[] {
 
 export function ruleMatches(rule: SquadRule, player: RulePlayer): boolean {
   if (rule.categoryId) return player.categoryId === rule.categoryId;
-  return !!rule.role && normaliseRoles(player.role).includes(rule.role);
+  if (!rule.role) return false;
+  return [...normaliseRoles(player.role), ...normaliseRoles(player.partner?.role ?? [])].includes(rule.role);
 }
 
 /** Short label for a rule: the category name, or a role abbreviation (WK). */
