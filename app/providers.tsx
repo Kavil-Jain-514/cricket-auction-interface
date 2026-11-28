@@ -16,6 +16,13 @@ function UserInitializer({ children }: { children: ReactNode }) {
   const { isSignedIn } = useAuth();
   const ensureUser = useMutation(api.auth.ensureUser);
   const hasInitialized = useRef(false);
+
+  // Keep <html data-session> (app/layout.tsx) current after a sign-in or
+  // sign-out, so the marketing header is right after a client-side visit.
+  useEffect(() => {
+    if (isSignedIn === undefined) return;
+    document.documentElement.toggleAttribute("data-session", isSignedIn);
+  }, [isSignedIn]);
   
   useEffect(() => {
     // Only run once per mount when user is signed in
