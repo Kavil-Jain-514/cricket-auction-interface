@@ -172,7 +172,6 @@ export const getResultsExport = query({
         soldPrice: p.soldPrice,
         basePrice: effectiveBasePrice(p, tournament.settings),
         gender: p.gender,
-        ranking: p.ranking,
         partner: toPublicPlayer(p).partner,
       })),
       sales: events.map((e) => {

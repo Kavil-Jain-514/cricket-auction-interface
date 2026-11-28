@@ -21,7 +21,6 @@ import { getDeviceId } from '@/lib/deviceId';
 import { afterSubmitFailure, personKey } from '@/lib/registrationSubmit';
 import { formatRupees } from '@/convex/bidRules';
 import { DEFAULT_REQUIRED_FIELDS, missingPartnerField, missingRequiredField, validateAnswers, type StandardField } from '@/convex/registrationForm';
-import { RANKING_OPTIONS } from '@/convex/validation';
 import { CoupleMemberFields, EMPTY_MEMBER, memberToEntry, type MemberValues } from '@/components/registration/CoupleMemberFields';
 import { CustomQuestions, answersToSubmit, type AnswerMap } from '@/components/registration/CustomQuestions';
 import { SponsorBand } from '@/components/registration/SponsorBand';
@@ -78,7 +77,6 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
     categoryId: '',
     // Solo entries in a couple tournament.
     gender: '' as '' | 'male' | 'female',
-    ranking: '',
     consentWhatsApp: false,
     website: '', // honeypot: hidden from people, filled by bots
   });
@@ -194,7 +192,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   /**
    * The player fields to submit. A couple sends the male member as the
    * entry's own fields and the female member as `partner`; a solo entry in a
-   * couple tournament adds gender and ranking.
+   * couple tournament adds a gender.
    */
   const entryFields = () => {
     if (coupleEntry) return { ...memberToEntry(male), jerseyName: undefined, partner: memberToEntry(female) };
@@ -206,7 +204,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
       jerseyNumber: form.jerseyNumber ? Number(form.jerseyNumber) : undefined,
       jerseyName: form.jerseyName.trim() || undefined,
       tshirtSize: form.tshirtSize || undefined,
-      ...(coupleFormat ? { gender: form.gender || undefined, ranking: form.ranking.trim() ? Number(form.ranking) : undefined } : {}),
+      ...(coupleFormat ? { gender: form.gender || undefined } : {}),
     };
   };
 
@@ -525,12 +523,6 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
                     <option value="">—</option>
                     <option value="male">Male</option>
                     <option value="female">Female</option>
-                  </NativeSelect>
-                </Field>
-                <Field label="Ranking *" htmlFor="reg-ranking">
-                  <NativeSelect id="reg-ranking" required value={form.ranking} onChange={(e) => patch({ ranking: e.target.value })} className={formInputCls}>
-                    <option value="">—</option>
-                    {RANKING_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
                   </NativeSelect>
                 </Field>
               </>

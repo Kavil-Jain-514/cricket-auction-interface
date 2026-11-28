@@ -438,19 +438,10 @@ export type Partner = {
   battingBowlingHand: "Right-handed" | "Left-handed";
   tshirtSize?: "XS" | "S" | "M" | "L" | "XL" | "XXL" | "3XL" | "4XL";
   jerseyNumber?: number;
-  ranking?: number;
 };
 
 /** The types a couple member picks one of (Allrounder, Bat, Bowl on the form). */
 export const COUPLE_TYPES = ["All-Rounder", "Batter", "Bowler"];
-
-/** Rankings a couple-tournament entry may pick (the forms' dropdown). */
-export const RANKING_OPTIONS = [7, 8, 9, 10] as const;
-
-function rankingError(ranking: number | undefined, label: string): string | null {
-  if (ranking === undefined) return `${label} is required`;
-  return (RANKING_OPTIONS as readonly number[]).includes(ranking) ? null : `${label} must be 7, 8, 9 or 10`;
-}
 
 function coupleTypeError(role: readonly string[] | undefined): string | null {
   if (!role || role.length === 0) return null; // left blank: the required-field rules decide
@@ -461,36 +452,35 @@ function coupleTypeError(role: readonly string[] | undefined): string | null {
  * The tournament-format fields of one entry (registration or player), for
  * every path: submit, approval, players:create and players:update (which
  * passes the merged entry). Standard tournaments take none of them. In a
- * couple tournament every entry has a ranking; a couple entry has a partner
- * (the female member) and one type per member, and a solo entry a gender.
+ * couple tournament a couple entry has a partner (the female member) and one
+ * type per member, and a solo entry a gender. (There is no ranking: the
+ * tournament's categories serve that purpose.)
  * Returns the partner to store, with its phone normalised.
  */
 export function validateEntryFormat(
   tournament: { settings: { format?: "standard" | "couple" } },
   entry: {
     gender?: "male" | "female";
-    ranking?: number;
     partner?: Partner;
     role?: readonly string[];
     phoneNumber?: string;
   },
 ): { ok: true; partner: Partner | undefined } | { ok: false; error: string } {
   const fail = (error: string) => ({ ok: false as const, error });
-  const { gender, ranking, partner } = entry;
+  const { gender, partner } = entry;
   if (tournament.settings.format !== "couple") {
-    return gender === undefined && ranking === undefined && partner === undefined
+    return gender === undefined && partner === undefined
       ? { ok: true, partner: undefined }
       : fail("Couple and solo details are only for couple tournaments");
   }
 
   if (!partner) {
     if (gender === undefined) return fail("Gender is required: choose Male or Female");
-    const error = rankingError(ranking, "Ranking");
-    return error ? fail(error) : { ok: true, partner: undefined };
+    return { ok: true, partner: undefined };
   }
 
   if (gender !== undefined) return fail("A couple entry has no gender: remove the partner to make it a solo entry");
-  const maleError = rankingError(ranking, "Ranking") ?? coupleTypeError(entry.role);
+  const maleError = coupleTypeError(entry.role);
   if (maleError) return fail(maleError);
 
   const male = normalizePhone(entry.phoneNumber);
@@ -503,8 +493,7 @@ export function validateEntryFormat(
     errors[0]?.message ??
     (phoneNumber === undefined ? "Phone number is required" : null) ??
     (male.ok && phoneNumber === male.phone ? "Use a different phone number from the male member" : null) ??
-    coupleTypeError(partner.role) ??
-    rankingError(partner.ranking, "Ranking");
+    coupleTypeError(partner.role);
   if (female) return fail(`Female: ${female}`);
   return { ok: true, partner: { ...partner, phoneNumber } };
 }

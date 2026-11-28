@@ -5,7 +5,6 @@ interface Member {
   role?: string | string[];
   battingBowlingHand?: string;
   age?: number;
-  ranking?: number;
   jerseyNumber?: number;
   tshirtSize?: string;
   phoneNumber?: string;
@@ -27,7 +26,6 @@ function memberParts(m: Member, compact: boolean, showPhone: boolean): string[] 
     coupleTypeLabel(m.role),
     hand,
     m.age ? (compact ? `${m.age}y` : `${m.age} yrs`) : '',
-    m.ranking !== undefined ? `Rk ${m.ranking}` : '',
     compact ? '' : m.jerseyNumber !== undefined ? `#${m.jerseyNumber}` : '',
     compact ? '' : (m.tshirtSize ?? ''),
     showPhone ? (m.phoneNumber ?? '') : '',

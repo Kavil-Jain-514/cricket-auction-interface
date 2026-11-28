@@ -63,8 +63,8 @@ export function RegistrationDetailsModal({ registration: r, labels, free, catego
           </div>
           {!r.partner && r.gender && (
             <div>
-              <span className="text-slate-500">Gender · ranking</span>
-              <p className="font-semibold">{GENDER_LABEL[r.gender]}{r.ranking !== undefined ? ` · Rk ${r.ranking}` : ''}</p>
+              <span className="text-slate-500">Gender</span>
+              <p className="font-semibold">{GENDER_LABEL[r.gender]}</p>
             </div>
           )}
           {categoryName && (
