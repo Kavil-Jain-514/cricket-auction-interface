@@ -313,6 +313,7 @@ describe("public info", () => {
       format: "standard",
       onePerDevice: false,
       fee: 250,
+      coupleFee: 250,
       paymentQrUrl: undefined,
       sponsors: [],
       categories: [],
@@ -360,6 +361,20 @@ describe("tournaments.update — registration settings", () => {
     await expect(
       asOwner.mutation(api.tournaments.update, { id: tournamentId, settings: { ...base, registrationOpen: true, registrationFee: -5 } }),
     ).rejects.toThrow(/fee/);
+  });
+
+  test("the couple fee is saved and validated like the solo fee", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { format: "couple" });
+    const asOwner = t.withIdentity(OWNER);
+    const base = (await t.run((ctx) => ctx.db.get(tournamentId)))!.settings;
+    await asOwner.mutation(api.tournaments.update, { id: tournamentId, settings: { ...base, registrationFee: 300, coupleRegistrationFee: 500 } });
+    expect((await t.run((ctx) => ctx.db.get(tournamentId)))?.settings).toMatchObject({ registrationFee: 300, coupleRegistrationFee: 500 });
+    for (const coupleRegistrationFee of [-5, 10.5, 100_001]) {
+      await expect(
+        asOwner.mutation(api.tournaments.update, { id: tournamentId, settings: { ...base, coupleRegistrationFee } }),
+      ).rejects.toThrow(/fee/);
+    }
   });
 
   test("payment QR: set, cleared with an empty string, must be an https image link", async () => {
@@ -1024,6 +1039,49 @@ describe("couple tournaments", () => {
     await expect(
       t.mutation(api.registrations.submit, { tournamentId, ...couple({ partner: partner({ role: ["Wicket Keeper"] }) }) }),
     ).rejects.toThrow(/Female: Choose one type/);
+  });
+
+  test("couples and solos each pay their own fee", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { format: "couple", registrationFee: 300, coupleRegistrationFee: 500 });
+    expect(await t.query(api.registrations.getPublicInfo, { tournamentId })).toMatchObject({ fee: 300, coupleFee: 500 });
+
+    const pair = await t.mutation(api.registrations.submit, { tournamentId, ...couple() });
+    expect(pair).toMatchObject({ needsPayment: true, fee: 500 });
+    const solo = await t.mutation(api.registrations.submit, {
+      tournamentId,
+      ...entry({ name: "Smriti", phoneNumber: "9000000001", gender: "female", ranking: 8 }),
+    });
+    expect(solo).toMatchObject({ needsPayment: true, fee: 300 });
+    // The couple's order must be for the couple fee.
+    const registrationId = pair.registrationId as Id<"registrations">;
+    await expect(t.mutation(api.registrations.recordOrder, { registrationId, razorpayOrderId: "o1", amount: 30_000 })).rejects.toThrow(/amount/);
+    await t.mutation(api.registrations.recordOrder, { registrationId, razorpayOrderId: "o1", amount: 50_000 });
+  });
+
+  test("solo can be free while couples pay", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { format: "couple", registrationFee: 0, coupleRegistrationFee: 400 });
+    const solo = await t.mutation(api.registrations.submit, {
+      tournamentId,
+      ...entry({ name: "Smriti", phoneNumber: "9000000001", gender: "female", ranking: 8 }),
+    });
+    expect(solo).toMatchObject({ needsPayment: false, fee: 0 });
+    expect(await t.mutation(api.registrations.submit, { tournamentId, ...couple() })).toMatchObject({ needsPayment: true, fee: 400 });
+  });
+
+  test("with no couple fee set, couples pay the solo fee", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { format: "couple", registrationFee: 300 });
+    expect(await t.query(api.registrations.getPublicInfo, { tournamentId })).toMatchObject({ fee: 300, coupleFee: 300 });
+    expect(await t.mutation(api.registrations.submit, { tournamentId, ...couple() })).toMatchObject({ fee: 300 });
+  });
+
+  test("a standard tournament ignores a stored couple fee", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { registrationFee: 300, coupleRegistrationFee: 500 });
+    expect(await t.query(api.registrations.getPublicInfo, { tournamentId })).toMatchObject({ fee: 300, coupleFee: 300 });
+    expect(await t.mutation(api.registrations.submit, { tournamentId, ...entry() })).toMatchObject({ fee: 300 });
   });
 
   test("the public info says which format the tournament uses", async () => {

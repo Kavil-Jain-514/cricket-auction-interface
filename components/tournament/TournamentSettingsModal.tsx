@@ -61,6 +61,7 @@ interface TournamentSettingsModalProps {
       squadRules?: SquadRule[];
       registrationOpen?: boolean;
       registrationFee?: number;
+      coupleRegistrationFee?: number;
       paymentQrUrl?: string;
       format?: TournamentFormat;
     };
@@ -97,6 +98,8 @@ export function TournamentSettingsModal({
     bidTimerSeconds: bidTimerSeconds(currentSettings.settings),
     registrationOpen: currentSettings.settings.registrationOpen ?? false,
     registrationFee: String(currentSettings.settings.registrationFee ?? 0),
+    // Absent = couples pay the solo fee, so start from that.
+    coupleRegistrationFee: String(currentSettings.settings.coupleRegistrationFee ?? currentSettings.settings.registrationFee ?? 0),
     paymentQrUrl: currentSettings.settings.paymentQrUrl ?? '',
     format: currentSettings.settings.format ?? 'standard',
   });
@@ -134,6 +137,11 @@ export function TournamentSettingsModal({
   if (formData.registrationFee.trim() === '' || !Number.isInteger(registrationFee) || registrationFee < 0 || registrationFee > 100000) {
     fieldErrors.registrationFee = 'Enter whole rupees from 0 to 1,00,000';
   }
+  const couple = formData.format === 'couple';
+  const coupleRegistrationFee = Number(formData.coupleRegistrationFee);
+  if (couple && (formData.coupleRegistrationFee.trim() === '' || !Number.isInteger(coupleRegistrationFee) || coupleRegistrationFee < 0 || coupleRegistrationFee > 100000)) {
+    fieldErrors.coupleRegistrationFee = 'Enter whole rupees from 0 to 1,00,000';
+  }
   if (formData.footerText.trim().length > 120) {
     fieldErrors.footerText = 'Keep it to 120 characters or fewer';
   }
@@ -153,7 +161,7 @@ export function TournamentSettingsModal({
     validateSquadRules(nextSquadRules, nextCategories.map((c) => c.id), parsed.maxPlayersPerTeam);
   const generalError = Boolean(fieldErrors.name || fieldErrors.footerText);
   const auctionError = Boolean(fieldErrors.basePurse || fieldErrors.minBidIncrement || fieldErrors.basePrice || fieldErrors.maxPlayersPerTeam);
-  const registrationError = Boolean(fieldErrors.registrationFee) || sponsorsError !== null;
+  const registrationError = Boolean(fieldErrors.registrationFee) || Boolean(fieldErrors.coupleRegistrationFee) || sponsorsError !== null;
   const hasErrors = Object.keys(fieldErrors).length > 0 || rulesError !== null || sponsorsError !== null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -187,6 +195,7 @@ export function TournamentSettingsModal({
     const registrationChanged =
       formData.registrationOpen !== (current.registrationOpen ?? false) ||
       registrationFee !== (current.registrationFee ?? 0) ||
+      (couple && coupleRegistrationFee !== (current.coupleRegistrationFee ?? current.registrationFee ?? 0)) ||
       formData.paymentQrUrl !== (current.paymentQrUrl ?? '');
     const formatChanged = formData.format !== (current.format ?? 'standard');
     // Sponsors aren't settings: sent on their own, only when they changed.
@@ -212,7 +221,12 @@ export function TournamentSettingsModal({
                 ...(orderChanged ? { presentationOrder: rules.presentationOrder } : {}),
                 ...(squadRulesChanged ? { squadRules: nextSquadRules } : {}),
                 ...(formatChanged ? { format: formData.format } : {}),
-                ...(registrationChanged ? { registrationOpen: formData.registrationOpen, registrationFee, paymentQrUrl: formData.paymentQrUrl } : {}),
+                ...(registrationChanged ? {
+                      registrationOpen: formData.registrationOpen,
+                      registrationFee,
+                      ...(couple ? { coupleRegistrationFee } : {}),
+                      paymentQrUrl: formData.paymentQrUrl,
+                    } : {}),
               },
             }
           : {}),
@@ -358,7 +372,12 @@ export function TournamentSettingsModal({
                     <span className="block text-xs text-slate-400">Players sign up at /register/&lt;tournament&gt;; you approve each one under Registrations.</span>
                   </span>
                 </label>
-                <Field label="Registration fee (₹, 0 = free)" htmlFor="registrationFee" error={fieldErrors.registrationFee} hint="Players scan your QR and upload a screenshot, or choose to pay you in person.">
+                {couple && (
+                  <Field label="Couple registration fee (₹, 0 = free)" htmlFor="coupleRegistrationFee" error={fieldErrors.coupleRegistrationFee} hint="A couple registers together and pays this once.">
+                    <AmountInput id="coupleRegistrationFee" value={parseAmount(String(formData.coupleRegistrationFee))} onValueChange={(n) => patch({ coupleRegistrationFee: n === undefined ? '' : String(n) })} className={`${formInputCls} max-w-48`} />
+                  </Field>
+                )}
+                <Field label={couple ? 'Solo registration fee (₹, 0 = free)' : 'Registration fee (₹, 0 = free)'} htmlFor="registrationFee" error={fieldErrors.registrationFee} hint="Players scan your QR and upload a screenshot, or choose to pay you in person.">
                   <AmountInput id="registrationFee" value={parseAmount(String(formData.registrationFee))} onValueChange={(n) => patch({ registrationFee: n === undefined ? '' : String(n) })} className={`${formInputCls} max-w-48`} />
                 </Field>
               </div>
@@ -366,7 +385,7 @@ export function TournamentSettingsModal({
                 <ImageUpload value={formData.paymentQrUrl || undefined} onChange={(url) => patch({ paymentQrUrl: url || '' })} folder="tournaments" aspectRatio="square" />
               </Field>
             </div>
-            {!formData.paymentQrUrl && Number(formData.registrationFee) > 0 && (
+            {!formData.paymentQrUrl && (Number(formData.registrationFee) > 0 || (couple && coupleRegistrationFee > 0)) && (
               <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-300">
                 <QrCode className="h-3.5 w-3.5" /> Add your UPI QR so players can pay when they register.
               </p>

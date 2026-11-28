@@ -104,6 +104,9 @@ export default defineSchema({
       // Public self-registration (/register/<id>). Not locked while live.
       registrationOpen: v.optional(v.boolean()),
       registrationFee: v.optional(v.number()), // rupees; absent or 0 = free
+      // Couple tournaments: the fee for a couple entry (registrationFee is
+      // then the solo fee). Absent = registrationFee. See registrationFeeFor.
+      coupleRegistrationFee: v.optional(v.number()),
       // One registration per browser (the form's random device id). Absent = off.
       oneRegistrationPerDevice: v.optional(v.boolean()),
       // UPI QR the registrant scans to pay the fee; they upload a screenshot.

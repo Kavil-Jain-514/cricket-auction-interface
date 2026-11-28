@@ -251,6 +251,28 @@ describe("registration fee switch", () => {
     expect(logs.filter((l) => l.action === "set_registration_fee")).toHaveLength(2);
   });
 
+  test("couple tournaments set a couple fee next to the solo fee", async () => {
+    const t = convexTest(schema, modules);
+    const fx = await setup(t);
+    await t.run(async (ctx) => {
+      const tournament = (await ctx.db.get(fx.tournamentId))!;
+      await ctx.db.patch(fx.tournamentId, { settings: { ...tournament.settings, format: "couple" } });
+    });
+    const asOwner = t.withIdentity(OWNER);
+    await asOwner.mutation(api.tournaments.setRegistrationFee, { tournamentId: fx.tournamentId, fee: 300, coupleFee: 500 });
+    expect(await t.query(api.registrations.getPublicInfo, { tournamentId: fx.tournamentId })).toMatchObject({ fee: 300, coupleFee: 500 });
+    // Omitting the couple fee keeps it.
+    await asOwner.mutation(api.tournaments.setRegistrationFee, { tournamentId: fx.tournamentId, fee: 250 });
+    expect(await t.query(api.registrations.getPublicInfo, { tournamentId: fx.tournamentId })).toMatchObject({ fee: 250, coupleFee: 500 });
+    await expect(
+      asOwner.mutation(api.tournaments.setRegistrationFee, { tournamentId: fx.tournamentId, fee: 250, coupleFee: 10.5 }),
+    ).rejects.toThrow(/fee/);
+    const logs = await t.run((ctx) => ctx.db.query("auditLogs").collect());
+    expect(logs.filter((l) => l.action === "set_registration_fee").at(0)).toMatchObject({
+      newData: { registrationFee: 300, coupleRegistrationFee: 500 },
+    });
+  });
+
   test("a fee must be whole rupees and not negative", async () => {
     const t = convexTest(schema, modules);
     const fx = await setup(t);
@@ -322,6 +344,7 @@ describe("registration summary (tournament page badge)", () => {
       ready: 2,
       awaitingPayment: 1,
       fee: 200,
+      coupleFee: 200,
     });
     await expect(t.withIdentity(OUTSIDER).query(api.registrations.summary, { tournamentId: fx.tournamentId })).rejects.toThrow(NO_ACCESS);
   });

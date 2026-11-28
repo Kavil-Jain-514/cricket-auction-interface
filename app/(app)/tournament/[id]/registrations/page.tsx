@@ -93,8 +93,10 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
 
   const fee = tournament?.settings.registrationFee ?? 0;
   const couple = tournament?.settings.format === 'couple';
+  // Couple tournaments: a couple entry's fee (absent = the solo fee).
+  const coupleFee = couple ? (tournament?.settings.coupleRegistrationFee ?? fee) : fee;
   // Simple mode: a free tournament with no unpaid entries left from when it charged.
-  const free = fee === 0 && !(rows ?? []).some((r) => r.status === 'pending_payment');
+  const free = fee === 0 && coupleFee === 0 && !(rows ?? []).some((r) => r.status === 'pending_payment');
   const filters = free ? FREE_FILTERS : FILTERS;
   const sorted = useMemo(() => sortByRegistered(rows ?? [], order), [rows, order]);
   const shown = useMemo(() => sorted.filter((r) => filter === 'all' || r.status === filter), [sorted, filter]);
@@ -180,7 +182,9 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
             <h1 className="text-2xl sm:text-3xl font-bold">Registrations</h1>
             <p className="text-sm text-slate-400">
               Registration is {tournament?.settings.registrationOpen ? 'open' : 'closed'}
-              {fee ? ` · fee ${formatRupees(fee)}` : ' · free'}.
+              {couple && (fee || coupleFee)
+                ? ` · couple ${coupleFee ? formatRupees(coupleFee) : 'free'}, solo ${fee ? formatRupees(fee) : 'free'}`
+                : fee ? ` · fee ${formatRupees(fee)}` : ' · free'}.
               {canManage && (
                 <>
                   {' '}
