@@ -55,19 +55,20 @@ describe("buildTeamPdfPlayers", () => {
 });
 
 describe("buildTeamPdfPlayers — couple tournaments", () => {
-  const partner = { phoneNumber: "9123456780", age: 30, role: ["Bowler"], battingBowlingHand: "Left-handed" as const, jerseyNumber: 9, tshirtSize: "M" as const, ranking: 4 };
-  const couple: PdfSourcePlayer = { ...sold, _id: "c", name: "Rohit & Ritika", ranking: 1, partner };
-  const solo: PdfSourcePlayer = { ...sold, _id: "s", name: "Smriti", gender: "female", ranking: 2 };
+  const partner = { phoneNumber: "9123456780", age: 30, role: ["Bowler"], battingBowlingHand: "Left-handed" as const, jerseyNumber: 9, tshirtSize: "M" as const };
+  const couple: PdfSourcePlayer = { ...sold, _id: "c", name: "Rohit & Ritika", partner };
+  const solo: PdfSourcePlayer = { ...sold, _id: "s", name: "Smriti", gender: "female" };
 
-  test("rows carry gender, ranking and the female member", () => {
+  test("rows carry gender and the female member", () => {
     const rows = buildTeamPdfPlayers(team, [couple, solo], { couple: true });
     expect(rows[0]).toMatchObject({
       name: "Rohit & Ritika",
       gender: "Male",
-      ranking: 1,
-      partner: { age: 30, phoneNumber: "9123456780", jerseyNumber: 9, tshirtSize: "M", battingBowlingHand: "Left-handed", gender: "Female", ranking: 4 },
+      partner: { age: 30, phoneNumber: "9123456780", jerseyNumber: 9, tshirtSize: "M", battingBowlingHand: "Left-handed", gender: "Female" },
     });
-    expect(rows[1]).toMatchObject({ gender: "Female", ranking: 2 });
+    expect(rows[0]).not.toHaveProperty("ranking");
+    expect(rows[0].partner).not.toHaveProperty("ranking");
+    expect(rows[1]).toMatchObject({ gender: "Female" });
     expect(rows[1]).not.toHaveProperty("partner");
   });
 

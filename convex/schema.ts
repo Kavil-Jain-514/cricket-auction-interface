@@ -4,7 +4,7 @@ import {
   categoryValidator,
   genderValidator,
   incrementSlabValidator,
-  partnerValidator,
+  storedPartnerValidator,
   planTierValidator,
   planValidator,
   presentationOrderValidator,
@@ -292,10 +292,10 @@ export default defineSchema({
     // earlier entries. Absent for entries from before it existed.
     deviceId: v.optional(v.string()),
     // Couple tournaments only (validation.ts validateEntryFormat): a solo
-    // entry's gender, the (male) member's ranking, and the female member.
+    // entry's gender and the female member.
     gender: genderValidator,
-    ranking: v.optional(v.number()),
-    partner: v.optional(partnerValidator),
+    ranking: v.optional(v.number()), // legacy: no longer collected or shown (see storedPartnerValidator)
+    partner: v.optional(storedPartnerValidator),
     createdAt: v.number(),
     reviewedAt: v.optional(v.number()),
   })
@@ -680,10 +680,10 @@ export default defineSchema({
     // = added by the organiser (who is responsible for consent).
     consentWhatsApp: v.optional(v.boolean()),
     // Couple tournaments only (validation.ts validateEntryFormat): a solo
-    // entry's gender, the (male) member's ranking, and the female member.
+    // entry's gender and the female member.
     gender: genderValidator,
-    ranking: v.optional(v.number()),
-    partner: v.optional(partnerValidator),
+    ranking: v.optional(v.number()), // legacy: no longer collected or shown (see storedPartnerValidator)
+    partner: v.optional(storedPartnerValidator),
     playerNumber: v.optional(v.number()), // Auto-incremented player number starting from 1
     basePrice: v.optional(v.number()), // Starting bid price, if undefined inherits from the category, then the tournament
     categoryId: v.optional(v.string()), // tournaments.settings.categories[].id

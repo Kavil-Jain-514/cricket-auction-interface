@@ -72,7 +72,8 @@ export const genderValidator = v.optional(v.union(v.literal("male"), v.literal("
  * The female member of a couple entry. The male member is the row's own
  * fields, so the auction treats a couple as one player.
  */
-export const partnerValidator = v.object({
+/** The female member as stored (schema). */
+export const storedPartnerValidator = v.object({
   // Normalised 10 digits, private like the row's own phone. Always present on
   // stored entries (validateEntryFormat requires it); optional so the public
   // projection without it (toPublicPlayer) still has the document's type.
@@ -82,5 +83,10 @@ export const partnerValidator = v.object({
   battingBowlingHand: v.union(v.literal("Right-handed"), v.literal("Left-handed")),
   tshirtSize: v.optional(tshirtSizeValidator),
   jerseyNumber: v.optional(v.number()),
+  // Legacy: couple tournaments used to ask for a ranking (categories do that
+  // job now). Kept so older documents stay valid; nothing writes or shows it.
   ranking: v.optional(v.number()),
 });
+
+/** The female member as the forms send it: no ranking. */
+export const partnerValidator = storedPartnerValidator.omit("ranking");

@@ -258,7 +258,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                 <div className="text-xs text-slate-400">
                   {(r.partner
                     ? []
-                    : [getRoleDisplay(r.role), r.age ? `${r.age} yrs` : '', r.phoneNumber, r.gender ? GENDER_LABEL[r.gender] : '', r.ranking !== undefined ? `Rk ${r.ranking}` : '']
+                    : [getRoleDisplay(r.role), r.age ? `${r.age} yrs` : '', r.phoneNumber, r.gender ? GENDER_LABEL[r.gender] : '']
                   ).filter(Boolean).join(' · ')}
                   {r.consentWhatsApp ? ' · WhatsApp OK' : ''}
                   {!free && r.paymentMethod ? ` · ${PAYMENT_LABEL[r.paymentMethod]}` : ''}
