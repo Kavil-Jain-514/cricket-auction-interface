@@ -17,7 +17,16 @@ import { insertValidatedPlayer } from "./players";
 import { normalizePhone, registrationFeeFor, validateEntryFormat, validatePlayerFields } from "./validation";
 import { cloudinarySignature } from "./cloudinarySignature";
 import { cloudinaryPublicId, isOurUpload, ourCloudName } from "./uploads";
-import { answersValidator, missingPartnerField, missingRequiredField, resolveRequiredFields, validateAnswers } from "./registrationForm";
+import {
+  answersValidator,
+  dropHiddenValues,
+  missingPartnerField,
+  missingRequiredField,
+  resolveHiddenFields,
+  resolveRequiredFields,
+  validateAnswers,
+  withoutHidden,
+} from "./registrationForm";
 import { genderValidator, partnerValidator } from "./ruleValidators";
 import { customQuestionsEnabled, latestFormVersion } from "./registrationForms";
 import { enqueueRegistrationNotification } from "./notifications";
@@ -94,8 +103,10 @@ export const getPublicInfo = query({
     const form = customQuestionsEnabled() ? latest : null;
     return {
       form: form ? { version: form.version, questions: form.questions.filter((q) => !q.archived) } : null,
-      // Which standard details are required; the custom-question switch doesn't touch these.
-      requiredFields: resolveRequiredFields(latest?.requiredFields),
+      // Which standard details are required, and which were removed from the
+      // form (never required); the custom-question switch doesn't touch these.
+      requiredFields: withoutHidden(resolveRequiredFields(latest?.requiredFields), resolveHiddenFields(latest?.hiddenFields)),
+      hiddenFields: resolveHiddenFields(latest?.hiddenFields),
       name: tournament.name,
       description: tournament.description,
       logoUrl: tournament.logoUrl,
@@ -276,7 +287,23 @@ export const submit = mutation({
       throw new ConvexError("Too many registrations right now. Try again in a minute.");
     }
 
-    const { website: _honeypot, consentWhatsApp, tournamentId, categoryId, answers: rawAnswers, deviceId, partner: rawPartner, ...fields } = args;
+    // Fields the organiser removed from the form are dropped before anything
+    // else looks at them, so an out-of-date form can't store them.
+    const latestForm = await latestFormVersion(ctx, args.tournamentId);
+    const hidden = resolveHiddenFields(latestForm?.hiddenFields);
+    const {
+      website: _honeypot,
+      consentWhatsApp,
+      tournamentId,
+      categoryId: sentCategoryId,
+      answers: rawAnswers,
+      deviceId,
+      partner: sentPartner,
+      ...sentFields
+    } = args;
+    const fields = dropHiddenValues(hidden, sentFields);
+    const categoryId = hidden.includes("category") ? undefined : sentCategoryId;
+    const rawPartner = sentPartner && dropHiddenValues(hidden, sentPartner);
     if (deviceId !== undefined && !DEVICE_ID.test(deviceId)) throw new ConvexError(RELOAD);
     const onePerDevice = tournament.settings.oneRegistrationPerDevice === true;
     if (onePerDevice && deviceId === undefined) throw new ConvexError(RELOAD);
@@ -286,7 +313,7 @@ export const submit = mutation({
     const format = validateEntryFormat(tournament, { ...fields, partner: rawPartner });
     if (!format.ok) throw new ConvexError(format.error);
     const partner = format.partner;
-    const required = resolveRequiredFields((await latestFormVersion(ctx, tournamentId))?.requiredFields);
+    const required = withoutHidden(resolveRequiredFields(latestForm?.requiredFields), hidden);
     // The same toggles apply to both members of a couple; couples have no
     // name on the jersey.
     const missing =

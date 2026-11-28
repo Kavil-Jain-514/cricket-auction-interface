@@ -320,6 +320,7 @@ describe("public info", () => {
       form: null,
       // Defaults: the standard details the original form required.
       requiredFields: { photo: false, age: true, role: true, category: false, tshirtSize: false, jerseyNumber: false, jerseyName: false },
+      hiddenFields: [],
     });
   });
 
@@ -400,6 +401,19 @@ describe("tournaments.update — registration settings", () => {
       asOwner.mutation(api.tournaments.update, { id: tournamentId, sponsors: Array.from({ length: 13 }, (_, i) => ({ name: `S${i}` })) }),
     ).rejects.toThrow(/12/);
     await expect(asOwner.mutation(api.tournaments.update, { id: tournamentId, sponsors: [{ name: "X", logoUrl: "http://x" }] })).rejects.toThrow(/logo/);
+  });
+
+  test("sponsors: an optional type, trimmed; blank is dropped; capped at 40", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t);
+    const asOwner = t.withIdentity(OWNER);
+    await asOwner.mutation(api.tournaments.update, {
+      id: tournamentId,
+      sponsors: [{ name: "Acme", type: "  Title Sponsor " }, { name: "Bolt", type: "   " }],
+    });
+    expect((await t.run((ctx) => ctx.db.get(tournamentId)))?.sponsors).toEqual([{ name: "Acme", type: "Title Sponsor" }, { name: "Bolt" }]);
+    expect((await t.query(api.registrations.getPublicInfo, { tournamentId }))?.sponsors).toEqual([{ name: "Acme", type: "Title Sponsor" }, { name: "Bolt" }]);
+    await expect(asOwner.mutation(api.tournaments.update, { id: tournamentId, sponsors: [{ name: "X", type: "x".repeat(41) }] })).rejects.toThrow(/type/i);
   });
 });
 
@@ -1039,6 +1053,24 @@ describe("couple tournaments", () => {
     await expect(
       t.mutation(api.registrations.submit, { tournamentId, ...couple({ partner: partner({ role: ["Wicket Keeper"] }) }) }),
     ).rejects.toThrow(/Female: Choose one type/);
+  });
+
+  test("a removed field is dropped for both members of a couple", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await setup(t, { format: "couple" });
+    await t.withIdentity(OWNER).mutation(api.registrationForms.save, {
+      tournamentId,
+      questions: [],
+      hiddenFields: ["age", "tshirtSize"],
+      expectedVersion: 0,
+    });
+    await t.mutation(api.registrations.submit, { tournamentId, ...couple({ tshirtSize: "M", partner: partner({ tshirtSize: "S" }) }) });
+    const [reg] = await registrations(t);
+    expect(reg).not.toHaveProperty("age");
+    expect(reg).not.toHaveProperty("tshirtSize");
+    expect(reg.partner).not.toHaveProperty("age");
+    expect(reg.partner).not.toHaveProperty("tshirtSize");
+    expect(reg.partner).toMatchObject({ ranking: 9, role: ["Bowler"] });
   });
 
   test("couples and solos each pay their own fee", async () => {

@@ -6,11 +6,13 @@ import { SponsorBand } from "./SponsorBand";
 const LOGO = "https://res.cloudinary.com/demo/image/upload/acme.png";
 
 describe("SponsorBand", () => {
-  test("shows each sponsor's name above its logo, with the name as alt and title", () => {
-    const html = renderToString(<SponsorBand sponsors={[{ name: "Acme Steel", logoUrl: LOGO }]} />);
+  test("shows the sponsor type above the logo and the name below it, with the name as alt and title", () => {
+    const html = renderToString(<SponsorBand sponsors={[{ name: "Acme Steel", type: "Title Sponsor", logoUrl: LOGO }]} />);
+    const type = html.indexOf(">Title Sponsor</");
     const caption = html.indexOf(">Acme Steel</");
-    expect(caption).toBeGreaterThan(-1);
-    expect(caption).toBeLessThan(html.indexOf("<img"));
+    expect(type).toBeGreaterThan(-1);
+    expect(type).toBeLessThan(html.indexOf("<img"));
+    expect(caption).toBeGreaterThan(html.indexOf("<img"));
     expect(html).toContain('title="Acme Steel"');
     expect(html).toContain('alt="Acme Steel logo"');
   });
@@ -34,6 +36,12 @@ describe("SponsorBand", () => {
     expect(html).not.toContain("undefined");
     expect(html).not.toContain("<p");
     expect(html).toContain('alt="Sponsor logo"');
+  });
+
+  test("no type: nothing above the logo, and never 'undefined'", () => {
+    const html = renderToString(<SponsorBand sponsors={[{ name: "Acme Steel", logoUrl: LOGO }]} />);
+    expect(html).not.toContain("undefined");
+    expect(html.indexOf("<p")).toBeGreaterThan(html.indexOf("<img"));
   });
 
   test("renders nothing without sponsors", () => {

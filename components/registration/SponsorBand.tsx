@@ -1,7 +1,7 @@
 import { ImgWithFallback } from '@/components/ui/img-with-fallback';
 import { optimizeImageUrl } from '@/lib/utils';
 
-type Sponsor = { name: string; logoUrl?: string };
+type Sponsor = { name: string; type?: string; logoUrl?: string };
 
 /** Cloudinary widths for 1x / 2x / 3x screens; other hosts are used as-is. */
 function logoSrcSet(url: string): string | undefined {
@@ -20,8 +20,9 @@ function monogram(name: string): string {
 }
 
 /**
- * Sponsors on the public registration form, large: each sponsor's name sits
- * above its tile (one line, the full name in the tooltip), and tiles are 96px
+ * Sponsors on the public registration form, large: each sponsor's type
+ * ("Title Sponsor") sits above its tile and its name below (one line each,
+ * the full text in the tooltip), and tiles are 96px
  * tall on phones and 144px from sm up, logos contained (never stretched) on a
  * light tile so dark and transparent logos both read. Phones get one
  * swipeable row so the form stays near the top; wider screens get a wrapping
@@ -39,11 +40,12 @@ export function SponsorBand({ sponsors }: { sponsors: Sponsor[] }) {
       <ul className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:thin] sm:mx-0 sm:grid sm:grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] sm:overflow-visible sm:px-0">
         {sponsors.map((s, i) => {
           const name = s.name.trim();
+          const type = s.type?.trim();
           return (
             <li key={`${i}-${name}`} className="w-40 shrink-0 snap-start sm:w-auto">
-              {name && (
-                <p title={name} className="mb-1.5 truncate px-1 text-center text-xs font-semibold text-slate-200 sm:text-sm">
-                  {name}
+              {type && (
+                <p title={type} className="mb-1.5 truncate px-1 text-center text-[11px] font-semibold uppercase tracking-wider text-blue-300 sm:text-xs">
+                  {type}
                 </p>
               )}
               <div className="flex h-24 items-center justify-center rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5 sm:h-36 sm:p-4">
@@ -58,6 +60,11 @@ export function SponsorBand({ sponsors }: { sponsors: Sponsor[] }) {
                   fallback={<span aria-hidden className="font-head text-3xl font-bold text-slate-400 sm:text-4xl">{monogram(name)}</span>}
                 />
               </div>
+              {name && (
+                <p title={name} className="mt-1.5 truncate px-1 text-center text-xs font-semibold text-slate-200 sm:text-sm">
+                  {name}
+                </p>
+              )}
             </li>
           );
         })}

@@ -30,6 +30,8 @@ export const squadRuleValidator = v.object({
 
 export const sponsorValidator = v.object({
   name: v.string(),
+  // e.g. "Title Sponsor"; shown above the logo on the registration form.
+  type: v.optional(v.string()),
   logoUrl: v.optional(v.string()),
 });
 

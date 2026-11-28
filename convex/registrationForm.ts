@@ -92,6 +92,46 @@ export const requiredFieldsValidator = v.object({
   jerseyName: v.optional(v.boolean()),
 });
 
+/**
+ * Standard details the organiser removed from the form: not shown, never
+ * required, and any value sent for them is dropped (dropHiddenValues).
+ * Absent = none removed.
+ */
+export const hiddenFieldsValidator = v.array(v.union(...STANDARD_FIELDS.map((f) => v.literal(f))));
+
+/** Stored removed fields, deduplicated, in the form's order. */
+export function resolveHiddenFields(stored: readonly StandardField[] | undefined): StandardField[] {
+  return STANDARD_FIELDS.filter((f) => stored?.includes(f));
+}
+
+/** The rules with every removed field made optional. */
+export function withoutHidden(required: RequiredFields, hidden: readonly StandardField[]): RequiredFields {
+  return Object.fromEntries(STANDARD_FIELDS.map((f) => [f, required[f] && !hidden.includes(f)])) as RequiredFields;
+}
+
+/** Where each standard field's value lives on an entry (or a couple's partner). */
+const VALUE_KEY: Record<StandardField, string> = {
+  photo: "photoUrl",
+  age: "age",
+  role: "role",
+  category: "categoryId",
+  tshirtSize: "tshirtSize",
+  jerseyNumber: "jerseyNumber",
+  jerseyName: "jerseyName",
+};
+
+/** The entry without the removed fields' values; a removed role becomes []. */
+export function dropHiddenValues<T extends object>(hidden: readonly StandardField[], values: T): T {
+  const out = { ...values } as Record<string, unknown>;
+  for (const field of hidden) {
+    const key = VALUE_KEY[field];
+    if (!(key in out)) continue;
+    if (field === "role") out[key] = [];
+    else delete out[key];
+  }
+  return out as T;
+}
+
 /** Stored (partial) rules with the defaults filled in, keys in a fixed order. */
 export function resolveRequiredFields(stored: Partial<RequiredFields> | undefined): RequiredFields {
   return Object.fromEntries(STANDARD_FIELDS.map((f) => [f, stored?.[f] ?? DEFAULT_REQUIRED_FIELDS[f]])) as RequiredFields;

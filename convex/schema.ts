@@ -12,7 +12,7 @@ import {
   squadRuleValidator,
   tournamentFormatValidator,
 } from "./ruleValidators";
-import { answersValidator, questionValidator, requiredFieldsValidator } from "./registrationForm";
+import { answersValidator, hiddenFieldsValidator, questionValidator, requiredFieldsValidator } from "./registrationForm";
 import { staffRoleValidator } from "./staffRoles";
 
 export default defineSchema({
@@ -316,6 +316,8 @@ export default defineSchema({
     // Which standard player details are required (registrationForm.ts);
     // absent keys use DEFAULT_REQUIRED_FIELDS.
     requiredFields: v.optional(requiredFieldsValidator),
+    // Standard details removed from the form (registrationForm.ts). Absent = none.
+    hiddenFields: v.optional(hiddenFieldsValidator),
     createdBy: v.id("users"),
     createdAt: v.number(),
   }).index("by_tournament_version", ["tournamentId", "version"]),

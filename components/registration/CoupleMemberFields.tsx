@@ -69,10 +69,12 @@ interface CoupleMemberFieldsProps {
   onChange: (patch: Partial<MemberValues>) => void;
   /** Which fields the organiser requires (adds " *"); ranking is always required. */
   required?: { age?: boolean; role?: boolean; tshirtSize?: boolean; jerseyNumber?: boolean };
+  /** Fields the organiser removed from the form (not shown). */
+  hidden?: { age?: boolean; role?: boolean; tshirtSize?: boolean; jerseyNumber?: boolean };
 }
 
 /** Phone, age, type, hand, jersey size and number, and ranking for one member of a couple. */
-export function CoupleMemberFields({ title, idPrefix, value, onChange, required = {} }: CoupleMemberFieldsProps) {
+export function CoupleMemberFields({ title, idPrefix, value, onChange, required = {}, hidden = {} }: CoupleMemberFieldsProps) {
   const label = (text: string, on?: boolean) => (on ? `${text} *` : text);
   const id = (field: string) => `${idPrefix}-${field}`;
 
@@ -83,11 +85,14 @@ export function CoupleMemberFields({ title, idPrefix, value, onChange, required 
         <Field label="Phone Number (CricHeroes) *" htmlFor={id('phone')}>
           <Input id={id('phone')} required inputMode="tel" value={value.phoneNumber} onChange={(e) => onChange({ phoneNumber: e.target.value })} placeholder="98765 43210" className={formInputCls} />
         </Field>
-        <Field label={label('Age', required.age)} htmlFor={id('age')}>
-          <Input id={id('age')} required={required.age} type="number" min="5" max="80" value={value.age} onChange={(e) => onChange({ age: e.target.value })} className={formInputCls} />
-        </Field>
+        {!hidden.age && (
+          <Field label={label('Age', required.age)} htmlFor={id('age')}>
+            <Input id={id('age')} required={required.age} type="number" min="5" max="80" value={value.age} onChange={(e) => onChange({ age: e.target.value })} className={formInputCls} />
+          </Field>
+        )}
       </div>
 
+      {!hidden.role && (
       <div role="group" aria-label={`${title} type`}>
         <span className="text-sm font-medium text-slate-300">{label('Type', required.role)}</span>
         <div className="mt-1.5 grid grid-cols-3 gap-2">
@@ -111,6 +116,7 @@ export function CoupleMemberFields({ title, idPrefix, value, onChange, required 
           })}
         </div>
       </div>
+      )}
 
       <div role="group" aria-label={`${title} batting / bowling hand`} className="grid grid-cols-2 gap-1 rounded-lg border border-slate-700 bg-slate-800/60 p-1">
         {(['Right-handed', 'Left-handed'] as const).map((hand) => (
@@ -127,15 +133,19 @@ export function CoupleMemberFields({ title, idPrefix, value, onChange, required 
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        <Field label={label('Jersey size', required.tshirtSize)} htmlFor={id('size')}>
-          <NativeSelect id={id('size')} required={required.tshirtSize} value={value.tshirtSize} onChange={(e) => onChange({ tshirtSize: e.target.value as MemberValues['tshirtSize'] })} className={formInputCls}>
-            <option value="">—</option>
-            {PLAYER_TSHIRT_SIZES.map((s) => <option key={s}>{s}</option>)}
-          </NativeSelect>
-        </Field>
-        <Field label={label('Jersey #', required.jerseyNumber)} htmlFor={id('jersey')}>
-          <Input id={id('jersey')} required={required.jerseyNumber} type="number" min="1" max="99" value={value.jerseyNumber} onChange={(e) => onChange({ jerseyNumber: e.target.value })} className={formInputCls} />
-        </Field>
+        {!hidden.tshirtSize && (
+          <Field label={label('Jersey size', required.tshirtSize)} htmlFor={id('size')}>
+            <NativeSelect id={id('size')} required={required.tshirtSize} value={value.tshirtSize} onChange={(e) => onChange({ tshirtSize: e.target.value as MemberValues['tshirtSize'] })} className={formInputCls}>
+              <option value="">—</option>
+              {PLAYER_TSHIRT_SIZES.map((s) => <option key={s}>{s}</option>)}
+            </NativeSelect>
+          </Field>
+        )}
+        {!hidden.jerseyNumber && (
+          <Field label={label('Jersey #', required.jerseyNumber)} htmlFor={id('jersey')}>
+            <Input id={id('jersey')} required={required.jerseyNumber} type="number" min="1" max="99" value={value.jerseyNumber} onChange={(e) => onChange({ jerseyNumber: e.target.value })} className={formInputCls} />
+          </Field>
+        )}
         <Field label="Ranking *" htmlFor={id('ranking')}>
           <NativeSelect id={id('ranking')} required value={value.ranking} onChange={(e) => onChange({ ranking: e.target.value })} className={formInputCls}>
             <option value="">—</option>
