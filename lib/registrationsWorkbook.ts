@@ -32,7 +32,7 @@ export interface RegistrationRow extends CoupleFields {
 /**
  * Header plus one row per registration. Every question ever answered gets a
  * column (current ones first, archived after), so old answers aren't lost.
- * Couple tournaments add the entry and female-member columns after
+ * Couple tournaments add the entry, ranking and female-member columns after
  * Hand; standard sheets are unchanged.
  */
 export function buildRegistrationRows(

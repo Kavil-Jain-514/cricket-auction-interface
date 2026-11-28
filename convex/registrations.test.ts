@@ -950,9 +950,10 @@ describe("couple tournaments", () => {
     age: 22,
     role: ["Bowler"],
     battingBowlingHand: "Left-handed" as const,
+    ranking: 9,
     ...over,
   });
-  const couple = (over: Record<string, unknown> = {}) => entry({ name: "Ravi & Priya", partner: partner(), ...over });
+  const couple = (over: Record<string, unknown> = {}) => entry({ name: "Ravi & Priya", ranking: 8, partner: partner(), ...over });
 
   test("a couple registers together and is approved as one player with a partner", async () => {
     const t = convexTest(schema, modules);
@@ -962,15 +963,14 @@ describe("couple tournaments", () => {
     const playerId = await t.withIdentity(OWNER).mutation(api.registrations.approve, { registrationId: res.registrationId as Id<"registrations"> });
     const players = await t.run((ctx) => ctx.db.query("players").collect());
     expect(players).toHaveLength(1);
-    expect(players[0]).toMatchObject({ _id: playerId, name: "Ravi & Priya", partner: partner() });
+    expect(players[0]).toMatchObject({ _id: playerId, name: "Ravi & Priya", ranking: 8, partner: partner() });
     expect(players[0].gender).toBeUndefined();
-    expect(players[0]).not.toHaveProperty("ranking");
   });
 
   test("couple fields are refused in a standard tournament", async () => {
     const t = convexTest(schema, modules);
     const { tournamentId } = await setup(t);
-    for (const extra of [{ partner: partner() }, { gender: "male" }]) {
+    for (const extra of [{ partner: partner() }, { gender: "male" }, { ranking: 1 }]) {
       await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry(extra) })).rejects.toThrow(/couple tournaments/);
     }
     expect(await registrations(t)).toHaveLength(0);
@@ -979,31 +979,26 @@ describe("couple tournaments", () => {
   test("a solo entry needs a gender, and has no partner", async () => {
     const t = convexTest(schema, modules);
     const { tournamentId } = await setup(t, { format: "couple" });
-    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({}) })).rejects.toThrow(/gender/i);
-    const res = await t.mutation(api.registrations.submit, { tournamentId, ...entry({ gender: "female" }) });
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({ ranking: 10 }) })).rejects.toThrow(/gender/i);
+    const res = await t.mutation(api.registrations.submit, { tournamentId, ...entry({ gender: "female", ranking: 10 }) });
     const playerId = await t.withIdentity(OWNER).mutation(api.registrations.approve, { registrationId: res.registrationId as Id<"registrations"> });
     const player = await t.run((ctx) => ctx.db.get(playerId));
-    expect(player).toMatchObject({ gender: "female" });
+    expect(player).toMatchObject({ gender: "female", ranking: 10 });
     expect(player?.partner).toBeUndefined();
   });
 
-  test("there is no ranking: entries register without one, and one sent is refused", async () => {
+  test("ranking is required, and a couple entry can't also set a gender", async () => {
     const t = convexTest(schema, modules);
     const { tournamentId } = await setup(t, { format: "couple" });
-    expect(await t.mutation(api.registrations.submit, { tournamentId, ...entry({ gender: "male" }) })).toMatchObject({ success: true });
-    await expect(t.mutation(api.registrations.submit, { tournamentId, ...couple({ ranking: 8 }) })).rejects.toThrow(/ranking/);
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...entry({ gender: "male" }) })).rejects.toThrow(/Ranking is required/);
+    await expect(t.mutation(api.registrations.submit, { tournamentId, ...couple({ ranking: undefined }) })).rejects.toThrow(/Ranking is required/);
     await expect(
-      t.mutation(api.registrations.submit, { tournamentId, ...couple({ phoneNumber: "9000000002", partner: partner({ ranking: 9 }) }) }),
-    ).rejects.toThrow(/ranking/);
-  });
-
-  test("a couple entry can't also set a gender", async () => {
-    const t = convexTest(schema, modules);
-    const { tournamentId } = await setup(t, { format: "couple" });
+      t.mutation(api.registrations.submit, { tournamentId, ...couple({ partner: partner({ ranking: undefined }) }) }),
+    ).rejects.toThrow(/Female: Ranking is required/);
     await expect(t.mutation(api.registrations.submit, { tournamentId, ...couple({ gender: "male" }) })).rejects.toThrow(/gender/i);
   });
 
-  test("the female member's phone, age and jersey number are validated", async () => {
+  test("the female member's phone, age, jersey number and ranking are validated", async () => {
     const t = convexTest(schema, modules);
     const { tournamentId } = await setup(t, { format: "couple" });
     for (const [bad, error] of [
@@ -1012,11 +1007,16 @@ describe("couple tournaments", () => {
       [{ partner: partner({ phoneNumber: "123" }) }, /Female: Phone number must be 10 digits/],
       [{ partner: partner({ age: 2 }) }, /Female: Age/],
       [{ partner: partner({ jerseyNumber: 100 }) }, /Female: Jersey number/],
+      [{ partner: partner({ ranking: 6 }) }, /Female: Ranking must be 7, 8, 9 or 10/],
+      [{ partner: partner({ ranking: 11 }) }, /Female: Ranking must be 7, 8, 9 or 10/],
+      [{ partner: partner({ ranking: 7.5 }) }, /Female: Ranking must be 7, 8, 9 or 10/],
+      [{ ranking: 1 }, /Ranking must be 7, 8, 9 or 10/],
     ] as const) {
       await expect(t.mutation(api.registrations.submit, { tournamentId, ...couple(bad) })).rejects.toThrow(error);
     }
     expect(await registrations(t)).toHaveLength(0);
-    const ok = await t.mutation(api.registrations.submit, { tournamentId, ...couple() });
+    // Both ends of the range are fine.
+    const ok = await t.mutation(api.registrations.submit, { tournamentId, ...couple({ ranking: 7, partner: partner({ ranking: 10 }) }) });
     expect(ok).toMatchObject({ success: true });
   });
 
@@ -1070,7 +1070,7 @@ describe("couple tournaments", () => {
     expect(reg).not.toHaveProperty("tshirtSize");
     expect(reg.partner).not.toHaveProperty("age");
     expect(reg.partner).not.toHaveProperty("tshirtSize");
-    expect(reg.partner).toMatchObject({ role: ["Bowler"] });
+    expect(reg.partner).toMatchObject({ ranking: 9, role: ["Bowler"] });
   });
 
   test("couples and solos each pay their own fee", async () => {
@@ -1082,7 +1082,7 @@ describe("couple tournaments", () => {
     expect(pair).toMatchObject({ needsPayment: true, fee: 500 });
     const solo = await t.mutation(api.registrations.submit, {
       tournamentId,
-      ...entry({ name: "Smriti", phoneNumber: "9000000001", gender: "female" }),
+      ...entry({ name: "Smriti", phoneNumber: "9000000001", gender: "female", ranking: 8 }),
     });
     expect(solo).toMatchObject({ needsPayment: true, fee: 300 });
     // The couple's order must be for the couple fee.
@@ -1096,7 +1096,7 @@ describe("couple tournaments", () => {
     const { tournamentId } = await setup(t, { format: "couple", registrationFee: 0, coupleRegistrationFee: 400 });
     const solo = await t.mutation(api.registrations.submit, {
       tournamentId,
-      ...entry({ name: "Smriti", phoneNumber: "9000000001", gender: "female" }),
+      ...entry({ name: "Smriti", phoneNumber: "9000000001", gender: "female", ranking: 8 }),
     });
     expect(solo).toMatchObject({ needsPayment: false, fee: 0 });
     expect(await t.mutation(api.registrations.submit, { tournamentId, ...couple() })).toMatchObject({ needsPayment: true, fee: 400 });

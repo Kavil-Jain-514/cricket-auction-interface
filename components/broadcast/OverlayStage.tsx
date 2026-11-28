@@ -32,8 +32,9 @@ export interface OverlayPlayer {
   playerNumber?: number;
   age?: number;
   battingBowlingHand?: string;
+  ranking?: number;
   /** A couple's female member (couple tournaments); the fields above are the male member. */
-  partner?: { role?: string[]; age?: number; battingBowlingHand?: string };
+  partner?: { role?: string[]; age?: number; battingBowlingHand?: string; ranking?: number };
 }
 
 export interface OverlaySponsor {

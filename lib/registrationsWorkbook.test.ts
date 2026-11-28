@@ -61,27 +61,27 @@ describe("sortByRegistered", () => {
 });
 
 describe("buildRegistrationRows — couple tournaments", () => {
-  const partner = { phoneNumber: "9123456780", age: 22, role: ["Bowler"], battingBowlingHand: "Left-handed" as const, jerseyNumber: 8, tshirtSize: "S" as const };
-  const couple = { ...base, name: "Ravi & Priya", role: ["Batter"], partner };
-  const solo = { ...base, name: "Meera", gender: "female" as const };
+  const partner = { phoneNumber: "9123456780", age: 22, role: ["Bowler"], battingBowlingHand: "Left-handed" as const, jerseyNumber: 8, tshirtSize: "S" as const, ranking: 3 };
+  const couple = { ...base, name: "Ravi & Priya", role: ["Batter"], ranking: 2, partner };
+  const solo = { ...base, name: "Meera", gender: "female" as const, ranking: 5 };
 
-  test("adds the entry and female columns after Hand", () => {
+  test("adds the entry, ranking and female columns after Hand", () => {
     const rows = buildRegistrationRows([couple, solo], {}, { couple: true });
     expect(rows[0]).toEqual([
       "Name", "Mobile", "Age", "Role", "Hand",
-      "Entry", "Female mobile", "Female age", "Female type", "Female hand", "Female jersey no.", "Female jersey size",
+      "Entry", "Ranking", "Female mobile", "Female age", "Female type", "Female hand", "Female jersey no.", "Female jersey size", "Female ranking",
       "Status", "Fee (₹)", "Registered (IST)",
     ]);
-    expect(rows[1].slice(0, 13)).toEqual([
+    expect(rows[1].slice(0, 15)).toEqual([
       "Ravi & Priya", "9876543210", 24, "Batter", "Right-handed",
-      "Couple", "9123456780", 22, "Bowl", "Left-handed", 8, "S", "paid",
+      "Couple", 2, "9123456780", 22, "Bowl", "Left-handed", 8, "S", 3, "paid",
     ]);
-    expect(rows[2].slice(5, 13)).toEqual(["Female", "", "", "", "", "", "", "paid"]);
+    expect(rows[2].slice(5, 15)).toEqual(["Female", 5, "", "", "", "", "", "", "", "paid"]);
   });
 
   test("standard sheets are unchanged, whatever fields the rows carry", () => {
     const plain = [{ ...base, name: "Ravi" }];
-    expect(buildRegistrationRows([{ ...base, name: "Ravi", partner }], LABELS)).toEqual(buildRegistrationRows(plain, LABELS));
+    expect(buildRegistrationRows([{ ...base, name: "Ravi", ranking: 2, partner }], LABELS)).toEqual(buildRegistrationRows(plain, LABELS));
     expect(buildRegistrationRows(plain, LABELS, { couple: false })).toEqual(buildRegistrationRows(plain, LABELS));
     expect(buildRegistrationRows(plain, LABELS)[0]).toHaveLength(11);
   });

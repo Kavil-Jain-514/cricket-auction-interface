@@ -46,7 +46,8 @@ const COL = {
   phone: 58,
   jerseyNumber: 82,
   jerseyName: 96,
-  gender: 96, // couple tournaments: Gender takes the Jersey Name space
+  gender: 96, // couple tournaments: Gender and Rank share the Jersey Name space
+  rank: 114,
   size: 126,
   hand: 139,
   price: 152,
@@ -65,6 +66,7 @@ function drawTableHeader(doc: jsPDF, margin: number, y: number, couple = false):
   doc.text("Jersey#", margin + COL.jerseyNumber, textY);
   if (couple) {
     doc.text("Gender", margin + COL.gender, textY);
+    doc.text("Rank", margin + COL.rank, textY);
   } else {
     doc.text("Jersey Name", margin + COL.jerseyName, textY);
   }
@@ -303,6 +305,7 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
     doc.text(`${player.jerseyNumber || "-"}`, margin + COL.jerseyNumber, y + 2);
     if (team.couple) {
       doc.text(player.gender || "-", margin + COL.gender, y + 2);
+      doc.text(player.ranking != null ? `${player.ranking}` : "-", margin + COL.rank, y + 2);
     } else {
       doc.text((player.jerseyName || "-").substring(0, 16), margin + COL.jerseyName, y + 2);
     }
@@ -338,6 +341,7 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
       doc.text(partner.phoneNumber || "-", margin + COL.phone, y + 2);
       doc.text(`${partner.jerseyNumber || "-"}`, margin + COL.jerseyNumber, y + 2);
       doc.text(partner.gender, margin + COL.gender, y + 2);
+      doc.text(partner.ranking != null ? `${partner.ranking}` : "-", margin + COL.rank, y + 2);
       doc.text(partner.tshirtSize || "-", margin + COL.size, y + 2);
       doc.text(shortHand(partner.battingBowlingHand), margin + COL.hand, y + 2);
       y += 8;
