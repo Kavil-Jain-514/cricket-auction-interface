@@ -105,7 +105,7 @@ export default function RegistrationFormPage({ params }: { params: Promise<{ id:
 
       {tournament && (
         <>
-          <RegistrationFeeCard key={`fee-${tournament.settings.registrationFee ?? 0}`} tournament={tournament} />
+          <RegistrationFeeCard key={`fee-${tournament.settings.registrationFee ?? 0}-${tournament.settings.coupleRegistrationFee ?? ''}`} tournament={tournament} />
           <RegistrationDeviceCard tournament={tournament} />
           <RegistrationLogosCard tournament={tournament} />
         </>

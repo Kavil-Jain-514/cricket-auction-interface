@@ -259,7 +259,8 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
       const outcome = afterSubmitFailure(ambiguousFor.current, person, error);
       ambiguousFor.current = outcome.ambiguousFor;
       if (outcome.show === 'saved') {
-        setDone({ needsPayment: info?.fee ? info.fee > 0 : false, fee: info?.fee ?? 0, step: 'saved' });
+        const fee = (coupleEntry ? info?.coupleFee : info?.fee) ?? 0;
+        setDone({ needsPayment: fee > 0, fee, step: 'saved' });
       } else {
         toast.error(outcome.message);
       }
@@ -307,6 +308,8 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
   const sponsors = info?.sponsors ?? [];
   const coupleFormat = info?.format === 'couple';
   const coupleEntry = coupleFormat && entryMode === 'couple';
+  // Couple tournaments charge couples and solos separately (getPublicInfo).
+  const entryFee = (coupleEntry ? info?.coupleFee : info?.fee) ?? 0;
 
   if (info === undefined) {
     return <main className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500" aria-label="Loading" /></main>;
@@ -445,12 +448,6 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
           One registration per phone for this tournament. To register someone else, use their phone.
         </p>
       )}
-      {info.fee > 0 && (
-        <p className="rounded-lg bg-blue-500/10 px-3 py-2 text-sm text-blue-200">
-          Registration fee: {formatRupees(info.fee)}, paid after you submit{info.paymentQrUrl ? ' by scanning the organiser’s QR' : ''} or in person.
-        </p>
-      )}
-
       {coupleFormat && (
         <div role="group" aria-label="Entry type" className="grid grid-cols-2 gap-1 rounded-lg border border-slate-700 bg-slate-800/60 p-1">
           {(['couple', 'solo'] as const).map((mode) => (
@@ -465,6 +462,12 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
             </button>
           ))}
         </div>
+      )}
+
+      {entryFee > 0 && (
+        <p className="rounded-lg bg-blue-500/10 px-3 py-2 text-sm text-blue-200">
+          {coupleFormat ? `${coupleEntry ? 'Couple' : 'Solo'} registration fee` : 'Registration fee'}: {formatRupees(entryFee)}, paid after you submit{info.paymentQrUrl ? ' by scanning the organiser’s QR' : ''} or in person.
+        </p>
       )}
 
       <section>

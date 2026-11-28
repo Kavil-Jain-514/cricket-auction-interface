@@ -76,6 +76,7 @@ export const create = mutation({
       squadRules: v.optional(v.array(squadRuleValidator)),
       registrationOpen: v.optional(v.boolean()),
       registrationFee: v.optional(v.number()),
+      coupleRegistrationFee: v.optional(v.number()),
       // "couple" or "standard" (absent = standard). See tournaments:update.
       format: tournamentFormatValidator,
     }),
@@ -522,6 +523,8 @@ export const update = mutation({
         // Not locked: registration can open or close at any time.
         registrationOpen: v.optional(v.boolean()),
         registrationFee: v.optional(v.number()),
+        // Couple tournaments' couple-entry fee. Omitted keeps the stored one.
+        coupleRegistrationFee: v.optional(v.number()),
         // Not locked. Omitted keeps the stored QR; "" removes it.
         paymentQrUrl: v.optional(v.string()),
         // Not tied to the live lock, but fixed once any player or
@@ -585,7 +588,9 @@ export const update = mutation({
     // Nor are the public registration form settings.
     const registrationOpen = args.settings?.registrationOpen ?? tournament.settings.registrationOpen;
     const registrationFee = args.settings?.registrationFee ?? tournament.settings.registrationFee;
-    const feeError = validateRegistrationFee(registrationFee);
+    const coupleRegistrationFee = args.settings?.coupleRegistrationFee ?? tournament.settings.coupleRegistrationFee;
+    const feeError =
+      validateRegistrationFee(registrationFee) ?? validateRegistrationFee(coupleRegistrationFee, "Couple registration fee");
     if (feeError) throw new ConvexError(feeError);
     let paymentQrUrl = tournament.settings.paymentQrUrl;
     if (args.settings?.paymentQrUrl !== undefined) {
@@ -596,9 +601,10 @@ export const update = mutation({
     if (
       registrationOpen !== tournament.settings.registrationOpen ||
       registrationFee !== tournament.settings.registrationFee ||
+      coupleRegistrationFee !== tournament.settings.coupleRegistrationFee ||
       paymentQrUrl !== tournament.settings.paymentQrUrl
     ) {
-      nextSettings = { ...(nextSettings ?? tournament.settings), registrationOpen, registrationFee, paymentQrUrl };
+      nextSettings = { ...(nextSettings ?? tournament.settings), registrationOpen, registrationFee, coupleRegistrationFee, paymentQrUrl };
     }
 
     // Tournament type (standard / couple): every entry was made for the
@@ -743,6 +749,7 @@ export const update = mutation({
         squadRules,
         registrationOpen,
         registrationFee,
+        coupleRegistrationFee,
         paymentQrUrl,
         format,
       };
@@ -834,22 +841,26 @@ export const update = mutation({
 // non-admin listings and cannot be opened by non-admins (see getById / listAll).
 /**
  * Make registration free (0) or set its fee in whole rupees. Owners only.
- * Registrations already submitted keep the fee they were given. Not a
- * locked setting: it can change while the auction is live.
+ * `coupleFee` is a couple tournament's fee for a couple entry (`fee` is then
+ * the solo fee); omitted keeps the stored one. Registrations already
+ * submitted keep the fee they were given. Not a locked setting: it can
+ * change while the auction is live.
  */
 export const setRegistrationFee = mutation({
-  args: { tournamentId: v.id("tournaments"), fee: v.number() },
+  args: { tournamentId: v.id("tournaments"), fee: v.number(), coupleFee: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) throw new ConvexError("Tournament not found");
     const owner = await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
     if (tournament.status === "completed") throw new ConvexError("This tournament is completed, so its registration can't change.");
-    const feeError = validateRegistrationFee(args.fee);
+    const feeError = validateRegistrationFee(args.fee) ?? validateRegistrationFee(args.coupleFee, "Couple registration fee");
     if (feeError) throw new ConvexError(feeError);
     const previous = tournament.settings.registrationFee ?? 0;
-    if (previous === args.fee) return { success: true };
+    const previousCouple = tournament.settings.coupleRegistrationFee;
+    const coupleFee = args.coupleFee ?? previousCouple;
+    if (previous === args.fee && previousCouple === coupleFee) return { success: true };
     await ctx.db.patch(args.tournamentId, {
-      settings: { ...tournament.settings, registrationFee: args.fee },
+      settings: { ...tournament.settings, registrationFee: args.fee, coupleRegistrationFee: coupleFee },
       updatedAt: Date.now(),
     });
     await logAdminAction(ctx, {
@@ -858,8 +869,8 @@ export const setRegistrationFee = mutation({
       action: "set_registration_fee",
       targetType: "tournament",
       targetId: args.tournamentId,
-      previousData: { registrationFee: previous },
-      newData: { registrationFee: args.fee },
+      previousData: { registrationFee: previous, coupleRegistrationFee: previousCouple },
+      newData: { registrationFee: args.fee, coupleRegistrationFee: coupleFee },
       tournamentId: args.tournamentId,
     });
     return { success: true };

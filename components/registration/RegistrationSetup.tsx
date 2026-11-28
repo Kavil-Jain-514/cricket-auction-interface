@@ -14,37 +14,62 @@ import { cn, getErrorMessage } from '@/lib/utils';
 
 const MAX_FEE = 100_000; // MAX_REGISTRATION_FEE in convex/validation.ts
 
+const feeText = (fee: number) => (fee > 0 ? formatRupees(fee) : 'free');
+
 type Tournament = Pick<Doc<"tournaments">, "_id" | "name" | "description" | "logoUrl" | "organizationLogoUrl" | "status"> & {
-  settings: Pick<Doc<"tournaments">["settings"], "registrationFee" | "paymentQrUrl" | "oneRegistrationPerDevice">;
+  settings: Pick<Doc<"tournaments">["settings"], "registrationFee" | "coupleRegistrationFee" | "format" | "paymentQrUrl" | "oneRegistrationPerDevice">;
 };
 
-/** Free or paid registration. Saving a paid fee needs a whole-rupee amount. */
+/**
+ * Free or paid registration. Saving a paid fee needs a whole-rupee amount.
+ * Couple tournaments set two fees: one for a couple entry, one for a solo
+ * entry (either may be 0, not both).
+ */
 export function RegistrationFeeCard({ tournament }: { tournament: Tournament }) {
   const setFee = useMutation(api.tournaments.setRegistrationFee);
+  const couple = tournament.settings.format === 'couple';
   const savedFee = tournament.settings.registrationFee ?? 0;
-  const [paid, setPaid] = useState(savedFee > 0);
-  const [amount, setAmount] = useState<number | undefined>(savedFee > 0 ? savedFee : undefined);
+  // Absent = couples pay the solo fee (registrationFeeFor in convex/validation.ts).
+  const savedCoupleFee = couple ? (tournament.settings.coupleRegistrationFee ?? savedFee) : 0;
+  const savedPaid = savedFee > 0 || savedCoupleFee > 0;
+  const [paid, setPaid] = useState(savedPaid);
+  const [amount, setAmount] = useState<number | undefined>(savedPaid ? savedFee : undefined);
+  const [coupleAmount, setCoupleAmount] = useState<number | undefined>(savedPaid ? savedCoupleFee : undefined);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const locked = tournament.status === 'completed';
 
   const draftFee = paid ? amount : 0;
-  const dirty = draftFee !== savedFee;
+  const draftCoupleFee = paid ? coupleAmount : 0;
+  const dirty = draftFee !== savedFee || (couple && draftCoupleFee !== savedCoupleFee);
 
   const save = async () => {
-    if (paid && (amount === undefined || amount <= 0)) {
-      setError('Enter the fee in rupees, or choose Free.');
+    const amounts = couple ? [amount, coupleAmount] : [amount];
+    if (paid && amounts.some((a) => a === undefined)) {
+      setError(couple ? 'Enter both fees in rupees (0 for free), or choose Free.' : 'Enter the fee in rupees, or choose Free.');
       return;
     }
-    if (paid && amount !== undefined && (!Number.isInteger(amount) || amount > MAX_FEE)) {
-      setError(`The fee must be whole rupees, up to ${formatRupees(MAX_FEE)}.`);
+    if (paid && amounts.some((a) => !Number.isInteger(a) || a! < 0 || a! > MAX_FEE)) {
+      setError(`A fee must be whole rupees, up to ${formatRupees(MAX_FEE)}.`);
+      return;
+    }
+    if (paid && amounts.every((a) => a === 0)) {
+      setError(couple ? 'Set at least one fee above ₹0, or choose Free.' : 'Enter the fee in rupees, or choose Free.');
       return;
     }
     setError(null);
     setSaving(true);
     try {
-      await setFee({ tournamentId: tournament._id, fee: paid ? amount! : 0 });
-      toast.success(paid ? `Registration fee set to ${formatRupees(amount!)}` : 'Registration is now free');
+      const fee = paid ? amount! : 0;
+      const coupleFee = paid ? coupleAmount! : 0;
+      await setFee({ tournamentId: tournament._id, fee, ...(couple ? { coupleFee } : {}) });
+      toast.success(
+        !paid
+          ? 'Registration is now free'
+          : couple
+            ? `Fees set: couple ${feeText(coupleFee)}, solo ${feeText(fee)}`
+            : `Registration fee set to ${formatRupees(fee)}`,
+      );
     } catch (err) {
       setError(getErrorMessage(err, 'Could not save the fee'));
     } finally {
@@ -84,20 +109,43 @@ export function RegistrationFeeCard({ tournament }: { tournament: Tournament }) 
       </div>
       {paid && (
         <div className="space-y-1">
-          <label htmlFor="fee-amount" className="text-sm text-slate-300">Fee (₹)</label>
-          <AmountInput
-            id="fee-amount"
-            value={amount}
-            onValueChange={(v) => {
-              setAmount(v);
-              setError(null);
-            }}
-            disabled={locked}
-            placeholder="e.g. 500"
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? 'fee-error' : 'fee-hint'}
-            className="max-w-48"
-          />
+          <div className="flex flex-wrap gap-3">
+            {couple && (
+              <div className="space-y-1">
+                <label htmlFor="couple-fee-amount" className="block text-sm text-slate-300">Couple fee (₹)</label>
+                <AmountInput
+                  id="couple-fee-amount"
+                  value={coupleAmount}
+                  onValueChange={(v) => {
+                    setCoupleAmount(v);
+                    setError(null);
+                  }}
+                  disabled={locked}
+                  placeholder="e.g. 800"
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? 'fee-error' : 'fee-hint'}
+                  className="max-w-48"
+                />
+              </div>
+            )}
+            <div className="space-y-1">
+              <label htmlFor="fee-amount" className="block text-sm text-slate-300">{couple ? 'Solo fee (₹)' : 'Fee (₹)'}</label>
+              <AmountInput
+                id="fee-amount"
+                value={amount}
+                onValueChange={(v) => {
+                  setAmount(v);
+                  setError(null);
+                }}
+                disabled={locked}
+                placeholder="e.g. 500"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? 'fee-error' : 'fee-hint'}
+                className="max-w-48"
+              />
+            </div>
+          </div>
+          {couple && <p className="text-xs text-slate-500">A couple registers together and pays once. Enter 0 to make one of them free.</p>}
           <p id="fee-hint" className="text-xs text-slate-500">
             {tournament.settings.paymentQrUrl ? 'Your UPI QR is shown on the form.' : 'Add a UPI QR in Settings to let players pay by scanning it.'}
           </p>
@@ -109,7 +157,11 @@ export function RegistrationFeeCard({ tournament }: { tournament: Tournament }) 
           {saving ? 'Saving…' : 'Save fee'}
         </Button>
         <span className="text-xs text-slate-500" aria-live="polite">
-          {locked ? 'Completed tournaments can’t change.' : dirty ? 'Not saved yet' : `Saved: ${savedFee > 0 ? formatRupees(savedFee) : 'Free'}`}
+          {locked
+            ? 'Completed tournaments can’t change.'
+            : dirty
+              ? 'Not saved yet'
+              : `Saved: ${!savedPaid ? 'Free' : couple ? `couple ${feeText(savedCoupleFee)}, solo ${feeText(savedFee)}` : formatRupees(savedFee)}`}
         </span>
       </div>
     </section>

@@ -14,7 +14,7 @@ import { consumeShardedRateLimit } from "./shardedRateLimit";
 import { logAdminAction, OWNER_ONLY, REVIEW_REGISTRATIONS, requireTournamentRole } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { insertValidatedPlayer } from "./players";
-import { normalizePhone, validateEntryFormat, validatePlayerFields } from "./validation";
+import { normalizePhone, registrationFeeFor, validateEntryFormat, validatePlayerFields } from "./validation";
 import { cloudinarySignature } from "./cloudinarySignature";
 import { cloudinaryPublicId, isOurUpload, ourCloudName } from "./uploads";
 import { answersValidator, missingPartnerField, missingRequiredField, resolveRequiredFields, validateAnswers } from "./registrationForm";
@@ -103,7 +103,9 @@ export const getPublicInfo = query({
       open: registrationIsOpen(tournament),
       format: tournament.settings.format ?? "standard",
       onePerDevice: tournament.settings.oneRegistrationPerDevice === true,
-      fee: tournament.settings.registrationFee ?? 0,
+      fee: registrationFeeFor(tournament.settings, false),
+      // Couple tournaments: what a couple entry pays (= fee elsewhere).
+      coupleFee: registrationFeeFor(tournament.settings, true),
       paymentQrUrl: tournament.settings.paymentQrUrl,
       sponsors: tournament.sponsors ?? [],
       categories: [...(tournament.settings.categories ?? [])]
@@ -352,7 +354,7 @@ export const submit = mutation({
       }
     }
 
-    const fee = Math.max(0, tournament.settings.registrationFee ?? 0);
+    const fee = registrationFeeFor(tournament.settings, partner !== undefined);
     const registrationId = await ctx.db.insert("registrations", {
       ...fields,
       name: fields.name.trim(),
@@ -611,7 +613,12 @@ export const summary = query({
       if (r.status === "paid") ready++;
       else if (r.status === "pending_payment") awaitingPayment++;
     }
-    return { ready, awaitingPayment, fee: tournament?.settings.registrationFee ?? 0 };
+    return {
+      ready,
+      awaitingPayment,
+      fee: tournament ? registrationFeeFor(tournament.settings, false) : 0,
+      coupleFee: tournament ? registrationFeeFor(tournament.settings, true) : 0,
+    };
   },
 });
 
