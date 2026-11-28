@@ -105,7 +105,7 @@ describe("tournaments.listPublic", () => {
     const second = await t.query(api.tournaments.listPublic, { paginationOpts: { numItems: 10, cursor: first.continueCursor } });
     expect(names([...first.page, ...second.page])).toEqual(["Done Cup", "Rehearsal Cup", "Active Cup", "Setup Cup", "Draft Cup"]);
     // No organiser-only settings (payment QR, fees, rules) on a public card.
-    const allowed = ["_id", "basePurse", "createdAt", "description", "isActive", "isLive", "logoUrl", "maxPlayersPerTeam", "name", "status"];
+    const allowed = ["_id", "basePurse", "createdAt", "description", "format", "isActive", "isLive", "logoUrl", "maxPlayersPerTeam", "name", "status"];
     for (const card of first.page) expect(Object.keys(card).every((k) => allowed.includes(k))).toBe(true);
   });
 });

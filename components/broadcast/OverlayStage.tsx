@@ -9,6 +9,7 @@ import { BidTimerRing } from '@/components/auction/BidTimerRing';
 import type { BidCountdown } from '@/hooks/useBidCountdown';
 import { formatCurrency, getRoleDisplay } from '@/lib/utils';
 import type { OverlayParams } from '@/lib/overlayParams';
+import { CoupleDetails } from '@/components/players/CoupleDetails';
 
 export const STAGE_WIDTH = 1920;
 export const STAGE_HEIGHT = 1080;
@@ -31,6 +32,9 @@ export interface OverlayPlayer {
   playerNumber?: number;
   age?: number;
   battingBowlingHand?: string;
+  ranking?: number;
+  /** A couple's female member (couple tournaments); the fields above are the male member. */
+  partner?: { role?: string[]; age?: number; battingBowlingHand?: string; ranking?: number };
 }
 
 export interface OverlaySponsor {
@@ -286,13 +290,14 @@ function Ticker({ view }: { view: OverlayView }) {
 
 function PlayerChips({ view }: { view: OverlayView }) {
   const t = THEMES[view.theme];
-  const player = view.player;
+  // A couple shows both members under the chips (CoupleDetails) instead.
+  const player = view.player?.partner ? null : view.player;
   const role = player?.role ? getRoleDisplay(player.role).trim() : '';
   const chip = `rounded-full px-5 py-1.5 text-2xl ${t.chip}`;
   return (
     <div className="flex flex-wrap gap-3">
-      {player?.playerNumber ? (
-        <span className="rounded-full px-5 py-1.5 text-2xl font-extrabold bg-blue-600 text-white">#{player.playerNumber}</span>
+      {view.player?.playerNumber ? (
+        <span className="rounded-full px-5 py-1.5 text-2xl font-extrabold bg-blue-600 text-white">#{view.player.playerNumber}</span>
       ) : null}
       {role && <span className={`${chip} font-semibold`}>{role}</span>}
       {player?.battingBowlingHand && <span className={chip}>{player.battingBowlingHand}</span>}
@@ -327,6 +332,7 @@ function LowerThird({ view }: { view: OverlayView }) {
       <div className="flex-1 min-w-0 flex flex-col gap-4">
         <h1 className="text-6xl font-extrabold leading-none truncate">{view.player.name}</h1>
         <PlayerChips view={view} />
+        <CoupleDetails player={view.player} compact className="text-2xl" />
         <LeadingTeam view={view} />
       </div>
       <BidBlock view={view} />
@@ -348,6 +354,7 @@ function FullLayout({ view }: { view: OverlayView }) {
           <div className="min-w-0 flex flex-col justify-center gap-6" data-player-details>
             <h1 className="text-7xl font-extrabold leading-tight line-clamp-2 wrap-break-word">{view.player.name}</h1>
             <PlayerChips view={view} />
+            <CoupleDetails player={view.player} compact className="text-3xl" />
             <BidBlock view={view} />
             <LeadingTeam view={view} />
           </div>

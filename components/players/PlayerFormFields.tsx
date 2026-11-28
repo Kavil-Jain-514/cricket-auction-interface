@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode, FormEvent } from 'react';
-import { UserRound, Activity, Tag, Check, UserPlus, Pencil, IndianRupee } from 'lucide-react';
+import { UserRound, Activity, Tag, Check, UserPlus, Pencil, IndianRupee, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { AmountInput } from '@/components/ui/amount-input';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -10,6 +10,8 @@ import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { cn, formatCurrency, PLAYER_ROLES, getRoleBadgeBg } from '@/lib/utils';
 import { categoryFor, effectiveBasePrice, type PlayerCategory } from '@/convex/bidRules';
+import { RANKING_OPTIONS } from '@/convex/validation';
+import { CoupleMemberFields, EMPTY_MEMBER, type MemberValues } from '@/components/registration/CoupleMemberFields';
 
 export const PLAYER_TSHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'] as const;
 export type TshirtSize = (typeof PLAYER_TSHIRT_SIZES)[number];
@@ -26,6 +28,11 @@ export interface PlayerFormValues {
   basePrice?: number;
   categoryId?: string;
   photoUrl: string;
+  // Couple tournaments only: the entry's ranking, a solo entry's gender, and
+  // a couple's female member (null = solo). The fields above are the male member.
+  ranking?: string;
+  gender?: '' | 'male' | 'female';
+  partner?: MemberValues | null;
 }
 
 // ── Modal shell ─────────────────────────────────────────────────────────────
@@ -56,6 +63,8 @@ interface PlayerFormFieldsProps {
   basePriceHint: string;
   /** Tournament categories; the Category field shows only when there are some. */
   categories?: PlayerCategory[];
+  /** A couple tournament: shows the couple / solo section. */
+  couple?: boolean;
 }
 
 export function PlayerFormFields({
@@ -65,6 +74,7 @@ export function PlayerFormFields({
   basePricePlaceholder,
   basePriceHint,
   categories,
+  couple = false,
 }: PlayerFormFieldsProps) {
   const inputCls = 'h-11 text-base';
   const isLeft = values.battingBowlingHand.includes('Left');
@@ -128,6 +138,58 @@ export function PlayerFormFields({
           </div>
         </div>
       </section>
+
+      {couple && (
+        <>
+          <div className="h-px bg-slate-800" />
+          <section className="space-y-4">
+            <SectionHeading icon={Users} title={values.partner ? 'Couple' : 'Solo entry'} hint={values.partner ? 'the fields above are the male member' : undefined} />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div role="group" aria-label="Entry type" className="grid grid-cols-2 gap-1 self-end rounded-lg border border-slate-700 bg-slate-800/60 p-1">
+                {(['couple', 'solo'] as const).map((mode) => {
+                  const on = mode === 'couple' ? !!values.partner : !values.partner;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => onChange({ partner: mode === 'couple' ? (values.partner ?? EMPTY_MEMBER) : null })}
+                      className={cn('h-9 rounded-md text-sm font-medium transition', on ? 'bg-blue-600 text-white shadow' : 'text-slate-300 hover:text-white')}
+                    >
+                      {mode === 'couple' ? 'Couple' : 'Solo'}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label={values.partner ? 'Male ranking *' : 'Ranking *'} htmlFor="ranking">
+                  <NativeSelect id="ranking" required value={values.ranking ?? ''} onChange={(e) => onChange({ ranking: e.target.value })} className={inputCls}>
+                    <option value="">—</option>
+                    {RANKING_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+                  </NativeSelect>
+                </Field>
+                {!values.partner && (
+                  <Field label="Gender *" htmlFor="gender">
+                    <NativeSelect id="gender" required value={values.gender ?? ''} onChange={(e) => onChange({ gender: e.target.value as PlayerFormValues['gender'] })} className={inputCls}>
+                      <option value="">—</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                    </NativeSelect>
+                  </Field>
+                )}
+              </div>
+            </div>
+            {values.partner && (
+              <CoupleMemberFields
+                title="Female"
+                idPrefix="partner"
+                value={values.partner}
+                onChange={(p) => onChange({ partner: { ...(values.partner ?? EMPTY_MEMBER), ...p } })}
+              />
+            )}
+          </section>
+        </>
+      )}
 
       <div className="h-px bg-slate-800" />
 

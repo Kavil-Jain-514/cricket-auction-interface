@@ -70,6 +70,11 @@ export function TournamentCard({ tournament }: { tournament: TournamentCardData 
                 {tournament.status}
               </span>
             )}
+            {tournament.format === 'couple' && (
+              <span className="whitespace-nowrap rounded-full border border-pink-500/40 bg-pink-500/15 px-2.5 py-1 text-xs font-semibold text-pink-300 sm:px-3">
+                Couple
+              </span>
+            )}
             {tournament.isActive === false && (
               <span className="whitespace-nowrap rounded-full border border-amber-600/40 bg-amber-600/20 px-2.5 py-1 text-xs font-semibold text-amber-400 sm:px-3">
                 Inactive

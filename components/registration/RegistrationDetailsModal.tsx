@@ -7,6 +7,8 @@ import { formatRupees } from '@/convex/bidRules';
 import { formatAnswer } from '@/lib/registrationsWorkbook';
 import { formatSaleTime } from '@/lib/resultsWorkbook';
 import { PlayerProfileShell } from '@/components/players/PlayerProfileShell';
+import { CoupleDetails } from '@/components/players/CoupleDetails';
+import { GENDER_LABEL } from '@/lib/couple';
 
 type Registration = FunctionReturnType<typeof api.registrations.list>[number];
 type Labels = Partial<NonNullable<FunctionReturnType<typeof api.registrationForms.get>>['labels']>;
@@ -42,6 +44,13 @@ export function RegistrationDetailsModal({ registration: r, labels, free, catego
         </p>
       )}
 
+      {r.partner && (
+        <div className="bg-slate-800/50 rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-slate-400 mb-3">Couple</h3>
+          <CoupleDetails player={r} showPhones />
+        </div>
+      )}
+
       <div className="bg-slate-800/50 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-slate-400 mb-3 flex items-center gap-2">
           <ReceiptText className="w-4 h-4" />
@@ -52,6 +61,12 @@ export function RegistrationDetailsModal({ registration: r, labels, free, catego
             <span className="text-slate-500">Registered</span>
             <p className="font-semibold">{formatSaleTime(r.createdAt)} IST</p>
           </div>
+          {!r.partner && r.gender && (
+            <div>
+              <span className="text-slate-500">Gender · ranking</span>
+              <p className="font-semibold">{GENDER_LABEL[r.gender]}{r.ranking !== undefined ? ` · Rk ${r.ranking}` : ''}</p>
+            </div>
+          )}
           {categoryName && (
             <div>
               <span className="text-slate-500">Category</span>

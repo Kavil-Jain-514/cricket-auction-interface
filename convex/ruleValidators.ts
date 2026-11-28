@@ -48,3 +48,37 @@ export const planValidator = v.object({
   // Razorpay payment id (or "manual: <reason>" for a super-admin grant).
   paymentRef: v.optional(v.string()),
 });
+
+// Couple tournaments (settings.format "couple"). Absent = "standard".
+export const tournamentFormatValidator = v.optional(v.union(v.literal("standard"), v.literal("couple")));
+
+export const tshirtSizeValidator = v.union(
+  v.literal("XS"),
+  v.literal("S"),
+  v.literal("M"),
+  v.literal("L"),
+  v.literal("XL"),
+  v.literal("XXL"),
+  v.literal("3XL"),
+  v.literal("4XL"),
+);
+
+/** Solo entries in a couple tournament only. */
+export const genderValidator = v.optional(v.union(v.literal("male"), v.literal("female")));
+
+/**
+ * The female member of a couple entry. The male member is the row's own
+ * fields, so the auction treats a couple as one player.
+ */
+export const partnerValidator = v.object({
+  // Normalised 10 digits, private like the row's own phone. Always present on
+  // stored entries (validateEntryFormat requires it); optional so the public
+  // projection without it (toPublicPlayer) still has the document's type.
+  phoneNumber: v.optional(v.string()),
+  age: v.optional(v.number()),
+  role: v.array(v.string()), // one type, or empty when the organiser made role optional
+  battingBowlingHand: v.union(v.literal("Right-handed"), v.literal("Left-handed")),
+  tshirtSize: v.optional(tshirtSizeValidator),
+  jerseyNumber: v.optional(v.number()),
+  ranking: v.optional(v.number()),
+});

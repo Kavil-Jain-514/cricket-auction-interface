@@ -19,6 +19,9 @@ interface TeamData {
   // From the registration form: organisation logo in the header, sponsors under the squad.
   organizationLogoUrl?: string;
   sponsors?: Array<{ name: string; logoUrl?: string }>;
+  // Couple tournament: Gender and Rank columns replace Jersey Name,
+  // and each couple's female member gets a line under the row.
+  couple?: boolean;
 }
 
 const SPONSOR_LAYOUT = { tileW: 30, tileH: 18, gap: 4 };
@@ -43,13 +46,15 @@ const COL = {
   phone: 58,
   jerseyNumber: 82,
   jerseyName: 96,
+  gender: 96, // couple tournaments: Gender and Rank share the Jersey Name space
+  rank: 114,
   size: 126,
   hand: 139,
   price: 152,
 } as const;
 
 // Squad table column labels, vertically centred in the 8-tall header band at `y`.
-function drawTableHeader(doc: jsPDF, margin: number, y: number): void {
+function drawTableHeader(doc: jsPDF, margin: number, y: number, couple = false): void {
   doc.setTextColor(30, 30, 30);
   doc.setFontSize(7);
   doc.setFont("helvetica", "bold");
@@ -59,10 +64,65 @@ function drawTableHeader(doc: jsPDF, margin: number, y: number): void {
   doc.text("Age", margin + COL.age, textY);
   doc.text("Phone", margin + COL.phone, textY);
   doc.text("Jersey#", margin + COL.jerseyNumber, textY);
-  doc.text("Jersey Name", margin + COL.jerseyName, textY);
+  if (couple) {
+    doc.text("Gender", margin + COL.gender, textY);
+    doc.text("Rank", margin + COL.rank, textY);
+  } else {
+    doc.text("Jersey Name", margin + COL.jerseyName, textY);
+  }
   doc.text("Size", margin + COL.size, textY);
   doc.text("Hand", margin + COL.hand, textY);
   doc.text("Price", margin + COL.price, textY);
+}
+
+/**
+ * The Bid11Pro wordmark (components/ds/logo.tsx): a red ball with its seam
+ * and "Bid11Pro" with "11" in the signal colour, right-aligned to `right`
+ * with the text baseline at `baseline`.
+ */
+function drawBid11ProMark(doc: jsPDF, right: number, baseline: number): void {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  const parts: Array<[string, [number, number, number]]> = [
+    ["Bid", [30, 30, 30]],
+    ["11", [14, 116, 144]], // --fl-signal (light theme)
+    ["Pro", [30, 30, 30]],
+  ];
+  const textW = parts.reduce((w, [t]) => w + doc.getTextWidth(t), 0);
+  let x = right - textW;
+
+  // Ball: the logo's 32-unit viewBox scaled to a 4.4 mm square.
+  const size = 4.4;
+  const k = size / 32;
+  const ox = x - 1.5 - size;
+  const oy = baseline - 1.1 - size / 2;
+  doc.setFillColor(210, 47, 47);
+  doc.circle(ox + 16 * k, oy + 16 * k, 14 * k, "F");
+  // Seam: "M6 16 q5 ∓7 10 0 t10 0" as two quadratic curves per path, drawn as cubics.
+  const seam = (dy: number, rgb: [number, number, number], width: number) => {
+    const q = (c: number) => (2 / 3) * c * k; // quadratic → cubic control offset
+    doc.setDrawColor(...rgb);
+    doc.setLineWidth(width * k);
+    doc.lines(
+      [
+        [q(5), q(dy), 10 * k - q(5), q(dy), 10 * k, 0],
+        [q(5), -q(dy), 10 * k - q(5), -q(dy), 10 * k, 0],
+      ],
+      ox + 6 * k,
+      oy + 16 * k,
+      [1, 1],
+      "S",
+    );
+  };
+  seam(-7, [14, 116, 144], 1.8);
+  seam(7, [255, 255, 255], 1.2);
+
+  for (const [t, rgb] of parts) {
+    doc.setTextColor(...rgb);
+    doc.text(t, x, baseline);
+    x += doc.getTextWidth(t);
+  }
+  doc.setFont("helvetica", "normal");
 }
 
 export async function generateTeamPdf(team: TeamData): Promise<void> {
@@ -185,7 +245,7 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
   doc.setFillColor(230, 230, 230);
   doc.rect(margin, y, pageWidth - margin * 2, 8, "F");
 
-  drawTableHeader(doc, margin, y);
+  drawTableHeader(doc, margin, y, team.couple);
 
   // Rows paint from y - 4, so start 12 below the 8-tall header to keep it clear.
   y += 12;
@@ -201,8 +261,7 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
     return (b.soldPrice || 0) - (a.soldPrice || 0);
   });
 
-  sortedPlayers.forEach((player, index) => {
-    // Check if we need a new page
+  const breakPageIfFull = () => {
     if (y > 270) {
       doc.addPage();
       y = 20;
@@ -210,11 +269,18 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
       // Add header on new page
       doc.setFillColor(230, 230, 230);
       doc.rect(margin, y, pageWidth - margin * 2, 8, "F");
-      drawTableHeader(doc, margin, y);
+      drawTableHeader(doc, margin, y, team.couple);
 
       y += 12;
       doc.setFont("helvetica", "normal");
     }
+  };
+  // "Right-handed" / "Left-handed" → "Right" / "Left"
+  const shortHand = (hand: string | undefined) => (!hand ? "-" : hand.includes("Right") ? "Right" : "Left");
+
+  sortedPlayers.forEach((player, index) => {
+    // Check if we need a new page
+    breakPageIfFull();
 
     // Alternate row colors (captain gets a highlighted row instead)
     if (player.isCaptain) {
@@ -237,14 +303,14 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
     doc.text(player.age != null ? `${player.age}` : "-", margin + COL.age, y + 2);
     doc.text(player.phoneNumber || "-", margin + COL.phone, y + 2);
     doc.text(`${player.jerseyNumber || "-"}`, margin + COL.jerseyNumber, y + 2);
-    doc.text((player.jerseyName || "-").substring(0, 16), margin + COL.jerseyName, y + 2);
+    if (team.couple) {
+      doc.text(player.gender || "-", margin + COL.gender, y + 2);
+      doc.text(player.ranking != null ? `${player.ranking}` : "-", margin + COL.rank, y + 2);
+    } else {
+      doc.text((player.jerseyName || "-").substring(0, 16), margin + COL.jerseyName, y + 2);
+    }
     doc.text(player.tshirtSize || "-", margin + COL.size, y + 2);
-
-    // "Right-handed" / "Left-handed" → "Right" / "Left"
-    const hand = !player.battingBowlingHand
-      ? "-"
-      : player.battingBowlingHand.includes("Right") ? "Right" : "Left";
-    doc.text(hand, margin + COL.hand, y + 2);
+    doc.text(shortHand(player.battingBowlingHand), margin + COL.hand, y + 2);
 
     if (player.isCaptain && !player.soldPrice) {
       doc.setTextColor(120, 120, 120);
@@ -255,6 +321,31 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
     }
 
     y += 8;
+
+    // A couple's female member, on its own line under the couple.
+    const partner = team.couple ? player.partner : undefined;
+    if (partner) {
+      breakPageIfFull();
+      if (player.isCaptain) {
+        doc.setFillColor(255, 247, 214);
+        doc.rect(margin, y - 4, pageWidth - margin * 2, 8, "F");
+      } else if (index % 2 === 0) {
+        doc.setFillColor(250, 250, 250);
+        doc.rect(margin, y - 4, pageWidth - margin * 2, 8, "F");
+      }
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(90, 90, 90);
+      doc.text("Female member", margin + COL.name + 2, y + 2);
+      doc.text(partner.age != null ? `${partner.age}` : "-", margin + COL.age, y + 2);
+      doc.text(partner.phoneNumber || "-", margin + COL.phone, y + 2);
+      doc.text(`${partner.jerseyNumber || "-"}`, margin + COL.jerseyNumber, y + 2);
+      doc.text(partner.gender, margin + COL.gender, y + 2);
+      doc.text(partner.ranking != null ? `${partner.ranking}` : "-", margin + COL.rank, y + 2);
+      doc.text(partner.tshirtSize || "-", margin + COL.size, y + 2);
+      doc.text(shortHand(partner.battingBowlingHand), margin + COL.hand, y + 2);
+      y += 8;
+    }
   });
 
   // Sponsors under the squad (on a new page if they don't fit above the footer)
@@ -286,7 +377,7 @@ export async function generateTeamPdf(team: TeamData): Promise<void> {
     margin,
     y + 8,
   );
-  doc.text("Cricket Auction System", pageWidth - margin - 40, y + 8);
+  drawBid11ProMark(doc, pageWidth - margin, y + 8);
 
   // Save the PDF
   const fileName = `${team.name.replace(/\s+/g, "_")}_Squad.pdf`;

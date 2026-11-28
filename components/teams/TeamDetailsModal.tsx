@@ -12,6 +12,7 @@ import { TeamLogo } from '@/components/ui/team-logo';
 import { FormTabs } from '@/components/ui/form-modal';
 import { useTournamentRole } from '@/hooks/useTournamentRole';
 import { PurseTools } from './PurseTools';
+import { CoupleDetails } from '@/components/players/CoupleDetails';
 
 interface TeamDetailsModalProps {
   teamId: Id<"teams">;
@@ -209,6 +210,7 @@ export function TeamDetailsModal({ teamId, onClose }: TeamDetailsModalProps) {
                             </span>
                           ))}
                         </div>
+                        <CoupleDetails player={player} compact className="mt-0.5" />
                       </div>
                       <span className="text-sm font-bold tabular-nums text-green-400">{formatCurrency(player.soldPrice || 0)}</span>
                     </li>

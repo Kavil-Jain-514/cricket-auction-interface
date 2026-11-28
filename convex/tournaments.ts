@@ -23,6 +23,7 @@ import {
   presentationOrderValidator,
   sponsorValidator,
   squadRuleValidator,
+  tournamentFormatValidator,
 } from "./ruleValidators";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { initialPlan } from "./plans";
@@ -75,6 +76,8 @@ export const create = mutation({
       squadRules: v.optional(v.array(squadRuleValidator)),
       registrationOpen: v.optional(v.boolean()),
       registrationFee: v.optional(v.number()),
+      // "couple" or "standard" (absent = standard). See tournaments:update.
+      format: tournamentFormatValidator,
     }),
   },
   handler: async (ctx, args) => {
@@ -152,6 +155,24 @@ export const listAll = query({
  * created it, and the derived auction counts (AUDIT 2026-11 SEC-001).
  * Deactivated tournaments are only reachable by their staff.
  */
+/** Whether the tournament has any player or registration (format is then fixed). */
+async function hasEntries(ctx: QueryCtx, tournamentId: Id<"tournaments">): Promise<boolean> {
+  const [player, registration] = await Promise.all([
+    ctx.db.query("players").withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId)).first(),
+    ctx.db.query("registrations").withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId)).first(),
+  ]);
+  return player !== null || registration !== null;
+}
+
+/** For the settings modal: true once the tournament type can no longer change. Owners only. */
+export const formatLocked = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    await requireTournamentRole(ctx, args.tournamentId, OWNER_ONLY);
+    return await hasEntries(ctx, args.tournamentId);
+  },
+});
+
 export const getById = query({
   args: { id: v.id("tournaments") },
   handler: async (ctx, args) => {
@@ -256,6 +277,7 @@ function tournamentCard(t: Doc<"tournaments">, isLive: boolean) {
     createdAt: t.createdAt,
     basePurse: t.settings.basePurse,
     maxPlayersPerTeam: t.settings.maxPlayersPerTeam,
+    format: t.settings.format ?? "standard",
     isLive,
   };
 }
@@ -502,6 +524,9 @@ export const update = mutation({
         registrationFee: v.optional(v.number()),
         // Not locked. Omitted keeps the stored QR; "" removes it.
         paymentQrUrl: v.optional(v.string()),
+        // Not tied to the live lock, but fixed once any player or
+        // registration exists. Omitted keeps the stored format.
+        format: tournamentFormatValidator,
       }),
     ),
     // Shown on the registration form. Not locked; [] removes them all.
@@ -574,6 +599,19 @@ export const update = mutation({
       paymentQrUrl !== tournament.settings.paymentQrUrl
     ) {
       nextSettings = { ...(nextSettings ?? tournament.settings), registrationOpen, registrationFee, paymentQrUrl };
+    }
+
+    // Tournament type (standard / couple): every entry was made for the
+    // current one, so it can't change once anyone is entered.
+    const formatChanged =
+      args.settings?.format !== undefined &&
+      args.settings.format !== (tournament.settings.format ?? "standard");
+    const format = formatChanged ? args.settings?.format : tournament.settings.format;
+    if (formatChanged) {
+      if (await hasEntries(ctx, args.id)) {
+        throw new ConvexError("Tournament type can't change after players or registrations exist");
+      }
+      nextSettings = { ...(nextSettings ?? tournament.settings), format };
     }
 
     let sponsors = tournament.sponsors;
@@ -706,6 +744,7 @@ export const update = mutation({
         registrationOpen,
         registrationFee,
         paymentQrUrl,
+        format,
       };
 
       // Base purse is denormalized onto each team's purse. When it changes,

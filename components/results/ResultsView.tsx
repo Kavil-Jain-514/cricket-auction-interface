@@ -13,6 +13,7 @@ import { formatCurrency, getRoleDisplay } from '@/lib/utils';
 import { SpendChart } from './SpendChart';
 import { bestValueBuy, roleBalance } from '@/lib/insights';
 import type { SquadRule } from '@/convex/squadRules';
+import { CoupleDetails } from '@/components/players/CoupleDetails';
 
 const ROLE_SHORT: Record<string, string> = { Batter: 'BAT', Bowler: 'BOWL', 'All-Rounder': 'AR', 'Wicket Keeper': 'WK' };
 
@@ -186,6 +187,7 @@ export function ResultsView({ tournamentId }: { tournamentId: string }) {
                           <span className="truncate">{getRoleDisplay(p.role)}</span>
                           <CategoryChip categoryId={p.categoryId} categories={categories} />
                         </div>
+                        <CoupleDetails player={p} compact className="mt-0.5" />
                       </div>
                       <span className="text-sm font-semibold text-yellow-400 tabular-nums">{formatCurrency(p.soldPrice)}</span>
                     </li>

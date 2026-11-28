@@ -5,11 +5,13 @@
 // the sheets can be summed.
 import { categoryFor, teamPurseTotal, type PlayerCategory } from '@/convex/bidRules';
 import { formatCurrency, getRoleDisplay } from '@/lib/utils';
+import { coupleCells, coupleColumns, type CoupleFields } from '@/lib/couple';
 
 type Status = 'pending' | 'in_auction' | 'sold' | 'unsold' | 'final_unsold';
 
 export interface ResultsExportData {
-  tournament: { name: string; basePurse: number };
+  /** format absent or 'standard': the sheets are exactly as before couples existed. */
+  tournament: { name: string; basePurse: number; format?: 'standard' | 'couple' };
   categories: PlayerCategory[];
   teams: Array<{
     _id: string;
@@ -20,7 +22,7 @@ export interface ResultsExportData {
     purseAdjustment?: number;
     captainPlayerId?: string;
   }>;
-  players: Array<{
+  players: Array<CoupleFields & {
     _id: string;
     name: string;
     role: string | string[];
@@ -31,7 +33,7 @@ export interface ResultsExportData {
     basePrice: number;
   }>;
   sales: Array<{ playerId: string; teamId: string; amount: number; timestamp: number; bidCount?: number }>;
-  contacts: Array<{ name: string; phoneNumber: string; teamName: string; auctionStatus: Status }> | null;
+  contacts: Array<{ name: string; phoneNumber: string; partnerPhoneNumber?: string; teamName: string; auctionStatus: Status }> | null;
 }
 
 export type Cell = string | number;
@@ -74,20 +76,24 @@ export function buildResultsSheets(data: ResultsExportData): Sheets {
   const teamName = new Map(data.teams.map((t) => [t._id, t.name]));
   const categoryName = (id?: string) => categoryFor(id, data.categories)?.name ?? '';
   const byPrice = (a: { soldPrice?: number }, b: { soldPrice?: number }) => (b.soldPrice ?? 0) - (a.soldPrice ?? 0);
+  // Couple tournaments append the entry, ranking and female-member columns.
+  const couple = data.tournament.format === 'couple';
+  const extraHeader = couple ? coupleColumns(false) : [];
+  const extra = (p: CoupleFields) => (couple ? coupleCells(p, false) : []);
   const squadOf = (teamId: string) =>
     data.players
       .filter((p) => p.auctionStatus === 'sold' && p.teamId === teamId && !captainIds.has(p._id))
       .sort(byPrice);
 
   // Squads: captain first (free, outside the squad), then buys by price.
-  const squads: Cell[][] = [['Team', 'Player', 'Role', 'Category', 'Price (₹)', 'Captain']];
+  const squads: Cell[][] = [['Team', 'Player', 'Role', 'Category', 'Price (₹)', 'Captain', ...extraHeader]];
   for (const team of data.teams) {
     const captain = data.players.find((p) => p._id === team.captainPlayerId);
     if (captain) {
-      squads.push([team.name, captain.name, getRoleDisplay(captain.role), categoryName(captain.categoryId), 0, 'Yes']);
+      squads.push([team.name, captain.name, getRoleDisplay(captain.role), categoryName(captain.categoryId), 0, 'Yes', ...extra(captain)]);
     }
     for (const p of squadOf(team._id)) {
-      squads.push([team.name, p.name, getRoleDisplay(p.role), categoryName(p.categoryId), p.soldPrice ?? 0, '']);
+      squads.push([team.name, p.name, getRoleDisplay(p.role), categoryName(p.categoryId), p.soldPrice ?? 0, '', ...extra(p)]);
     }
   }
 
@@ -109,11 +115,11 @@ export function buildResultsSheets(data: ResultsExportData): Sheets {
     ]);
   }
 
-  const unsold: Cell[][] = [['Player', 'Role', 'Category', 'Base price (₹)', 'Status']];
+  const unsold: Cell[][] = [['Player', 'Role', 'Category', 'Base price (₹)', 'Status', ...extraHeader]];
   for (const p of data.players) {
     const status = UNSOLD_STATUS[p.auctionStatus];
     if (!status || captainIds.has(p._id)) continue;
-    unsold.push([p.name, getRoleDisplay(p.role), categoryName(p.categoryId), p.basePrice, status]);
+    unsold.push([p.name, getRoleDisplay(p.role), categoryName(p.categoryId), p.basePrice, status, ...extra(p)]);
   }
 
   // Sale log: final truth from players; order, time and bid count from each
@@ -153,8 +159,14 @@ export function buildResultsSheets(data: ResultsExportData): Sheets {
   const sheets: Sheets = { Squads: squads, 'Team summary': summary, Unsold: unsold, 'Sale log': log };
   if (data.contacts) {
     sheets.Contacts = [
-      ['Player', 'Phone', 'Team', 'Status'],
-      ...data.contacts.map((c) => [c.name, c.phoneNumber, c.teamName, STATUS_LABEL[c.auctionStatus]]),
+      ['Player', 'Phone', 'Team', 'Status', ...(couple ? ['Female phone'] : [])],
+      ...data.contacts.map((c) => [
+        c.name,
+        c.phoneNumber,
+        c.teamName,
+        STATUS_LABEL[c.auctionStatus],
+        ...(couple ? [c.partnerPhoneNumber ?? ''] : []),
+      ]),
     ];
   }
   return sheets;
