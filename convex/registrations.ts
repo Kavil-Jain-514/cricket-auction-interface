@@ -14,10 +14,11 @@ import { consumeShardedRateLimit } from "./shardedRateLimit";
 import { logAdminAction, OWNER_ONLY, REVIEW_REGISTRATIONS, requireTournamentRole } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
 import { insertValidatedPlayer } from "./players";
-import { normalizePhone, validatePlayerFields } from "./validation";
+import { normalizePhone, validateEntryFormat, validatePlayerFields } from "./validation";
 import { cloudinarySignature } from "./cloudinarySignature";
 import { cloudinaryPublicId, isOurUpload, ourCloudName } from "./uploads";
-import { answersValidator, missingRequiredField, resolveRequiredFields, validateAnswers } from "./registrationForm";
+import { answersValidator, missingPartnerField, missingRequiredField, resolveRequiredFields, validateAnswers } from "./registrationForm";
+import { genderValidator, partnerValidator } from "./ruleValidators";
 import { customQuestionsEnabled, latestFormVersion } from "./registrationForms";
 import { enqueueRegistrationNotification } from "./notifications";
 
@@ -100,6 +101,7 @@ export const getPublicInfo = query({
       logoUrl: tournament.logoUrl,
       organizationLogoUrl: tournament.organizationLogoUrl,
       open: registrationIsOpen(tournament),
+      format: tournament.settings.format ?? "standard",
       onePerDevice: tournament.settings.oneRegistrationPerDevice === true,
       fee: tournament.settings.registrationFee ?? 0,
       paymentQrUrl: tournament.settings.paymentQrUrl,
@@ -252,6 +254,11 @@ export const submit = mutation({
     answers: v.optional(answersValidator),
     // The browser's random id, for the organiser's one-per-device setting.
     deviceId: v.optional(v.string()),
+    // Couple tournaments only (validateEntryFormat): a couple sends the
+    // female member as `partner`; a solo entry sends `gender`.
+    gender: genderValidator,
+    ranking: v.optional(v.number()),
+    partner: v.optional(partnerValidator),
     website: v.string(),
   },
   handler: async (ctx, args) => {
@@ -267,17 +274,23 @@ export const submit = mutation({
       throw new ConvexError("Too many registrations right now. Try again in a minute.");
     }
 
-    const { website: _honeypot, consentWhatsApp, tournamentId, categoryId, answers: rawAnswers, deviceId, ...fields } = args;
+    const { website: _honeypot, consentWhatsApp, tournamentId, categoryId, answers: rawAnswers, deviceId, partner: rawPartner, ...fields } = args;
     if (deviceId !== undefined && !DEVICE_ID.test(deviceId)) throw new ConvexError(RELOAD);
     const onePerDevice = tournament.settings.oneRegistrationPerDevice === true;
     if (onePerDevice && deviceId === undefined) throw new ConvexError(RELOAD);
     const { errors, phoneNumber } = validatePlayerFields(fields, tournament.settings.basePurse);
     if (errors.length > 0) throw new ConvexError(errors[0].message);
     if (!phoneNumber) throw new ConvexError("Phone number is required");
+    const format = validateEntryFormat(tournament, { ...fields, partner: rawPartner });
+    if (!format.ok) throw new ConvexError(format.error);
+    const partner = format.partner;
     const required = resolveRequiredFields((await latestFormVersion(ctx, tournamentId))?.requiredFields);
-    const missing = missingRequiredField(required, { ...fields, categoryId }, {
-      hasCategories: (tournament.settings.categories ?? []).length > 0,
-    });
+    // The same toggles apply to both members of a couple; couples have no
+    // name on the jersey.
+    const missing =
+      missingRequiredField(partner ? { ...required, jerseyName: false } : required, { ...fields, categoryId }, {
+        hasCategories: (tournament.settings.categories ?? []).length > 0,
+      }) ?? (partner ? missingPartnerField(required, partner) : null);
     if (missing) throw new ConvexError(missing);
     if (fields.photoUrl && !isUploadedImage(fields.photoUrl)) {
       throw new ConvexError("Upload your photo with the form's photo button");
@@ -349,6 +362,7 @@ export const submit = mutation({
       consentWhatsApp,
       answers,
       deviceId,
+      partner,
       status: fee > 0 ? "pending_payment" : "paid",
       fee,
       createdAt: now,
@@ -657,6 +671,9 @@ async function approveOne(
       jerseyName: registration.jerseyName,
       tshirtSize: registration.tshirtSize,
       consentWhatsApp: registration.consentWhatsApp,
+      gender: registration.gender,
+      ranking: registration.ranking,
+      partner: registration.partner,
     },
     { count: roster.count, nextPlayerNumber: roster.nextPlayerNumber },
   );

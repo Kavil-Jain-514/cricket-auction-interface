@@ -42,6 +42,7 @@ import { SetBanner } from '@/components/auction/SetBanner';
 import { ConsoleMoreMenu } from '@/components/auction/ConsoleMoreMenu';
 import { AuctionUnavailable } from '@/components/auction/AuctionUnavailable';
 import { bidTimerSeconds, categoryFor, incrementFor } from '@/convex/bidRules';
+import { CoupleDetails } from '@/components/players/CoupleDetails';
 
 // Lazy-load heavy components that are only used conditionally
 const PlayerResultPopup = dynamic(() => import('@/components/auction/PlayerResultPopup').then(m => ({ default: m.PlayerResultPopup })), { ssr: false });
@@ -745,7 +746,9 @@ export default function AuctionPage({ params }: AuctionPageProps) {
 
   // Only show the role pill when a role is actually set — otherwise the coloured
   // badge appears empty on the player card.
-  const roleDisplay = currentPlayer ? getRoleDisplay(currentPlayer.role).trim() : '';
+  // A couple's own fields are the male member's: CoupleDetails shows both members instead.
+  const roleDisplay = currentPlayer && !currentPlayer.partner ? getRoleDisplay(currentPlayer.role).trim() : '';
+  const soloDetails = currentPlayer?.partner ? undefined : currentPlayer;
 
   // Show auction complete screen when auction is completed
   if (auctionRoom.status === 'completed') {
@@ -1321,17 +1324,18 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                               {roleDisplay}
                             </span>
                           ) : null}
-                          {currentPlayer.age ? (
+                          {soloDetails?.age ? (
                             <span className="px-4 py-2 lg:px-5 lg:py-2.5 bg-slate-700 rounded-full text-sm sm:text-base lg:text-lg">
-                              {currentPlayer.age} years
+                              {soloDetails.age} years
                             </span>
                           ) : null}
-                          {currentPlayer.battingBowlingHand ? (
+                          {soloDetails?.battingBowlingHand ? (
                             <span className="px-4 py-2 lg:px-5 lg:py-2.5 bg-slate-700 rounded-full text-sm sm:text-base lg:text-lg">
-                              {currentPlayer.battingBowlingHand}
+                              {soloDetails.battingBowlingHand}
                             </span>
                           ) : null}
                         </div>
+                        <CoupleDetails player={currentPlayer} className="mb-5 sm:mb-6 text-base lg:text-lg" />
 
                         {/* Current Bid — the focal number, with the advisory timer beside it */}
                         <div className="flex items-center gap-3 sm:gap-4">
@@ -1407,17 +1411,18 @@ export default function AuctionPage({ params }: AuctionPageProps) {
                             {roleDisplay}
                           </span>
                         ) : null}
-                        {currentPlayer.age ? (
+                        {soloDetails?.age ? (
                           <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
-                            {currentPlayer.age} years
+                            {soloDetails.age} years
                           </span>
                         ) : null}
-                        {currentPlayer.battingBowlingHand ? (
+                        {soloDetails?.battingBowlingHand ? (
                           <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-700 rounded-full text-xs sm:text-sm">
-                            {currentPlayer.battingBowlingHand}
+                            {soloDetails.battingBowlingHand}
                           </span>
                         ) : null}
                       </div>
+                      <CoupleDetails player={currentPlayer} className="mb-3 sm:mb-4" />
                     </div>
                   </div>
 

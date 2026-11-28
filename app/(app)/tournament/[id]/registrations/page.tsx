@@ -18,6 +18,8 @@ import { getErrorMessage, getRoleDisplay } from '@/lib/utils';
 import { formatRupees } from '@/convex/bidRules';
 import { buildRegistrationRows, formatAnswer, sortByRegistered, type RegisteredOrder } from '@/lib/registrationsWorkbook';
 import { formatSaleTime } from '@/lib/resultsWorkbook';
+import { CoupleDetails } from '@/components/players/CoupleDetails';
+import { GENDER_LABEL } from '@/lib/couple';
 
 type Status = 'pending_payment' | 'paid' | 'approved' | 'rejected';
 const FILTERS: Array<{ key: Status | 'all'; label: string }> = [
@@ -90,6 +92,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
   const [reason, setReason] = useState('');
 
   const fee = tournament?.settings.registrationFee ?? 0;
+  const couple = tournament?.settings.format === 'couple';
   // Simple mode: a free tournament with no unpaid entries left from when it charged.
   const free = fee === 0 && !(rows ?? []).some((r) => r.status === 'pending_payment');
   const filters = free ? FREE_FILTERS : FILTERS;
@@ -104,7 +107,7 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
     if (!rows) return;
     try {
       const XLSX = await import('xlsx');
-      const data = buildRegistrationRows(sorted, labels);
+      const data = buildRegistrationRows(sorted, labels, { couple });
       const workbook = XLSX.utils.book_new();
       const sheet = XLSX.utils.aoa_to_sheet(data);
       sheet['!cols'] = data[0].map((_, col) => ({ wch: Math.min(40, Math.max(...data.map((r) => String(r[col] ?? '').length), 8) + 2) }));
@@ -246,8 +249,13 @@ export default function RegistrationsPage({ params }: { params: Promise<{ id: st
                     </span>
                   )}
                 </div>
+                {/* A couple: both members, with both phones (reviewers only). */}
+                <CoupleDetails player={r} compact showPhones className="mt-0.5" />
                 <div className="text-xs text-slate-400">
-                  {[getRoleDisplay(r.role), r.age ? `${r.age} yrs` : '', r.phoneNumber].filter(Boolean).join(' · ')}
+                  {(r.partner
+                    ? []
+                    : [getRoleDisplay(r.role), r.age ? `${r.age} yrs` : '', r.phoneNumber, r.gender ? GENDER_LABEL[r.gender] : '', r.ranking !== undefined ? `Rk ${r.ranking}` : '']
+                  ).filter(Boolean).join(' · ')}
                   {r.consentWhatsApp ? ' · WhatsApp OK' : ''}
                   {!free && r.paymentMethod ? ` · ${PAYMENT_LABEL[r.paymentMethod]}` : ''}
                   {!free && r.paymentRef ? ` (${r.paymentRef})` : ''}

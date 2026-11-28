@@ -69,7 +69,8 @@ export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
     toast.info('Generating PDF...');
     try {
       // Squad + captain, whether picked from players or entered by hand.
-      const pdfPlayers = buildTeamPdfPlayers(team, players);
+      const couple = tournament?.settings.format === 'couple';
+      const pdfPlayers = buildTeamPdfPlayers(team, players, { couple });
 
       await generateTeamPdf({
         name: team.name,
@@ -81,6 +82,7 @@ export function TeamCard({ team, tournamentId, isAuctionLive }: TeamCardProps) {
         purseSpent: team.purseSpent,
         groupLabel: groupAssignment ? `Group ${groupAssignment.group} (${groupAssignment.slotLabel})` : undefined,
         players: pdfPlayers,
+        couple,
         tournamentName: tournament?.name,
         logoUrl: team.logoUrl,
         organizationLogoUrl: tournament?.organizationLogoUrl,

@@ -137,3 +137,70 @@ describe("teams.getWithPlayers", () => {
   });
 });
 
+
+describe("couple partner phone", () => {
+  const PARTNER_PHONE = "9123456780";
+  const partner = { phoneNumber: PARTNER_PHONE, age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed" as const, ranking: 2 };
+
+  async function coupleSetup(t: ReturnType<typeof convexTest>) {
+    const ids = await setup(t);
+    await t.run(async (ctx) => {
+      const tournament = (await ctx.db.get(ids.tournamentId))!;
+      await ctx.db.patch(ids.tournamentId, { settings: { ...tournament.settings, format: "couple" } });
+      await ctx.db.patch(ids.playerId, { partner, ranking: 1 });
+    });
+    return ids;
+  }
+
+  test("toPublicPlayer drops the partner's phone and keeps the rest of the partner", () => {
+    expect(toPublicPlayer({ name: "Virat & Anu", phoneNumber: PHONE, partner })).toEqual({
+      name: "Virat & Anu",
+      partner: { age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed", ranking: 2 },
+    });
+    expect(toPublicPlayer({ name: "Solo", phoneNumber: PHONE })).toEqual({ name: "Solo" });
+  });
+
+  test("the auction roster's current player, team pages and the player list never show it to viewers", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId, playerId, teamA } = await coupleSetup(t);
+    for (const caller of [t, t.withIdentity(USER_IDENTITY), t.withIdentity(ADMIN_IDENTITY)]) {
+      const roster = (await caller.query(api.auctions.getAuctionRoster, { tournamentId, currentPlayerId: playerId }))!;
+      expect(roster.currentPlayer?.partner).toEqual({ age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed", ranking: 2 });
+    }
+    for (const caller of [t, t.withIdentity(USER_IDENTITY)]) {
+      const team = await caller.query(api.teams.getWithPlayers, { id: teamA });
+      expect(team?.players[0].partner).not.toHaveProperty("phoneNumber");
+      const list = await caller.query(api.players.listByTournament, { tournamentId });
+      expect(list[0].partner).toMatchObject({ role: ["Bowler"] });
+      expect(list[0].partner).not.toHaveProperty("phoneNumber");
+      expect(list[0]).not.toHaveProperty("phoneNumber");
+    }
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    expect((await asAdmin.query(api.teams.getWithPlayers, { id: teamA }))?.players[0].partner?.phoneNumber).toBe(PARTNER_PHONE);
+    expect((await asAdmin.query(api.players.listByTournament, { tournamentId }))[0].partner?.phoneNumber).toBe(PARTNER_PHONE);
+  });
+
+  test("public results show the partner without a phone", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId, playerId } = await coupleSetup(t);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(playerId, { auctionStatus: "sold", soldPrice: 200_000 });
+      await ctx.db.patch(tournamentId, { status: "completed" });
+    });
+    const results = await t.query(api.results.getPublicResults, { tournamentId });
+    const sold = results!.teams.flatMap((team) => team.players);
+    expect(sold[0].partner).toEqual({ age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed", ranking: 2 });
+    expect(JSON.stringify(results)).not.toContain(PARTNER_PHONE);
+  });
+  test("the results export has the partner's phone only in its contacts", async () => {
+    const t = convexTest(schema, modules);
+    const { tournamentId } = await coupleSetup(t);
+    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
+    const plain = await asAdmin.query(api.results.getResultsExport, { tournamentId, includeContacts: false });
+    expect(plain.tournament.format).toBe("couple");
+    expect(plain.players[0]).toMatchObject({ ranking: 1, partner: { role: ["Bowler"], ranking: 2 } });
+    expect(JSON.stringify(plain)).not.toContain(PARTNER_PHONE);
+    const withContacts = await asAdmin.query(api.results.getResultsExport, { tournamentId, includeContacts: true });
+    expect(withContacts.contacts?.[0]).toMatchObject({ phoneNumber: PHONE, partnerPhoneNumber: PARTNER_PHONE });
+  });
+});

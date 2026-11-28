@@ -12,6 +12,7 @@ import {
   inheritedPlaceholder,
   type PlayerFormValues,
 } from './PlayerFormFields';
+import { memberToEntry } from '@/components/registration/CoupleMemberFields';
 
 interface PlayerFormProps {
   tournamentId: Id<"tournaments">;
@@ -36,7 +37,11 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     basePrice: undefined,
     categoryId: undefined,
     photoUrl: '',
+    ranking: '',
+    gender: '',
+    partner: null,
   });
+  const couple = tournament?.settings.format === 'couple';
 
   // Patch form state and clear any errors on the fields being edited.
   const patchForm = (patch: Partial<PlayerFormValues>) => {
@@ -96,6 +101,14 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
         basePrice: formData.basePrice,
         categoryId: formData.categoryId,
         photoUrl: formData.photoUrl || undefined,
+        // Couple tournaments: the server checks these (validateEntryFormat).
+        ...(couple
+          ? {
+              ranking: formData.ranking?.trim() ? Number(formData.ranking) : undefined,
+              gender: formData.partner ? undefined : formData.gender || undefined,
+              partner: formData.partner ? memberToEntry(formData.partner) : undefined,
+            }
+          : {}),
       });
 
       toast.success('Player added successfully!');
@@ -125,6 +138,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
         errors={errors}
         onChange={patchForm}
         categories={tournament?.settings.categories}
+        couple={couple}
         basePricePlaceholder={inheritedPlaceholder(formData.categoryId, tournament?.settings)}
         basePriceHint={
           formData.basePrice

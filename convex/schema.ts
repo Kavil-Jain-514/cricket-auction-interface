@@ -2,12 +2,15 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
   categoryValidator,
+  genderValidator,
   incrementSlabValidator,
+  partnerValidator,
   planTierValidator,
   planValidator,
   presentationOrderValidator,
   sponsorValidator,
   squadRuleValidator,
+  tournamentFormatValidator,
 } from "./ruleValidators";
 import { answersValidator, questionValidator, requiredFieldsValidator } from "./registrationForm";
 import { staffRoleValidator } from "./staffRoles";
@@ -105,6 +108,10 @@ export default defineSchema({
       oneRegistrationPerDevice: v.optional(v.boolean()),
       // UPI QR the registrant scans to pay the fee; they upload a screenshot.
       paymentQrUrl: v.optional(v.string()),
+      // "couple": entries are a couple (one player row with a partner) or a
+      // solo player with a gender. Absent = "standard". Fixed once any player
+      // or registration exists (tournaments:update).
+      format: tournamentFormatValidator,
     }),
     logoUrl: v.optional(v.string()),
     // The organising body's logo, shown opposite logoUrl in the registration
@@ -281,6 +288,11 @@ export default defineSchema({
     // Recorded always, so switching oneRegistrationPerDevice on also counts
     // earlier entries. Absent for entries from before it existed.
     deviceId: v.optional(v.string()),
+    // Couple tournaments only (validation.ts validateEntryFormat): a solo
+    // entry's gender, the (male) member's ranking, and the female member.
+    gender: genderValidator,
+    ranking: v.optional(v.number()),
+    partner: v.optional(partnerValidator),
     createdAt: v.number(),
     reviewedAt: v.optional(v.number()),
   })
@@ -662,6 +674,11 @@ export default defineSchema({
     // From the registration form. false = declined WhatsApp messages; absent
     // = added by the organiser (who is responsible for consent).
     consentWhatsApp: v.optional(v.boolean()),
+    // Couple tournaments only (validation.ts validateEntryFormat): a solo
+    // entry's gender, the (male) member's ranking, and the female member.
+    gender: genderValidator,
+    ranking: v.optional(v.number()),
+    partner: v.optional(partnerValidator),
     playerNumber: v.optional(v.number()), // Auto-incremented player number starting from 1
     basePrice: v.optional(v.number()), // Starting bid price, if undefined inherits from the category, then the tournament
     categoryId: v.optional(v.string()), // tournaments.settings.categories[].id

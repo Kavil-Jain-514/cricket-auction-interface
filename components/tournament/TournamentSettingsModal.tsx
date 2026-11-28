@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { Settings, Info, Trophy, Gavel, ClipboardList, Megaphone, Plus, Trash2, QrCode } from 'lucide-react';
@@ -19,6 +19,7 @@ import { validateCategories, validateIncrementSlabs, validateSquadRules } from '
 import type { SquadRule } from '@/convex/squadRules';
 import { bidTimerLabel, bidTimerOptions } from '@/lib/bidTimer';
 import { StaffManager } from './StaffManager';
+import type { TournamentFormat } from '@/lib/couple';
 import { formatRupees } from '@/convex/bidRules';
 import { formatCurrency, getErrorMessage } from '@/lib/utils';
 import {
@@ -61,6 +62,7 @@ interface TournamentSettingsModalProps {
       registrationOpen?: boolean;
       registrationFee?: number;
       paymentQrUrl?: string;
+      format?: TournamentFormat;
     };
     status?: string;
   };
@@ -73,6 +75,8 @@ export function TournamentSettingsModal({
   onClose
 }: TournamentSettingsModalProps) {
   const updateTournament = useMutation(api.tournaments.update);
+  // The type is fixed once anyone is entered (the server refuses it too).
+  const formatLocked = useQuery(api.tournaments.formatLocked, { tournamentId });
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<Tab>('general');
   const [sponsors, setSponsors] = useState(() => (currentSettings.sponsors ?? []).map((sp) => ({ name: sp.name, logoUrl: sp.logoUrl ?? '' })));
@@ -94,6 +98,7 @@ export function TournamentSettingsModal({
     registrationOpen: currentSettings.settings.registrationOpen ?? false,
     registrationFee: String(currentSettings.settings.registrationFee ?? 0),
     paymentQrUrl: currentSettings.settings.paymentQrUrl ?? '',
+    format: currentSettings.settings.format ?? 'standard',
   });
 
   const parsed = {
@@ -183,6 +188,7 @@ export function TournamentSettingsModal({
       formData.registrationOpen !== (current.registrationOpen ?? false) ||
       registrationFee !== (current.registrationFee ?? 0) ||
       formData.paymentQrUrl !== (current.paymentQrUrl ?? '');
+    const formatChanged = formData.format !== (current.format ?? 'standard');
     // Sponsors aren't settings: sent on their own, only when they changed.
     const nextSponsors = sponsors.map((sp) => (sp.logoUrl ? { name: sp.name.trim(), logoUrl: sp.logoUrl } : { name: sp.name.trim() }));
     const sponsorsChanged = JSON.stringify(nextSponsors) !== JSON.stringify(currentSettings.sponsors ?? []);
@@ -194,7 +200,7 @@ export function TournamentSettingsModal({
         description: formData.description || undefined,
         logoUrl: formData.logoUrl || undefined,
         ...(sponsorsChanged ? { sponsors: nextSponsors } : {}),
-        ...(settingsChanged || rulesChanged || footerChanged || bidModeChanged || registrationChanged
+        ...(settingsChanged || rulesChanged || footerChanged || bidModeChanged || registrationChanged || formatChanged
           ? {
               settings: {
                 ...parsed,
@@ -205,6 +211,7 @@ export function TournamentSettingsModal({
                 ...(slabsChanged ? { incrementSlabs: nextSlabs } : {}),
                 ...(orderChanged ? { presentationOrder: rules.presentationOrder } : {}),
                 ...(squadRulesChanged ? { squadRules: nextSquadRules } : {}),
+                ...(formatChanged ? { format: formData.format } : {}),
                 ...(registrationChanged ? { registrationOpen: formData.registrationOpen, registrationFee, paymentQrUrl: formData.paymentQrUrl } : {}),
               },
             }
@@ -279,6 +286,27 @@ export function TournamentSettingsModal({
             className="mt-3"
           >
             <Input id="footerText" value={formData.footerText} onChange={(e) => patch({ footerText: e.target.value })} placeholder="e.g., Hosted by Sunrise Cricket Club" maxLength={120} className={formInputCls} />
+          </Field>
+          <Field
+            label="Tournament type"
+            htmlFor="format"
+            hint={
+              formatLocked
+                ? "Can't change: this tournament already has players or registrations."
+                : 'Couple: pairs register together and are auctioned as one player.'
+            }
+            className="mt-3"
+          >
+            <NativeSelect
+              id="format"
+              value={formData.format}
+              disabled={formatLocked !== false}
+              onChange={(e) => patch({ format: e.target.value as TournamentFormat })}
+              className={formInputCls}
+            >
+              <option value="standard">Standard</option>
+              <option value="couple">Couple</option>
+            </NativeSelect>
           </Field>
         </section>
       )}

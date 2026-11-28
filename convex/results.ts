@@ -13,6 +13,7 @@ import { query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { OWNER_ONLY, requireTournamentRole } from "./auth";
 import { captainIdsOf, effectiveBasePrice } from "./bidRules";
+import { toPublicPlayer } from "./projections";
 
 const TOP_BUYS = 5;
 
@@ -57,6 +58,8 @@ export const getPublicResults = query({
       // For "best value" (price ÷ base) on the squad cards.
       basePrice: effectiveBasePrice(p, tournament.settings),
       teamId: p.teamId,
+      // A couple's female member, without her phone.
+      partner: toPublicPlayer(p).partner,
     });
 
     const sold = players
@@ -149,7 +152,7 @@ export const getResultsExport = query({
     const teamName = new Map(teams.map((t) => [t._id, t.name]));
 
     return {
-      tournament: { name: tournament.name, basePurse: tournament.settings.basePurse },
+      tournament: { name: tournament.name, basePurse: tournament.settings.basePurse, format: tournament.settings.format ?? "standard" },
       categories: tournament.settings.categories ?? [],
       teams: teams.map((t) => ({
         _id: t._id,
@@ -168,6 +171,9 @@ export const getResultsExport = query({
         teamId: p.teamId,
         soldPrice: p.soldPrice,
         basePrice: effectiveBasePrice(p, tournament.settings),
+        gender: p.gender,
+        ranking: p.ranking,
+        partner: toPublicPlayer(p).partner,
       })),
       sales: events.map((e) => {
         const data = e.data as {
@@ -188,6 +194,7 @@ export const getResultsExport = query({
         ? players.map((p) => ({
             name: p.name,
             phoneNumber: p.phoneNumber ?? "",
+            partnerPhoneNumber: p.partner?.phoneNumber,
             teamName: p.teamId ? (teamName.get(p.teamId) ?? "") : "",
             auctionStatus: p.auctionStatus,
           }))

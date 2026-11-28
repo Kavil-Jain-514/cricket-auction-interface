@@ -7,7 +7,9 @@ import {
   requireTournamentRole,
 } from "./auth";
 import { syncTournamentAuctionCounts } from "./auctionCounts";
-import { normalizePhone, validatePlayerFields } from "./validation";
+import { normalizePhone, validateEntryFormat, validatePlayerFields, type Partner } from "./validation";
+import { genderValidator, partnerValidator } from "./ruleValidators";
+import { toPublicPlayer } from "./projections";
 import { captainIdsOf, categoryFor, effectiveBasePrice } from "./bidRules";
 import { assertPlayerCapacity } from "./plans";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -51,6 +53,10 @@ export type NewPlayerFields = {
   phoneNumber?: string;
   tshirtSize?: Doc<"players">["tshirtSize"];
   consentWhatsApp?: boolean;
+  // Couple tournaments only (validateEntryFormat).
+  gender?: "male" | "female";
+  ranking?: number;
+  partner?: Partner;
 };
 
 /**
@@ -73,6 +79,8 @@ export async function insertValidatedPlayer(
   if (errors.length > 0) throw new ConvexError(errors[0].message);
   const categoryError = unknownCategoryError(fields.categoryId, tournament);
   if (categoryError) throw new ConvexError(categoryError);
+  const format = validateEntryFormat(tournament, fields);
+  if (!format.ok) throw new ConvexError(format.error);
 
   const { count, nextPlayerNumber } = roster ?? (await rosterNumbers(ctx, tournament._id));
   assertPlayerCapacity(tournament, count, 1);
@@ -92,6 +100,9 @@ export async function insertValidatedPlayer(
     playerNumber: nextPlayerNumber,
     tshirtSize: fields.tshirtSize,
     consentWhatsApp: fields.consentWhatsApp,
+    gender: fields.gender,
+    ranking: fields.ranking,
+    partner: format.partner,
     auctionStatus: "pending",
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -131,6 +142,9 @@ export const create = mutation({
     jerseyName: v.optional(v.string()),
     phoneNumber: v.optional(v.string()),
     tshirtSize: tshirtSizeValidator,
+    gender: genderValidator,
+    ranking: v.optional(v.number()),
+    partner: v.optional(partnerValidator),
   },
   handler: async (ctx, args) => {
     // Verify tournament exists
@@ -343,9 +357,8 @@ export const listByTournament = query({
       if (isAdminUser) {
         return { ...p, basePrice, basePriceOverride };
       }
-      // Strip phone number for non-admin viewers
-      const { phoneNumber: _stripped, ...publicFields } = p;
-      return { ...publicFields, basePrice, basePriceOverride };
+      // Strip phone numbers (the partner's too) for non-admin viewers
+      return { ...toPublicPlayer(p), basePrice, basePriceOverride };
     });
   },
 });
@@ -369,6 +382,11 @@ export const update = mutation({
     jerseyNumber: v.optional(v.number()),
     jerseyName: v.optional(v.string()),
     tshirtSize: tshirtSizeValidator,
+    // Couple tournaments only. null removes the partner (a solo entry then
+    // needs a gender) or the gender.
+    gender: v.optional(v.union(v.literal("male"), v.literal("female"), v.null())),
+    ranking: v.optional(v.number()),
+    partner: v.optional(v.union(partnerValidator, v.null())),
   },
   handler: async (ctx, args) => {
     const player = await ctx.db.get(args.id);
@@ -405,7 +423,26 @@ export const update = mutation({
     );
     if (categoryError) throw new ConvexError(categoryError);
 
-    const { id, basePrice, categoryId, ...rest } = args;
+    // The entry as it will be, so a partial change can't leave it invalid.
+    // Checked only when it touches the format fields: unrelated edits keep
+    // working on rows from before (e.g. a CSV import).
+    let partner: Partner | undefined = undefined;
+    const touchesFormat = args.gender !== undefined || args.ranking !== undefined || args.partner !== undefined;
+    if (touchesFormat) {
+      const pick = <T,>(next: T | null | undefined, stored: T | undefined) => (next === undefined ? stored : (next ?? undefined));
+      const role = args.role ?? player.role;
+      const format = validateEntryFormat(tournament, {
+        gender: pick(args.gender, player.gender),
+        ranking: args.ranking ?? player.ranking,
+        partner: pick(args.partner, player.partner),
+        role: Array.isArray(role) ? role : [role],
+        phoneNumber: args.phoneNumber ?? player.phoneNumber,
+      });
+      if (!format.ok) throw new ConvexError(format.error);
+      partner = format.partner;
+    }
+
+    const { id, basePrice, categoryId, gender, partner: _partner, ...rest } = args;
     // null → clear the field (patching undefined removes it).
     const updates = {
       ...rest,
@@ -413,6 +450,8 @@ export const update = mutation({
       ...(categoryId !== undefined
         ? { categoryId: categoryId ?? undefined }
         : {}),
+      ...(gender !== undefined ? { gender: gender ?? undefined } : {}),
+      ...(args.partner !== undefined ? { partner } : {}),
     };
 
     await ctx.db.patch(id, {
@@ -426,7 +465,7 @@ export const update = mutation({
     await syncTournamentAuctionCounts(ctx, player.tournamentId);
 
     // Phone numbers are PII — record that they changed, not their values.
-    const { phoneNumber: _phone, ...auditable } = updates;
+    const { phoneNumber: _phone, partner: _partnerPhone, ...auditable } = updates;
     await logAdminAction(ctx, {
       userId: admin._id,
       userEmail: admin.email,
@@ -439,6 +478,7 @@ export const update = mutation({
       newData: {
         ...auditable,
         ...(args.phoneNumber !== undefined ? { phoneNumberChanged: true } : {}),
+        ...(args.partner !== undefined ? { partnerChanged: true } : {}),
       },
       tournamentId: player.tournamentId,
     });

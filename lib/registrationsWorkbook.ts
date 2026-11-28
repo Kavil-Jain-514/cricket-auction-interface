@@ -6,6 +6,7 @@ import type { AnswerValue, QuestionType } from '@/convex/registrationForm';
 import { formatAmount } from '@/lib/amount';
 import { formatSaleTime } from '@/lib/resultsWorkbook';
 import { getRoleDisplay } from '@/lib/utils';
+import { coupleCells, coupleColumns, type CoupleFields } from '@/lib/couple';
 
 export type QuestionLabels = Record<string, { label: string; type: QuestionType; archived: boolean }>;
 
@@ -16,7 +17,7 @@ export function formatAnswer(value: AnswerValue, type: QuestionType | undefined)
   return value;
 }
 
-export interface RegistrationRow {
+export interface RegistrationRow extends CoupleFields {
   name: string;
   phoneNumber: string;
   age?: number;
@@ -31,14 +32,22 @@ export interface RegistrationRow {
 /**
  * Header plus one row per registration. Every question ever answered gets a
  * column (current ones first, archived after), so old answers aren't lost.
+ * Couple tournaments add the entry, ranking and female-member columns after
+ * Hand; standard sheets are unchanged.
  */
-export function buildRegistrationRows(rows: RegistrationRow[], labels: QuestionLabels): Array<Array<string | number>> {
+export function buildRegistrationRows(
+  rows: RegistrationRow[],
+  labels: QuestionLabels,
+  opts: { couple?: boolean } = {},
+): Array<Array<string | number>> {
   const answered = new Set(rows.flatMap((r) => r.answers?.values.map((a) => a.questionId) ?? []));
   const ids = Object.keys(labels)
     .filter((id) => !labels[id].archived || answered.has(id))
     .sort((a, b) => Number(labels[a].archived) - Number(labels[b].archived));
   const header = [
-    'Name', 'Mobile', 'Age', 'Role', 'Hand', 'Status', 'Fee (₹)', 'Registered (IST)',
+    'Name', 'Mobile', 'Age', 'Role', 'Hand',
+    ...(opts.couple ? coupleColumns(true) : []),
+    'Status', 'Fee (₹)', 'Registered (IST)',
     ...ids.map((id) => (labels[id].archived ? `${labels[id].label} (archived)` : labels[id].label)),
   ];
   const body = rows.map((r) => {
@@ -49,6 +58,7 @@ export function buildRegistrationRows(rows: RegistrationRow[], labels: QuestionL
       r.age ?? "",
       getRoleDisplay(r.role),
       r.battingBowlingHand,
+      ...(opts.couple ? coupleCells(r, true) : []),
       r.status,
       r.fee,
       formatSaleTime(r.createdAt),

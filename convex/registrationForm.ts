@@ -128,6 +128,21 @@ export function missingRequiredField(
   return `${STANDARD_FIELD_LABELS[field]} is required`;
 }
 
+/**
+ * The first required standard field the female member of a couple left blank,
+ * prefixed "Female: ", or null. The couple shares one photo and one category,
+ * and couples have no name on the jersey, so those aren't asked twice.
+ */
+export function missingPartnerField(
+  required: RequiredFields,
+  partner: { age?: number; role: readonly string[]; tshirtSize?: string; jerseyNumber?: number },
+): string | null {
+  const missing = missingRequiredField({ ...required, photo: false, category: false, jerseyName: false }, partner, {
+    hasCategories: false,
+  });
+  return missing ? `Female: ${missing}` : null;
+}
+
 export const answerValueValidator = v.union(v.string(), v.number(), v.array(v.string()));
 
 export const answersValidator = v.object({
