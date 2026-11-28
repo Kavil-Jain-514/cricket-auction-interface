@@ -37,7 +37,8 @@ function Photo({ player, size, priority }: { player: PlayerCardData; size: numbe
       width={size}
       height={size}
       priority={priority}
-      // Face-safe crop: faces sit in the upper third of most player photos.
+      face
+      // Photos Cloudinary can't crop: faces sit in the upper third of most.
       className="size-full object-cover object-[50%_25%]"
     />
   )

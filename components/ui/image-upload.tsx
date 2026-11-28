@@ -5,6 +5,7 @@ import { Upload, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, getErrorMessage } from '@/lib/utils';
 import { UPLOAD_FOLDERS, type UploadFolder } from '@/lib/cloudinary';
+import { FACE_POSITION, facePhotoUrl } from '@/lib/playerPhoto';
 
 interface ImageUploadProps {
   value?: string; // Cloudinary URL or public ID
@@ -124,11 +125,12 @@ export function ImageUpload({
           'relative overflow-hidden rounded-xl border border-slate-600 bg-slate-800/30',
           aspectClasses[aspectRatio]
         )}>
+          {/* Player photos preview the way they'll be shown: face in frame. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={value}
+            src={folder === 'players' ? facePhotoUrl(value, 480, aspectRatio === 'portrait' ? '3:4' : aspectRatio === 'video' ? '16:9' : '1:1') : value}
             alt="Uploaded image"
-            className="w-full h-full object-cover"
+            className={cn('w-full h-full object-cover', folder === 'players' && FACE_POSITION)}
           />
           
           {/* Overlay on hover */}

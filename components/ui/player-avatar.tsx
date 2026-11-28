@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { getPlayerInitials, optimizeImageUrl } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { FACE_POSITION, canFaceCrop, facePhotoUrl } from '@/lib/playerPhoto';
 
 interface PlayerAvatarProps {
   name: string;
@@ -45,12 +46,42 @@ const borderSizeClasses = {
   '3xl': 'border-4',
 };
 
+/**
+ * Every player photo keeps the face in frame (lib/playerPhoto.ts):
+ * Cloudinary photos are cropped around the face(s). Photos we can't crop
+ * (Drive links) are anchored towards the top in small boxes, and shown whole
+ * over a blurred copy from `xl` up, where trimming would be most visible.
+ */
+const WHOLE_FROM: ReadonlySet<keyof typeof sizeWidths> = new Set(['xl', '2xl', '3xl']);
+
 /** The exact image URL PlayerAvatar requests at `size` — for preloading. */
 export function playerAvatarSrc(
   photoUrl: string | null | undefined,
   size: keyof typeof sizeWidths,
 ): string | undefined {
-  return optimizeImageUrl(photoUrl, sizeWidths[size]);
+  return facePhotoUrl(photoUrl, sizeWidths[size]);
+}
+
+/**
+ * URLs to try in order. A face crop falls back to the plain photo if
+ * Cloudinary refuses the transform, so a player never drops to initials
+ * just because the crop failed.
+ */
+function photoCandidates(photoUrl: string | null | undefined, size: keyof typeof sizeWidths): string[] {
+  const plain = optimizeImageUrl(photoUrl, sizeWidths[size]);
+  const first = playerAvatarSrc(photoUrl, size);
+  return [first, plain].filter((u, i, all): u is string => !!u && all.indexOf(u) === i);
+}
+
+/** The photo to show, stepping to the next candidate when one fails to load. */
+function usePhotoSrc(photoUrl: string | null | undefined, size: keyof typeof sizeWidths) {
+  // Keyed by URL so a failure on one player doesn't stick to the next one.
+  const [failed, setFailed] = useState<string[]>([]);
+  const src = photoCandidates(photoUrl, size).find((u) => !failed.includes(u));
+  const onError = () => {
+    if (src) setFailed((f) => [...f, src]);
+  };
+  return { src, onError };
 }
 
 export function PlayerAvatar({
@@ -61,10 +92,16 @@ export function PlayerAvatar({
   showBorder = true,
   priority = false,
 }: PlayerAvatarProps) {
-  const [imageError, setImageError] = useState(false);
   const initials = getPlayerInitials(name);
-  const optimizedUrl = optimizeImageUrl(photoUrl, sizeWidths[size]);
-  const hasValidPhoto = optimizedUrl && !imageError;
+  const { src, onError } = usePhotoSrc(photoUrl, size);
+  // Photos Cloudinary can't crop are shown whole in the bigger boxes.
+  const showWhole = WHOLE_FROM.has(size) && !canFaceCrop(photoUrl);
+  const imgProps = {
+    referrerPolicy: 'no-referrer' as const,
+    fetchPriority: priority ? ('high' as const) : undefined,
+    loading: priority ? ('eager' as const) : undefined,
+    decoding: 'async' as const,
+  };
 
   return (
     <div
@@ -76,18 +113,16 @@ export function PlayerAvatar({
         className
       )}
     >
-      {hasValidPhoto ? (
+      {src && showWhole ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-60" {...imgProps} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt={name} className="relative w-full h-full object-contain" data-photo-fit="whole" onError={onError} {...imgProps} />
+        </>
+      ) : src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={optimizedUrl}
-          alt={name}
-          className="w-full h-full object-cover"
-          referrerPolicy="no-referrer"
-          fetchPriority={priority ? 'high' : undefined}
-          loading={priority ? 'eager' : undefined}
-          decoding="async"
-          onError={() => setImageError(true)}
-        />
+        <img src={src} alt={name} className={cn('w-full h-full object-cover', FACE_POSITION)} onError={onError} {...imgProps} />
       ) : (
         <div className="w-full h-full bg-linear-to-br from-blue-600 to-purple-600 flex items-center justify-center font-bold text-white">
           {initials}
@@ -105,10 +140,8 @@ export function PlayerAvatarCircle({
   className,
   showBorder = true,
 }: PlayerAvatarProps) {
-  const [imageError, setImageError] = useState(false);
   const initials = getPlayerInitials(name);
-  const optimizedUrl = optimizeImageUrl(photoUrl, sizeWidths[size]);
-  const hasValidPhoto = optimizedUrl && !imageError;
+  const { src, onError } = usePhotoSrc(photoUrl, size);
 
   return (
     <div
@@ -120,14 +153,14 @@ export function PlayerAvatarCircle({
         className
       )}
     >
-      {hasValidPhoto ? (
+      {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={optimizedUrl}
+          src={src}
           alt={name}
-          className="w-full h-full object-cover"
+          className={cn('w-full h-full object-cover', FACE_POSITION)}
           referrerPolicy="no-referrer"
-          onError={() => setImageError(true)}
+          onError={onError}
         />
       ) : (
         <div className="w-full h-full bg-linear-to-br from-blue-600 to-purple-600 flex items-center justify-center font-bold text-white">

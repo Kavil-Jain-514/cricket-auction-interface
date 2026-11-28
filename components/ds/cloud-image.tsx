@@ -4,11 +4,13 @@
 // server and client components alike.
 import { getImageProps, type ImageProps } from "next/image"
 
-import { cloudinaryLoader, isCloudinaryUrl } from "@/lib/cloudinary"
+import { cloudinaryFaceLoader, cloudinaryLoader, isCloudinaryUrl } from "@/lib/cloudinary"
 
-export function CloudImage({ alt, className, ...rest }: ImageProps) {
+/** `face`: crop Cloudinary photos square around the face(s) (player photos). */
+export function CloudImage({ alt, className, face, ...rest }: ImageProps & { face?: boolean }) {
   const cloud = typeof rest.src === "string" && isCloudinaryUrl(rest.src)
-  const { props } = getImageProps({ ...rest, alt, loader: cloud ? cloudinaryLoader : undefined })
+  const loader = cloud ? (face ? cloudinaryFaceLoader : cloudinaryLoader) : undefined
+  const { props } = getImageProps({ ...rest, alt, loader })
   // eslint-disable-next-line @next/next/no-img-element -- props come from getImageProps
   return <img {...props} alt={alt} className={className} />
 }

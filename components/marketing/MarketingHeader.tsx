@@ -4,11 +4,11 @@
 // no headroom, and even a one-line island costs about 1 KB.
 //
 // Signed-in visitors get "Go to dashboard" instead of "Log in" / "Start
-// free". The shell has no Clerk, so SESSION_SCRIPT reads Clerk's own readable
-// cookie (__client_uat, suffixed on some instances: "0" signed out, a
-// timestamp signed in) and marks the header data-session before first paint;
-// globals.css hides whichever links don't apply. If the cookie is stale,
-// /dashboard's own sign-in check still applies.
+// free": <html data-session> (set by SESSION_SCRIPT in app/layout.tsx and
+// kept in sync by app/providers.tsx) decides, and globals.css hides whichever
+// links don't apply. No <script> here: React never runs a script it renders
+// on the client, which it does when you follow a link from the app to a
+// marketing page.
 import Link from "next/link";
 import { MenuIcon } from "lucide-react";
 
@@ -19,14 +19,9 @@ import { cn } from "@/lib/utils";
 
 const MENU_LINK = "fl-focus flex h-11 items-center rounded-control px-3 text-ink hover:bg-surface";
 
-const SESSION_SCRIPT =
-  'if(/(?:^|; )__client_uat[^=]*=(?!0(?:;|$))[^;]/.test(document.cookie))document.currentScript.parentElement.setAttribute("data-session","")';
-
 export function MarketingHeader() {
   return (
-    // suppressHydrationWarning: SESSION_SCRIPT may add data-session before hydration.
-    <header className="fl-glass sticky top-0 z-40 border-b border-line" suppressHydrationWarning>
-      <script dangerouslySetInnerHTML={{ __html: SESSION_SCRIPT }} />
+    <header className="fl-glass sticky top-0 z-40 border-b border-line">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6">
         <Link href="/" className="fl-focus min-w-0 shrink rounded-control" aria-label="Bid11Pro home">
           <Logo />

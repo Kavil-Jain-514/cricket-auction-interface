@@ -220,6 +220,18 @@ describe("OverlayStage — layouts", () => {
     expect(html).toContain("Sunrise Bakery");
   });
 
+  test("sponsors sit bottom-centre in large tiles, the footer text stays on the right", () => {
+    const html = renderToString(
+      <OverlayStage
+        {...stageView}
+        tournament={{ name: "Test Cup", footerText: "Hosted by Sunrise CC", sponsors: [{ name: "Sunrise Bakery" }] }}
+      />,
+    );
+    expect(html).toMatch(/data-sponsor-strip[^>]*class="[^"]*col-start-2[^"]*justify-self-center|class="[^"]*col-start-2[^"]*justify-self-center[^"]*"[^>]*data-sponsor-strip/);
+    expect(html).toContain("h-24 w-52");
+    expect(html).toMatch(/class="[^"]*col-start-3[^"]*justify-self-end[^"]*"[^>]*>Hosted by Sunrise CC/);
+  });
+
   test("timer off hides the ring", () => {
     const html = renderToString(
       <OverlayStage {...stageView} countdown={{ ...stageView.countdown, enabled: false }} />,
@@ -300,5 +312,31 @@ describe("sponsorPage — sponsors rotate in groups", () => {
   });
   test("fewer than a page: all of them, every page", () => {
     expect(sponsorPage(["a", "b"], 3, 6)).toEqual(["a", "b"]);
+  });
+});
+
+describe("player photos keep the face in frame", () => {
+  const CLOUD_PHOTO = "https://res.cloudinary.com/demo/image/upload/v1/cricket-auction/players/vk.jpg";
+  const DRIVE_PHOTO = "https://lh3.googleusercontent.com/d/vk";
+  const withPhoto = (photoUrl: string): OverlayView => ({ ...stageView, player: { ...stageView.player!, photoUrl } });
+
+  test.each(["lower-third", "full"] as const)("%s: a Cloudinary photo is cropped around the face", (mode) => {
+    const html = renderToString(<OverlayStage {...withPhoto(CLOUD_PHOTO)} mode={mode} />);
+    expect(html).toContain("/upload/c_fill,g_auto:faces,ar_1:1,");
+    expect(html).not.toContain('data-photo-fit="whole"');
+  });
+
+  test.each(["lower-third", "full"] as const)("%s: a Drive photo is shown whole over a blurred copy", (mode) => {
+    const html = renderToString(<OverlayStage {...withPhoto(DRIVE_PHOTO)} mode={mode} />);
+    expect(html).toContain('data-photo-fit="whole"');
+    expect(html).toContain("object-contain");
+    expect(html).toContain("blur-2xl");
+  });
+
+  test("the SOLD card crops around the face too", () => {
+    const html = renderToString(
+      <OverlayResult sold playerName="Virat Kohli" playerPhotoUrl={CLOUD_PHOTO} teamName="Mumbai Mavericks" amount={150_000} />,
+    );
+    expect(html).toContain("g_auto:faces");
   });
 });

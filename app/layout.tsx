@@ -48,13 +48,27 @@ export const metadata: Metadata = {
 };
 
 
+// Marks <html data-session> before first paint when Clerk's readable cookie
+// (__client_uat, suffixed on some instances: "0" signed out, a timestamp
+// signed in) says the visitor is signed in. The marketing header uses it to
+// show "Go to dashboard" (globals.css). It lives here because the root layout
+// is only ever rendered on the server, so the script always runs.
+// app/providers.tsx keeps the flag in sync after sign-in or sign-out. If the
+// cookie is stale, /dashboard's own sign-in check still applies.
+const SESSION_SCRIPT =
+  'if(/(?:^|; )__client_uat[^=]*=(?!0(?:;|$))[^;]/.test(document.cookie))document.documentElement.setAttribute("data-session","")';
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: SESSION_SCRIPT may add data-session before hydration.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: SESSION_SCRIPT }} />
+      </head>
       <body
         className={`${inter.variable} ${display.variable} font-sans antialiased`}
       >

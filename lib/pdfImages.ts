@@ -9,7 +9,11 @@
  * - Loads run with limited concurrency rather than all at once.
  * - jsPDF only embeds JPEG and PNG. Anything else (WebP, GIF, AVIF…) is
  *   re-encoded to PNG through a canvas.
+ * - Player photos pass `aspect` (the PDF box's width / height): Cloudinary
+ *   crops around the face, and other photos are trimmed in a canvas, mostly
+ *   from the bottom, so they fill the box without being stretched.
  */
+import { faceCrop } from "@/lib/playerPhoto";
 
 export function isCloudinaryImage(url: string): boolean {
   return url.includes("res.cloudinary.com") && url.includes("/upload/");
@@ -20,6 +24,11 @@ export interface PdfImageOptions {
   width?: number;
   /** "png" keeps transparency (logos); "jpg" is smaller (photos). Default "jpg". */
   format?: "jpg" | "png";
+  /**
+   * Width / height of the box the image fills. When set, the image is cropped
+   * to that shape around the face(s) instead of being scaled to fit.
+   */
+  aspect?: number;
 }
 
 /**
@@ -27,7 +36,7 @@ export interface PdfImageOptions {
  * URL already starts with a transformation that has f_auto, that becomes the
  * chosen format so the two don't conflict. Other URLs are returned unchanged.
  */
-export function pdfImageUrl(url: string, { width = 300, format = "jpg" }: PdfImageOptions = {}): string {
+export function pdfImageUrl(url: string, { width = 300, format = "jpg", aspect }: PdfImageOptions = {}): string {
   if (!isCloudinaryImage(url)) return url;
   const [head, tail] = splitOnce(url, "/upload/");
   const firstSegment = tail.split("/")[0];
@@ -35,7 +44,8 @@ export function pdfImageUrl(url: string, { width = 300, format = "jpg" }: PdfIma
     return `${head}/upload/${tail.replace("f_auto", `f_${format}`)}`;
   }
   const quality = format === "jpg" ? "q_80," : "";
-  return `${head}/upload/f_${format},${quality}c_limit,w_${width}/${tail}`;
+  const size = aspect ? faceCrop(String(Math.round(aspect * 100) / 100), width) : `c_limit,w_${width}`;
+  return `${head}/upload/f_${format},${quality}${size}/${tail}`;
 }
 
 function splitOnce(s: string, sep: string): [string, string] {
@@ -88,6 +98,40 @@ function toPngDataUrl(dataUrl: string): Promise<string | null> {
   });
 }
 
+/**
+ * The part of a `width` × `height` image that fills a box of shape `aspect`
+ * (width / height) without stretching. Width is trimmed evenly; height mostly
+ * from the bottom, since faces sit in the upper part of a photo.
+ */
+export function coverCropRect(width: number, height: number, aspect: number) {
+  if (width / height > aspect) {
+    const w = Math.round(height * aspect);
+    return { x: Math.round((width - w) / 2), y: 0, width: w, height };
+  }
+  const h = Math.round(width / aspect);
+  return { x: 0, y: Math.round((height - h) / 4), width, height: h };
+}
+
+/** Crops a data URL to `aspect` (see coverCropRect), as JPEG. */
+function toCroppedDataUrl(dataUrl: string, aspect: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      if (!img.naturalWidth || !img.naturalHeight) return resolve(null);
+      const r = coverCropRect(img.naturalWidth, img.naturalHeight, aspect);
+      const canvas = document.createElement("canvas");
+      canvas.width = r.width;
+      canvas.height = r.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(null);
+      ctx.drawImage(img, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
+      resolve(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+}
+
 /** jsPDF format for a data URL that is already JPEG or PNG, else null. */
 export function pdfImageFormat(dataUrl: string): "JPEG" | "PNG" | null {
   if (/^data:image\/png/i.test(dataUrl)) return "PNG";
@@ -112,6 +156,8 @@ export async function loadPdfImage(url: string, options?: PdfImageOptions): Prom
   try {
     const dataUrl = await fetchDataUrl(pdfImageUrl(url, options));
     if (!dataUrl) return null;
+    // Cloudinary already cropped it; anything else is trimmed here.
+    if (options?.aspect && !isCloudinaryImage(url)) return await toCroppedDataUrl(dataUrl, options.aspect);
     return pdfImageFormat(dataUrl) ? dataUrl : await toPngDataUrl(dataUrl);
   } catch {
     return null;

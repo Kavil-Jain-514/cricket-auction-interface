@@ -133,10 +133,11 @@ export function OverlayStage(view: OverlayView) {
         {view.mode === 'full' ? <FullLayout view={view} /> : <LowerThird view={view} />}
       </div>
       {(view.tournament?.footerText || (view.tournament?.sponsors?.length ?? 0) > 0) && (
-        <div className="mt-3 flex items-end justify-between gap-4">
+        // Sponsors bottom-centre; the footer text keeps the right-hand corner.
+        <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-end gap-4">
           <SponsorStrip view={view} />
           {view.tournament?.footerText && (
-            <p className={`ml-auto rounded-full px-4 py-1 text-lg font-medium ${t.panel}`}>
+            <p className={`col-start-3 justify-self-end text-right rounded-full px-4 py-1 text-lg font-medium ${t.panel}`}>
               {view.tournament.footerText}
             </p>
           )}
@@ -199,7 +200,7 @@ function useRotatingPage(count: number, perPage: number, ms: number): number {
   return rotates ? page : 0;
 }
 
-/** "Supported by" and the sponsors' logos on white tiles, bottom-left of the stage. */
+/** "Supported by" above the sponsors' logos on white tiles, bottom-centre of the stage. */
 function SponsorStrip({ view }: { view: OverlayView }) {
   const t = THEMES[view.theme];
   const sponsors = view.tournament?.sponsors ?? [];
@@ -207,20 +208,23 @@ function SponsorStrip({ view }: { view: OverlayView }) {
   if (sponsors.length === 0) return null;
   const shown = sponsorPage(sponsors, page, SPONSORS_PER_PAGE);
   return (
-    <div className={`flex items-center gap-4 rounded-2xl px-4 py-3 ${t.panel}`} data-sponsor-strip>
-      <span className={`text-sm font-semibold uppercase tracking-widest ${t.muted}`}>Supported by</span>
-      <ul className="flex items-center gap-3">
+    <div
+      className={`col-start-2 justify-self-center flex flex-col items-center gap-2 rounded-2xl px-5 pt-2 pb-4 ${t.panel}`}
+      data-sponsor-strip
+    >
+      <span className={`text-base font-semibold uppercase tracking-widest ${t.muted}`}>Supported by</span>
+      <ul className="flex items-center justify-center gap-4">
         {shown.map((sponsor, i) => (
           <li
             key={`${i}-${sponsor.name}`}
             title={sponsor.name}
-            className="flex h-16 w-36 items-center justify-center rounded-xl bg-white px-3 py-2"
+            className="flex h-24 w-52 items-center justify-center rounded-xl bg-white px-4 py-2"
           >
             <ImgWithFallback
               src={sponsor.logoUrl}
               alt={sponsor.name}
               className="h-full w-full object-contain"
-              fallback={<span className="line-clamp-2 text-center text-base font-bold leading-tight text-slate-700">{sponsor.name}</span>}
+              fallback={<span className="line-clamp-2 text-center text-xl font-bold leading-tight text-slate-700">{sponsor.name}</span>}
             />
           </li>
         ))}

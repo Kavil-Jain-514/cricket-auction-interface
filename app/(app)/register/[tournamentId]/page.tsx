@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Field, FormDivider, SectionHeading, formInputCls } from '@/components/ui/form-modal';
 import { ImgWithFallback } from '@/components/ui/img-with-fallback';
+import { FACE_POSITION, facePhotoUrl } from '@/lib/playerPhoto';
 import { PLAYER_ROLES, cn, getErrorMessage, getRoleBadgeBg } from '@/lib/utils';
 import { openRazorpayCheckout } from '@/lib/razorpayCheckout';
 import { retryWhenBusy } from '@/lib/retryWhenBusy';
@@ -490,7 +491,7 @@ export default function RegisterPage({ params }: { params: Promise<{ tournamentI
             <span className="text-sm font-medium text-slate-300">{label(coupleEntry ? 'Couple photo' : 'Photo', 'photo')}</span>
             <label className="mt-1.5 flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border-2 border-dashed border-slate-600 text-center text-xs text-slate-400 hover:border-blue-500">
               {photoUrl ? (
-                <ImgWithFallback src={photoUrl} alt="Your photo" className="h-full w-full object-cover" fallback={<Upload className="w-5 h-5" />} />
+                <ImgWithFallback src={facePhotoUrl(photoUrl, 256)} alt="Your photo" className={cn('h-full w-full object-cover', FACE_POSITION)} fallback={<Upload className="w-5 h-5" />} />
               ) : (
                 <>
                   <Upload className="h-6 w-6" />
