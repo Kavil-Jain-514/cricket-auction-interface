@@ -140,14 +140,14 @@ describe("teams.getWithPlayers", () => {
 
 describe("couple partner phone", () => {
   const PARTNER_PHONE = "9123456780";
-  const partner = { phoneNumber: PARTNER_PHONE, age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed" as const };
+  const partner = { phoneNumber: PARTNER_PHONE, age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed" as const, ranking: 2 };
 
   async function coupleSetup(t: ReturnType<typeof convexTest>) {
     const ids = await setup(t);
     await t.run(async (ctx) => {
       const tournament = (await ctx.db.get(ids.tournamentId))!;
       await ctx.db.patch(ids.tournamentId, { settings: { ...tournament.settings, format: "couple" } });
-      await ctx.db.patch(ids.playerId, { partner });
+      await ctx.db.patch(ids.playerId, { partner, ranking: 1 });
     });
     return ids;
   }
@@ -155,7 +155,7 @@ describe("couple partner phone", () => {
   test("toPublicPlayer drops the partner's phone and keeps the rest of the partner", () => {
     expect(toPublicPlayer({ name: "Virat & Anu", phoneNumber: PHONE, partner })).toEqual({
       name: "Virat & Anu",
-      partner: { age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed" },
+      partner: { age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed", ranking: 2 },
     });
     expect(toPublicPlayer({ name: "Solo", phoneNumber: PHONE })).toEqual({ name: "Solo" });
   });
@@ -165,7 +165,7 @@ describe("couple partner phone", () => {
     const { tournamentId, playerId, teamA } = await coupleSetup(t);
     for (const caller of [t, t.withIdentity(USER_IDENTITY), t.withIdentity(ADMIN_IDENTITY)]) {
       const roster = (await caller.query(api.auctions.getAuctionRoster, { tournamentId, currentPlayerId: playerId }))!;
-      expect(roster.currentPlayer?.partner).toEqual({ age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed" });
+      expect(roster.currentPlayer?.partner).toEqual({ age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed", ranking: 2 });
     }
     for (const caller of [t, t.withIdentity(USER_IDENTITY)]) {
       const team = await caller.query(api.teams.getWithPlayers, { id: teamA });
@@ -189,7 +189,7 @@ describe("couple partner phone", () => {
     });
     const results = await t.query(api.results.getPublicResults, { tournamentId });
     const sold = results!.teams.flatMap((team) => team.players);
-    expect(sold[0].partner).toEqual({ age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed" });
+    expect(sold[0].partner).toEqual({ age: 28, role: ["Bowler"], battingBowlingHand: "Left-handed", ranking: 2 });
     expect(JSON.stringify(results)).not.toContain(PARTNER_PHONE);
   });
   test("the results export has the partner's phone only in its contacts", async () => {
@@ -198,8 +198,7 @@ describe("couple partner phone", () => {
     const asAdmin = t.withIdentity(ADMIN_IDENTITY);
     const plain = await asAdmin.query(api.results.getResultsExport, { tournamentId, includeContacts: false });
     expect(plain.tournament.format).toBe("couple");
-    expect(plain.players[0]).toMatchObject({ partner: { role: ["Bowler"] } });
-    expect(plain.players[0]).not.toHaveProperty("ranking");
+    expect(plain.players[0]).toMatchObject({ ranking: 1, partner: { role: ["Bowler"], ranking: 2 } });
     expect(JSON.stringify(plain)).not.toContain(PARTNER_PHONE);
     const withContacts = await asAdmin.query(api.results.getResultsExport, { tournamentId, includeContacts: true });
     expect(withContacts.contacts?.[0]).toMatchObject({ phoneNumber: PHONE, partnerPhoneNumber: PARTNER_PHONE });

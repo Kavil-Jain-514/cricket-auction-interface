@@ -179,7 +179,7 @@ describe("players.create / update — validation", () => {
 });
 
 describe("couple tournaments — players.create / update", () => {
-  const partner = { phoneNumber: "9123456780", age: 23, role: ["All-Rounder"], battingBowlingHand: "Left-handed" as const };
+  const partner = { phoneNumber: "9123456780", age: 23, role: ["All-Rounder"], battingBowlingHand: "Left-handed" as const, ranking: 9 };
 
   async function coupleSetup(t: ReturnType<typeof convexTest>) {
     const ids = await setup(t);
@@ -196,14 +196,14 @@ describe("couple tournaments — players.create / update", () => {
     const t = convexTest(schema, modules);
     const asAdmin = t.withIdentity(ADMIN_IDENTITY);
     const { tournamentId } = await coupleSetup(t);
-    const coupleId = await asAdmin.mutation(api.players.create, { tournamentId, ...row("Ravi & Priya", { partner }) });
-    const soloId = await asAdmin.mutation(api.players.create, { tournamentId, ...row("Meera", { gender: "female" }) });
-    expect(await t.run((ctx) => ctx.db.get(coupleId))).toMatchObject({ partner });
-    expect(await t.run((ctx) => ctx.db.get(soloId))).toMatchObject({ gender: "female" });
+    const coupleId = await asAdmin.mutation(api.players.create, { tournamentId, ...row("Ravi & Priya", { ranking: 7, partner }) });
+    const soloId = await asAdmin.mutation(api.players.create, { tournamentId, ...row("Meera", { gender: "female", ranking: 10 }) });
+    expect(await t.run((ctx) => ctx.db.get(coupleId))).toMatchObject({ partner, ranking: 7 });
+    expect(await t.run((ctx) => ctx.db.get(soloId))).toMatchObject({ gender: "female", ranking: 10 });
 
-    await expect(asAdmin.mutation(api.players.create, { tournamentId, ...row("No Gender") })).rejects.toThrow(/gender/i);
+    await expect(asAdmin.mutation(api.players.create, { tournamentId, ...row("No Gender", { ranking: 10 }) })).rejects.toThrow(/gender/i);
     await expect(
-      asAdmin.mutation(api.players.create, { tournamentId, ...row("Same Phone", { phoneNumber: "9123456780", partner }) }),
+      asAdmin.mutation(api.players.create, { tournamentId, ...row("Same Phone", { phoneNumber: "9123456780", ranking: 7, partner }) }),
     ).rejects.toThrow(/different phone/);
   });
 
@@ -211,31 +211,22 @@ describe("couple tournaments — players.create / update", () => {
     const t = convexTest(schema, modules);
     const asAdmin = t.withIdentity(ADMIN_IDENTITY);
     const { tournamentId } = await coupleSetup(t);
-    const id = await asAdmin.mutation(api.players.create, { tournamentId, ...row("Ravi & Priya", { partner }) });
+    const id = await asAdmin.mutation(api.players.create, { tournamentId, ...row("Ravi & Priya", { ranking: 7, partner }) });
 
     await expect(asAdmin.mutation(api.players.update, { id, gender: "male" })).rejects.toThrow(/gender/i);
     await expect(asAdmin.mutation(api.players.update, { id, partner: { ...partner, age: 2 } })).rejects.toThrow(/Female: Age/);
     await expect(asAdmin.mutation(api.players.update, { id, partner: null })).rejects.toThrow(/gender/i);
 
-    await asAdmin.mutation(api.players.update, { id, partner: { ...partner, age: 24 } });
-    expect((await t.run((ctx) => ctx.db.get(id)))?.partner?.age).toBe(24);
+    await expect(asAdmin.mutation(api.players.update, { id, ranking: 11 })).rejects.toThrow(/Ranking must be 7, 8, 9 or 10/);
+    await asAdmin.mutation(api.players.update, { id, partner: { ...partner, ranking: 8 } });
+    expect((await t.run((ctx) => ctx.db.get(id)))?.partner?.ranking).toBe(8);
     await asAdmin.mutation(api.players.update, { id, name: "Ravi", partner: null, gender: "male" });
     const solo = await t.run((ctx) => ctx.db.get(id));
-    expect(solo).toMatchObject({ name: "Ravi", gender: "male" });
+    expect(solo).toMatchObject({ name: "Ravi", gender: "male", ranking: 7 });
     expect(solo?.partner).toBeUndefined();
     // The audit row records that the partner changed, never the partner's phone.
     const logs = await t.run((ctx) => ctx.db.query("auditLogs").collect());
     expect(JSON.stringify(logs)).not.toContain("9123456780");
-  });
-
-  test("there is no ranking: create and update refuse one", async () => {
-    const t = convexTest(schema, modules);
-    const asAdmin = t.withIdentity(ADMIN_IDENTITY);
-    const { tournamentId } = await coupleSetup(t);
-    await expect(asAdmin.mutation(api.players.create, { tournamentId, ...row("Meera", { gender: "female", ranking: 9 }) })).rejects.toThrow(/ranking/);
-    const id = await asAdmin.mutation(api.players.create, { tournamentId, ...row("Ravi & Priya", { partner }) });
-    await expect(asAdmin.mutation(api.players.update, { id, ranking: 9 } as never)).rejects.toThrow(/ranking/);
-    await expect(asAdmin.mutation(api.players.update, { id, partner: { ...partner, ranking: 9 } } as never)).rejects.toThrow(/ranking/);
   });
 
   test("standard tournaments refuse couple fields on create and update", async () => {
@@ -245,7 +236,7 @@ describe("couple tournaments — players.create / update", () => {
     await expect(asAdmin.mutation(api.players.create, { tournamentId, ...row("Pair", { partner }) })).rejects.toThrow(/couple tournaments/);
     await expect(asAdmin.mutation(api.players.create, { tournamentId, ...row("Solo", { gender: "male" }) })).rejects.toThrow(/couple tournaments/);
     const id = await asAdmin.mutation(api.players.create, { tournamentId, ...row("Plain") });
-    await expect(asAdmin.mutation(api.players.update, { id, gender: "male" })).rejects.toThrow(/couple tournaments/);
+    await expect(asAdmin.mutation(api.players.update, { id, ranking: 3 })).rejects.toThrow(/couple tournaments/);
     await asAdmin.mutation(api.players.update, { id, name: "Plain Two" });
   });
 });

@@ -76,7 +76,7 @@ export function buildResultsSheets(data: ResultsExportData): Sheets {
   const teamName = new Map(data.teams.map((t) => [t._id, t.name]));
   const categoryName = (id?: string) => categoryFor(id, data.categories)?.name ?? '';
   const byPrice = (a: { soldPrice?: number }, b: { soldPrice?: number }) => (b.soldPrice ?? 0) - (a.soldPrice ?? 0);
-  // Couple tournaments append the entry and female-member columns.
+  // Couple tournaments append the entry, ranking and female-member columns.
   const couple = data.tournament.format === 'couple';
   const extraHeader = couple ? coupleColumns(false) : [];
   const extra = (p: CoupleFields) => (couple ? coupleCells(p, false) : []);

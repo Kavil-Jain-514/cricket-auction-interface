@@ -6,7 +6,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { Field, formInputCls } from '@/components/ui/form-modal';
 import { PLAYER_TSHIRT_SIZES, type TshirtSize } from '@/components/players/PlayerFormFields';
 import { COUPLE_TYPE_OPTIONS } from '@/lib/couple';
-import type { Partner } from '@/convex/validation';
+import { RANKING_OPTIONS, type Partner } from '@/convex/validation';
 import { cn, getRoleBadgeBg } from '@/lib/utils';
 
 /** One couple member as the inputs hold it (numbers as typed). */
@@ -18,6 +18,7 @@ export interface MemberValues {
   battingBowlingHand: 'Right-handed' | 'Left-handed';
   tshirtSize: '' | TshirtSize;
   jerseyNumber: string;
+  ranking: string;
 }
 
 export const EMPTY_MEMBER: MemberValues = {
@@ -27,6 +28,7 @@ export const EMPTY_MEMBER: MemberValues = {
   battingBowlingHand: 'Right-handed',
   tshirtSize: '',
   jerseyNumber: '',
+  ranking: '',
 };
 
 const toNumber = (raw: string) => (raw.trim() ? Number(raw) : undefined);
@@ -40,6 +42,7 @@ export function memberToEntry(m: MemberValues): Partner & { phoneNumber: string 
     battingBowlingHand: m.battingBowlingHand,
     tshirtSize: m.tshirtSize || undefined,
     jerseyNumber: toNumber(m.jerseyNumber),
+    ranking: toNumber(m.ranking),
   };
 }
 
@@ -53,6 +56,7 @@ export function entryToMember(p: Partial<Partner> | undefined): MemberValues {
     battingBowlingHand: p.battingBowlingHand ?? 'Right-handed',
     tshirtSize: p.tshirtSize ?? '',
     jerseyNumber: p.jerseyNumber != null ? String(p.jerseyNumber) : '',
+    ranking: p.ranking != null ? String(p.ranking) : '',
   };
 }
 
@@ -63,13 +67,13 @@ interface CoupleMemberFieldsProps {
   idPrefix: string;
   value: MemberValues;
   onChange: (patch: Partial<MemberValues>) => void;
-  /** Which fields the organiser requires (adds " *"). */
+  /** Which fields the organiser requires (adds " *"); ranking is always required. */
   required?: { age?: boolean; role?: boolean; tshirtSize?: boolean; jerseyNumber?: boolean };
   /** Fields the organiser removed from the form (not shown). */
   hidden?: { age?: boolean; role?: boolean; tshirtSize?: boolean; jerseyNumber?: boolean };
 }
 
-/** Phone, age, type, hand, jersey size and number for one member of a couple. */
+/** Phone, age, type, hand, jersey size and number, and ranking for one member of a couple. */
 export function CoupleMemberFields({ title, idPrefix, value, onChange, required = {}, hidden = {} }: CoupleMemberFieldsProps) {
   const label = (text: string, on?: boolean) => (on ? `${text} *` : text);
   const id = (field: string) => `${idPrefix}-${field}`;
@@ -142,6 +146,12 @@ export function CoupleMemberFields({ title, idPrefix, value, onChange, required 
             <Input id={id('jersey')} required={required.jerseyNumber} type="number" min="1" max="99" value={value.jerseyNumber} onChange={(e) => onChange({ jerseyNumber: e.target.value })} className={formInputCls} />
           </Field>
         )}
+        <Field label="Ranking *" htmlFor={id('ranking')}>
+          <NativeSelect id={id('ranking')} required value={value.ranking} onChange={(e) => onChange({ ranking: e.target.value })} className={formInputCls}>
+            <option value="">—</option>
+            {RANKING_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+          </NativeSelect>
+        </Field>
       </div>
     </fieldset>
   );

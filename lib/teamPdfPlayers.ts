@@ -16,6 +16,7 @@ export interface PdfPlayer {
   // Couple tournaments only (buildTeamPdfPlayers' `couple` option):
   /** "Male" / "Female"; a couple's row is its male member. */
   gender?: string;
+  ranking?: number;
   /** The couple's female member, printed on the line under the row. */
   partner?: {
     age?: number;
@@ -24,6 +25,7 @@ export interface PdfPlayer {
     tshirtSize?: string;
     battingBowlingHand: string;
     gender: string;
+    ranking?: number;
   };
 }
 
@@ -53,12 +55,13 @@ export interface PdfSourceTeam {
 }
 
 /** The couple-only fields of a row (none for standard tournaments). */
-function coupleRow(p: PdfSourcePlayer): Pick<PdfPlayer, "gender" | "partner"> {
+function coupleRow(p: PdfSourcePlayer): Pick<PdfPlayer, "gender" | "ranking" | "partner"> {
   const partner = p.partner;
   // A couple entry stores no gender: its row is the male member.
   const gender = partner ? GENDER_LABEL.male : p.gender ? GENDER_LABEL[p.gender] : undefined;
   return {
     gender,
+    ranking: p.ranking,
     ...(partner
       ? {
           partner: {
@@ -68,6 +71,7 @@ function coupleRow(p: PdfSourcePlayer): Pick<PdfPlayer, "gender" | "partner"> {
             tshirtSize: partner.tshirtSize,
             battingBowlingHand: partner.battingBowlingHand,
             gender: GENDER_LABEL.female,
+            ranking: partner.ranking,
           },
         }
       : {}),
@@ -94,7 +98,7 @@ function toRow(p: PdfSourcePlayer, isCaptain: boolean, couple: boolean): PdfPlay
  * The team's squad plus its captain. A captain picked from the players is
  * usually not sold to the team, so it is added from the player list; a
  * captain entered by hand exists only as the team's captain* fields.
- * `couple` (couple tournaments) adds each row's gender and female member.
+ * `couple` (couple tournaments) adds each row's gender, ranking and female member.
  */
 export function buildTeamPdfPlayers(
   team: PdfSourceTeam,
