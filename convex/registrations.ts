@@ -270,6 +270,7 @@ export const submit = mutation({
     // Couple tournaments only (validateEntryFormat): a couple sends the
     // female member as `partner`; a solo entry sends `gender`.
     gender: genderValidator,
+    ranking: v.optional(v.number()),
     partner: v.optional(partnerValidator),
     website: v.string(),
   },
@@ -705,6 +706,7 @@ async function approveOne(
       tshirtSize: registration.tshirtSize,
       consentWhatsApp: registration.consentWhatsApp,
       gender: registration.gender,
+      ranking: registration.ranking,
       partner: registration.partner,
     },
     { count: roster.count, nextPlayerNumber: roster.nextPlayerNumber },

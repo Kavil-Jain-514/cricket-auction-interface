@@ -37,6 +37,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
     basePrice: undefined,
     categoryId: undefined,
     photoUrl: '',
+    ranking: '',
     gender: '',
     partner: null,
   });
@@ -103,6 +104,7 @@ export function PlayerForm({ tournamentId, onClose }: PlayerFormProps) {
         // Couple tournaments: the server checks these (validateEntryFormat).
         ...(couple
           ? {
+              ranking: formData.ranking?.trim() ? Number(formData.ranking) : undefined,
               gender: formData.partner ? undefined : formData.gender || undefined,
               partner: formData.partner ? memberToEntry(formData.partner) : undefined,
             }

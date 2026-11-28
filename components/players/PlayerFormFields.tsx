@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { cn, formatCurrency, PLAYER_ROLES, getRoleBadgeBg } from '@/lib/utils';
 import { categoryFor, effectiveBasePrice, type PlayerCategory } from '@/convex/bidRules';
+import { RANKING_OPTIONS } from '@/convex/validation';
 import { CoupleMemberFields, EMPTY_MEMBER, type MemberValues } from '@/components/registration/CoupleMemberFields';
 
 export const PLAYER_TSHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'] as const;
@@ -27,8 +28,9 @@ export interface PlayerFormValues {
   basePrice?: number;
   categoryId?: string;
   photoUrl: string;
-  // Couple tournaments only: a solo entry's gender, and a couple's female
-  // member (null = solo). The fields above are the male member.
+  // Couple tournaments only: the entry's ranking, a solo entry's gender, and
+  // a couple's female member (null = solo). The fields above are the male member.
+  ranking?: string;
   gender?: '' | 'male' | 'female';
   partner?: MemberValues | null;
 }
@@ -159,8 +161,14 @@ export function PlayerFormFields({
                   );
                 })}
               </div>
-              {!values.partner && (
-                <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4">
+                <Field label={values.partner ? 'Male ranking *' : 'Ranking *'} htmlFor="ranking">
+                  <NativeSelect id="ranking" required value={values.ranking ?? ''} onChange={(e) => onChange({ ranking: e.target.value })} className={inputCls}>
+                    <option value="">—</option>
+                    {RANKING_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+                  </NativeSelect>
+                </Field>
+                {!values.partner && (
                   <Field label="Gender *" htmlFor="gender">
                     <NativeSelect id="gender" required value={values.gender ?? ''} onChange={(e) => onChange({ gender: e.target.value as PlayerFormValues['gender'] })} className={inputCls}>
                       <option value="">—</option>
@@ -168,8 +176,8 @@ export function PlayerFormFields({
                       <option value="female">Female</option>
                     </NativeSelect>
                   </Field>
-                </div>
-              )}
+                )}
+              </div>
             </div>
             {values.partner && (
               <CoupleMemberFields
